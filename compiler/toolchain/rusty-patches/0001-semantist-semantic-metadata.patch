@@ -1,0 +1,711 @@
+diff --git a/src/codegen.rs b/src/codegen.rs
+index 0de109b9a8..802f53274e 100644
+--- a/src/codegen.rs
++++ b/src/codegen.rs
+@@ -52,6 +52,7 @@ mod debug;
+ pub(crate) mod generators;
+ mod llvm_index;
+ mod llvm_typesystem;
++pub(crate) mod semantic;
+ #[cfg(test)]
+ mod tests;
+ 
+diff --git a/src/codegen/generators/expression_generator.rs b/src/codegen/generators/expression_generator.rs
+index 686f3d1084..c712adcc17 100644
+--- a/src/codegen/generators/expression_generator.rs
++++ b/src/codegen/generators/expression_generator.rs
+@@ -29,6 +29,7 @@ use crate::{
+         debug::{Debug, DebugBuilderEnum},
+         llvm_index::LlvmTypedIndex,
+         llvm_typesystem::cast_if_needed,
++        semantic::{self, AnchorKind},
+         CodegenError,
+     },
+     index::{
+@@ -205,13 +206,24 @@ impl<'ink, 'b> ExpressionCodeGenerator<'ink, 'b> {
+             .generate_expression_value(expression)?
+             .as_r_value(self.llvm, self.get_load_name(expression))?
+             .as_basic_value_enum();
++        let semantic_instruction = v.as_instruction_value();
+ 
+-        let Some(target_type) = self.annotations.get_type_hint(expression, self.index) else {
+-            // no type-hint -> we can return the value as is
+-            return Ok(v);
++        let result = if let Some(target_type) = self.annotations.get_type_hint(expression, self.index) {
++            let actual_type = self.annotations.get_type_or_void(expression, self.index);
++            cast_if_needed!(self, target_type, actual_type, v, self.annotations.get(expression))?
++        } else {
++            v
+         };
+-        let actual_type = self.annotations.get_type_or_void(expression, self.index);
+-        cast_if_needed!(self, target_type, actual_type, v, self.annotations.get(expression))
++        if let (Some(context), Some(instruction)) = (self.function_context, semantic_instruction) {
++            semantic::attach_node(
++                self.llvm.context,
++                instruction,
++                context.linking_context.get_call_name(),
++                expression,
++                AnchorKind::Hazard,
++            );
++        }
++        Ok(result)
+     }
+ 
+     pub fn generate_expression_with_cast_to_type_of_secondary_expression(
+@@ -322,7 +334,9 @@ impl<'ink, 'b> ExpressionCodeGenerator<'ink, 'b> {
+             AstStatement::UnaryExpression(data) => {
+                 self.generate_unary_expression(&data.operator, &data.value).map(ExpressionValue::RValue)
+             }
+-            AstStatement::ParenExpression(expr) => self.generate_expression_value(expr),
++            AstStatement::ParenExpression(expr) => {
++                self.generate_expression(expr).map(ExpressionValue::RValue)
++            }
+             //fallback
+             _ => self.generate_literal(expression),
+         }
+@@ -3147,7 +3161,7 @@ impl<'ink, 'b> ExpressionCodeGenerator<'ink, 'b> {
+         base: Option<&AstNode>,
+         original_expression: &AstNode,
+     ) -> Result<ExpressionValue<'ink>, CodegenError> {
+-        match (access, base) {
++        let result = match (access, base) {
+             // `.foo`
+             (ReferenceAccess::Global(node), _) => {
+                 let name = node.get_flat_reference_name().unwrap_or("unknown");
+@@ -3292,7 +3306,19 @@ impl<'ink, 'b> ExpressionCodeGenerator<'ink, 'b> {
+                 "Expected a base expression, but found none",
+                 original_expression,
+             ).into())
++        }?;
++        if let (Some(context), Some(instruction)) =
++            (self.function_context, result.get_basic_value_enum().as_instruction_value())
++        {
++            semantic::attach_node(
++                self.llvm.context,
++                instruction,
++                context.linking_context.get_call_name(),
++                original_expression,
++                AnchorKind::Hazard,
++            );
+         }
++        Ok(result)
+     }
+ 
+     /// generates a direct-access expression like `x.%B4`
+diff --git a/src/codegen/generators/pou_generator.rs b/src/codegen/generators/pou_generator.rs
+index 10aedc9e08..1ffb9c7071 100644
+--- a/src/codegen/generators/pou_generator.rs
++++ b/src/codegen/generators/pou_generator.rs
+@@ -11,6 +11,7 @@ use crate::{
+     codegen::{
+         debug::{Debug, DebugBuilderEnum},
+         llvm_index::LlvmTypedIndex,
++        semantic::{self, AnchorKind},
+         CodegenError,
+     },
+     index::{self, ImplementationType},
+@@ -516,6 +517,13 @@ impl<'ink, 'cg> PouGenerator<'ink, 'cg> {
+                 &function_context,
+                 debug,
+             );
++            let entry_events = semantic::function_events(&implementation.name, AnchorKind::FunctionEntry);
++            if !entry_events.is_empty() {
++                let semantic_body = context.append_basic_block(current_function, "semantist_cycle_entry");
++                let branch = self.llvm.builder.build_unconditional_branch(semantic_body)?;
++                semantic::attach(self.llvm.context, branch, &implementation.name, None, entry_events);
++                self.llvm.builder.position_at_end(semantic_body);
++            }
+             let (line, column) = implementation
+                 .statements
+                 .first()
+@@ -531,6 +539,16 @@ impl<'ink, 'cg> PouGenerator<'ink, 'cg> {
+             let column = implementation.end_location.get_column();
+             debug.set_debug_location(&self.llvm, &function_context, line, column);
+             statement_gen.generate_return_statement()?;
++            if let Some(instruction) =
++                self.llvm.builder.get_insert_block().and_then(|block| block.get_last_instruction())
++            {
++                semantic::attach_function(
++                    self.llvm.context,
++                    instruction,
++                    &implementation.name,
++                    AnchorKind::FunctionExit,
++                );
++            }
+         }
+ 
+         Ok(())
+diff --git a/src/codegen/generators/statement_generator.rs b/src/codegen/generators/statement_generator.rs
+index 2342e9de61..0b16198854 100644
+--- a/src/codegen/generators/statement_generator.rs
++++ b/src/codegen/generators/statement_generator.rs
+@@ -6,6 +6,7 @@ use super::{
+ use crate::{
+     codegen::{
+         debug::{Debug, DebugBuilderEnum},
++        semantic::{self, AnchorKind},
+         CodegenError, LlvmTypedIndex,
+     },
+     index::{ImplementationIndexEntry, Index},
+@@ -133,12 +134,14 @@ impl<'a, 'b> StatementCodeGenerator<'a, 'b> {
+             }
+             AstStatement::Assignment(data, ..) => {
+                 self.generate_assignment_statement(&llvm_index, &data.left, &data.right)?;
++                self.attach_assignment_semantics(statement);
+             }
+             AstStatement::RefAssignment(data, ..) => {
+                 self.generate_ref_assignment(&llvm_index, &data.left, &data.right)?;
++                self.attach_assignment_semantics(statement);
+             }
+             AstStatement::ControlStatement(ctl_statement, ..) => {
+-                self.generate_control_statement(&llvm_index, ctl_statement)?
++                self.generate_control_statement(&llvm_index, statement, ctl_statement)?
+             }
+             AstStatement::ReturnStatement(ReturnStatement { condition }) => match condition {
+                 Some(condition) => {
+@@ -147,6 +150,18 @@ impl<'a, 'b> StatementCodeGenerator<'a, 'b> {
+                 None => {
+                     self.register_debug_location(statement);
+                     self.generate_return_statement()?;
++                    if let Some(instruction) =
++                        self.llvm.builder.get_insert_block().and_then(|block| block.get_last_instruction())
++                    {
++                        semantic::attach_node_and_function(
++                            self.llvm.context,
++                            instruction,
++                            self.function_context.linking_context.get_call_name(),
++                            statement,
++                            AnchorKind::Return,
++                            AnchorKind::FunctionExit,
++                        );
++                    }
+                     self.generate_buffer_block(); // XXX(volsa): This is not needed on x86 but if removed segfaults on ARM
+                 }
+             },
+@@ -194,7 +209,14 @@ impl<'a, 'b> StatementCodeGenerator<'a, 'b> {
+             AstStatement::ExitStatement(_) => {
+                 if let Some(exit_block) = &self.current_loop_exit {
+                     self.register_debug_location(statement);
+-                    self.llvm.builder.build_unconditional_branch(*exit_block)?;
++                    let instruction = self.llvm.builder.build_unconditional_branch(*exit_block)?;
++                    semantic::attach_node(
++                        self.llvm.context,
++                        instruction,
++                        self.function_context.linking_context.get_call_name(),
++                        statement,
++                        AnchorKind::ExplicitExit,
++                    );
+                     self.generate_buffer_block();
+                 } else {
+                     return Err(Diagnostic::codegen_error(
+@@ -206,7 +228,14 @@ impl<'a, 'b> StatementCodeGenerator<'a, 'b> {
+             }
+             AstStatement::ContinueStatement(_) => {
+                 if let Some(cont_block) = &self.current_loop_continue {
+-                    self.llvm.builder.build_unconditional_branch(*cont_block)?;
++                    let instruction = self.llvm.builder.build_unconditional_branch(*cont_block)?;
++                    semantic::attach_node(
++                        self.llvm.context,
++                        instruction,
++                        self.function_context.linking_context.get_call_name(),
++                        statement,
++                        AnchorKind::ExplicitContinue,
++                    );
+                     self.generate_buffer_block();
+                 } else {
+                     return Err(Diagnostic::codegen_error(
+@@ -254,13 +283,14 @@ impl<'a, 'b> StatementCodeGenerator<'a, 'b> {
+     pub fn generate_control_statement(
+         &self,
+         llvm_index: &'a LlvmTypedIndex<'b>,
++        node: &AstNode,
+         statement: &AstControlStatement,
+     ) -> Result<(), CodegenError> {
+         match statement {
+             AstControlStatement::If(ifstmt) => self.generate_if_statement(llvm_index, ifstmt),
+             AstControlStatement::Case(stmt) => self.generate_case_statement(llvm_index, stmt),
+ 
+-            AstControlStatement::WhileLoop(stmt) => self.generate_loop_statement(llvm_index, stmt),
++            AstControlStatement::WhileLoop(stmt) => self.generate_loop_statement(llvm_index, node, stmt),
+             AstControlStatement::RepeatLoop(_) | AstControlStatement::ForLoop(_) => {
+                 unreachable!("desugared into while loop")
+             }
+@@ -364,6 +394,20 @@ impl<'a, 'b> StatementCodeGenerator<'a, 'b> {
+         self.debug.set_debug_location(self.llvm, self.function_context, line, column);
+     }
+ 
++    fn attach_assignment_semantics(&self, statement: &AstNode) {
++        if let Some(instruction) =
++            self.llvm.builder.get_insert_block().and_then(|block| block.get_last_instruction())
++        {
++            semantic::attach_node(
++                self.llvm.context,
++                instruction,
++                self.function_context.linking_context.get_call_name(),
++                statement,
++                AnchorKind::Hazard,
++            );
++        }
++    }
++
+     fn generate_assignment_statement_direct_access(
+         &self,
+         llvm_index: &'a LlvmTypedIndex<'b>,
+@@ -417,6 +461,7 @@ impl<'a, 'b> StatementCodeGenerator<'a, 'b> {
+         let selector_statement = exp_gen.generate_expression(&stmt.selector)?;
+ 
+         let mut cases = Vec::new();
++        let mut switch_events = Vec::new();
+         let else_block = context.append_basic_block(current_function, "else");
+         let mut current_else_block = else_block;
+ 
+@@ -434,6 +479,7 @@ impl<'a, 'b> StatementCodeGenerator<'a, 'b> {
+                     current_else_block = self.generate_case_range_condition(
+                         llvm_index,
+                         &stmt.selector,
++                        s,
+                         data.start.as_ref(),
+                         data.end.as_ref(),
+                         case_block,
+@@ -444,6 +490,16 @@ impl<'a, 'b> StatementCodeGenerator<'a, 'b> {
+                     let condition = exp_gen.generate_expression(s)?; //TODO : Is a type conversion needed here?
+                                                                      // collect all literal case blocks to pass to the llvm switch-statement
+                     cases.push((condition.into_int_value(), case_block));
++                    let successor = cases.len() as u32;
++                    let mut events = semantic::events_for_node(
++                        self.function_context.linking_context.get_call_name(),
++                        s,
++                        AnchorKind::CaseLabel,
++                    );
++                    for event in &mut events {
++                        event.successor_hint = Some(successor);
++                    }
++                    switch_events.extend(events);
+                 }
+             }
+             //generate the case's body
+@@ -459,8 +515,32 @@ impl<'a, 'b> StatementCodeGenerator<'a, 'b> {
+             // skip all other case-bodies
+             builder.build_unconditional_branch(continue_block)?;
+         }
+-        // current-else is the last else-block generated by the range-expressions
+         builder.position_at_end(current_else_block);
++        let mut default_events = semantic::events_for_node(
++            self.function_context.linking_context.get_call_name(),
++            &stmt.selector,
++            AnchorKind::CaseDefault,
++        );
++        for event in &mut default_events {
++            event.successor_hint = Some(0);
++        }
++        let default_body = if default_events.is_empty() {
++            current_else_block
++        } else {
++            // Keep the final default entry as an explicit edge only when semantic
++            // instrumentation requested it.
++            let block = context.insert_basic_block_after(current_else_block, "case_default_body");
++            let branch = builder.build_unconditional_branch(block)?;
++            semantic::attach(
++                self.llvm.context,
++                branch,
++                self.function_context.linking_context.get_call_name(),
++                Some(stmt.selector.id),
++                default_events,
++            );
++            builder.position_at_end(block);
++            block
++        };
+         self.generate_body(&stmt.else_block)?;
+         //Add debug location to the end of the case
+         self.debug.set_debug_location(
+@@ -470,13 +550,20 @@ impl<'a, 'b> StatementCodeGenerator<'a, 'b> {
+             stmt.end_location.get_column(),
+         );
+         builder.build_unconditional_branch(continue_block)?;
+-        continue_block.move_after(current_else_block).expect(INTERNAL_LLVM_ERROR);
++        continue_block.move_after(default_body).expect(INTERNAL_LLVM_ERROR);
+ 
+         // now that we collected all cases, go back to the initial block and generate the switch-statement
+         builder.position_at_end(basic_block);
+ 
+         self.register_debug_location(&stmt.selector);
+-        builder.build_switch(selector_statement.into_int_value(), else_block, &cases)?;
++        let switch = builder.build_switch(selector_statement.into_int_value(), else_block, &cases)?;
++        semantic::attach(
++            self.llvm.context,
++            switch,
++            self.function_context.linking_context.get_call_name(),
++            Some(stmt.selector.id),
++            switch_events,
++        );
+ 
+         builder.position_at_end(continue_block);
+         Ok(())
+@@ -489,6 +576,7 @@ impl<'a, 'b> StatementCodeGenerator<'a, 'b> {
+         &self,
+         llvm_index: &'a LlvmTypedIndex<'b>,
+         selector: &AstNode,
++        label: &AstNode,
+         start: &AstNode,
+         end: &AstNode,
+         match_block: BasicBlock,
+@@ -526,11 +614,26 @@ impl<'a, 'b> StatementCodeGenerator<'a, 'b> {
+             let selector_val = exp_gen.generate_expression(selector)?;
+             exp_gen.create_llvm_int_binary_expression(&Operator::LessOrEqual, selector_val, end_val, None)?
+         };
+-        builder.build_conditional_branch(
++        let upper_branch = builder.build_conditional_branch(
+             to_i1(upper_bound.into_int_value(), builder)?,
+             match_block,
+             range_else,
+         )?;
++        let mut events = semantic::events_for_node(
++            self.function_context.linking_context.get_call_name(),
++            label,
++            AnchorKind::CaseLabel,
++        );
++        for event in &mut events {
++            event.successor_hint = Some(0);
++        }
++        semantic::attach(
++            self.llvm.context,
++            upper_branch,
++            self.function_context.linking_context.get_call_name(),
++            Some(label.id),
++            events,
++        );
+         Ok(range_else)
+     }
+ 
+@@ -545,6 +648,7 @@ impl<'a, 'b> StatementCodeGenerator<'a, 'b> {
+     fn generate_loop_statement(
+         &self,
+         llvm_index: &'a LlvmTypedIndex<'b>,
++        node: &AstNode,
+         stmt: &LoopStatement,
+     ) -> Result<(), CodegenError> {
+         debug_assert!(
+@@ -559,7 +663,23 @@ impl<'a, 'b> StatementCodeGenerator<'a, 'b> {
+         let continue_block = context.append_basic_block(current_function, "continue");
+ 
+         builder.position_at_end(basic_block);
+-        builder.build_unconditional_branch(while_body)?;
++        let entry_branch = builder.build_unconditional_branch(while_body)?;
++        let mut entry_events = semantic::events_for_node(
++            self.function_context.linking_context.get_call_name(),
++            node,
++            AnchorKind::Conditional,
++        );
++        entry_events.retain(|event| event.role.as_deref() == Some("loop_enter"));
++        for event in &mut entry_events {
++            event.successor_hint = Some(0);
++        }
++        semantic::attach(
++            self.llvm.context,
++            entry_branch,
++            self.function_context.linking_context.get_call_name(),
++            Some(node.id),
++            entry_events,
++        );
+ 
+         builder.position_at_end(while_body);
+         let body_generator = StatementCodeGenerator {
+@@ -578,7 +698,22 @@ impl<'a, 'b> StatementCodeGenerator<'a, 'b> {
+             stmt.end_location.get_line_plus_one(),
+             stmt.end_location.get_column(),
+         );
+-        builder.build_unconditional_branch(while_body)?;
++        let back_branch = builder.build_unconditional_branch(while_body)?;
++        let mut back_events = semantic::events_for_node(
++            self.function_context.linking_context.get_call_name(),
++            node,
++            AnchorKind::LoopBack,
++        );
++        for event in &mut back_events {
++            event.successor_hint = Some(0);
++        }
++        semantic::attach(
++            self.llvm.context,
++            back_branch,
++            self.function_context.linking_context.get_call_name(),
++            Some(node.id),
++            back_events,
++        );
+ 
+         builder.position_at_end(continue_block);
+         Ok(())
+@@ -621,11 +756,32 @@ impl<'a, 'b> StatementCodeGenerator<'a, 'b> {
+             let conditional_block = context.prepend_basic_block(else_block, "condition_body");
+ 
+             //Generate if statement condition
+-            builder.build_conditional_branch(
++            let branch = builder.build_conditional_branch(
+                 to_i1(condition.into_int_value(), builder)?,
+                 conditional_block,
+                 else_block,
+             )?;
++            let mut events = semantic::events_for_node(
++                self.function_context.linking_context.get_call_name(),
++                &block.condition,
++                AnchorKind::Conditional,
++            );
++            if events.iter().any(|event| event.role.as_deref() == Some("loop_exit")) {
++                for event in &mut events {
++                    event.successor_hint = match event.role.as_deref() {
++                        Some("loop_exit") => Some(0),
++                        Some("loop_enter" | "loop_continue") => Some(1),
++                        _ => event.successor_hint,
++                    };
++                }
++            }
++            semantic::attach(
++                self.llvm.context,
++                branch,
++                self.function_context.linking_context.get_call_name(),
++                Some(block.condition.id),
++                events,
++            );
+ 
+             //Generate if statement content
+ 
+@@ -722,6 +878,16 @@ impl<'a, 'b> StatementCodeGenerator<'a, 'b> {
+         self.llvm.builder.position_at_end(then_block);
+         self.register_debug_location(statement);
+         self.generate_return_statement()?;
++        if let Some(instruction) = then_block.get_last_instruction() {
++            semantic::attach_node_and_function(
++                self.llvm.context,
++                instruction,
++                self.function_context.linking_context.get_call_name(),
++                statement,
++                AnchorKind::Return,
++                AnchorKind::FunctionExit,
++            );
++        }
+         self.llvm.builder.position_at_end(else_block);
+ 
+         Ok(())
+diff --git a/src/codegen/semantic.rs b/src/codegen/semantic.rs
+new file mode 100644
+index 0000000000..f23ee47328
+--- /dev/null
++++ b/src/codegen/semantic.rs
+@@ -0,0 +1,218 @@
++use std::{collections::BTreeMap, fs, path::Path, sync::OnceLock};
++
++use inkwell::{context::Context, values::InstructionValue};
++use plc_ast::ast::AstNode;
++use serde::{Deserialize, Serialize};
++
++const METADATA_KIND: &str = "semantist.semantic";
++
++#[derive(Clone, Debug, Deserialize)]
++pub struct CodegenMap {
++    schema_version: String,
++    anchors: Vec<CodegenAnchor>,
++}
++
++#[derive(Clone, Debug, Deserialize)]
++pub struct CodegenAnchor {
++    pou: String,
++    lowered_ast_id: Option<usize>,
++    kind: AnchorKind,
++    source: Option<SourceSpan>,
++    events: Vec<SemanticEvent>,
++}
++
++#[derive(Clone, Debug, Deserialize)]
++struct SourceSpan {
++    start_offset: usize,
++    end_offset: usize,
++}
++
++#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
++#[serde(rename_all = "snake_case")]
++pub enum AnchorKind {
++    Conditional,
++    CaseLabel,
++    CaseDefault,
++    LoopBack,
++    ExplicitExit,
++    ExplicitContinue,
++    Return,
++    FunctionEntry,
++    FunctionExit,
++    Hazard,
++}
++
++#[derive(Clone, Debug, Deserialize, Serialize)]
++pub struct SemanticEvent {
++    pub runtime_id: u32,
++    pub stable_id: String,
++    pub semantic_edge_ids: Vec<String>,
++    pub kind: String,
++    pub role: Option<String>,
++    pub hazard: Option<String>,
++    pub violation_predicate: Option<serde_json::Value>,
++    pub successor_hint: Option<u32>,
++    pub modeling: String,
++}
++
++#[derive(Debug, Serialize)]
++struct MetadataPayload<'a> {
++    schema_version: &'static str,
++    pou: &'a str,
++    lowered_ast_id: Option<usize>,
++    events: Vec<SemanticEvent>,
++}
++
++#[derive(Default)]
++struct SemanticIndex {
++    ast: BTreeMap<(String, usize), Vec<CodegenAnchor>>,
++    source: BTreeMap<(String, usize, usize), Vec<CodegenAnchor>>,
++    functions: BTreeMap<String, Vec<CodegenAnchor>>,
++}
++
++static SEMANTIC_INDEX: OnceLock<SemanticIndex> = OnceLock::new();
++
++fn index() -> &'static SemanticIndex {
++    SEMANTIC_INDEX.get_or_init(|| {
++        let Some(path) = std::env::var_os("SEMANTIST_STG_CODEGEN_MAP") else {
++            return SemanticIndex::default();
++        };
++        let bytes = match fs::read(&path) {
++            Ok(bytes) => bytes,
++            Err(error) => {
++                eprintln!(
++                    "STG-IR-E101: cannot read semantic codegen map {}: {error}",
++                    Path::new(&path).display()
++                );
++                return SemanticIndex::default();
++            }
++        };
++        let map = match serde_json::from_slice::<CodegenMap>(&bytes) {
++            Ok(map) => map,
++            Err(error) => {
++                eprintln!(
++                    "STG-IR-E102: cannot parse semantic codegen map {}: {error}",
++                    Path::new(&path).display()
++                );
++                return SemanticIndex::default();
++            }
++        };
++        if map.schema_version != "semantist.codegen-map/1.0.0" {
++            eprintln!("STG-IR-E103: unsupported semantic codegen map schema {}", map.schema_version);
++            return SemanticIndex::default();
++        }
++        let mut index = SemanticIndex::default();
++        for anchor in map.anchors {
++            let pou = anchor.pou.to_ascii_lowercase();
++            if let Some(ast_id) = anchor.lowered_ast_id {
++                index.ast.entry((pou.clone(), ast_id)).or_default().push(anchor.clone());
++            }
++            if let Some(source) = &anchor.source {
++                index
++                    .source
++                    .entry((pou.clone(), source.start_offset, source.end_offset))
++                    .or_default()
++                    .push(anchor.clone());
++            }
++            if anchor.lowered_ast_id.is_none() {
++                index.functions.entry(pou).or_default().push(anchor);
++            }
++        }
++        index
++    })
++}
++
++pub fn events_for_node(pou: &str, node: &AstNode, kind: AnchorKind) -> Vec<SemanticEvent> {
++    let direct = events(pou, node.id, kind.clone());
++    if !direct.is_empty() {
++        return direct;
++    }
++    let Some(range) = node.get_location().to_range() else {
++        return Vec::new();
++    };
++    let mut events = index()
++        .source
++        .get(&(pou.to_ascii_lowercase(), range.start, range.end))
++        .into_iter()
++        .flatten()
++        .filter(|anchor| anchor.kind == kind)
++        .flat_map(|anchor| anchor.events.clone())
++        .collect::<Vec<_>>();
++    events.sort_by_key(|event| (event.successor_hint, event.runtime_id));
++    events.dedup_by_key(|event| (event.successor_hint, event.runtime_id));
++    events
++}
++
++pub fn events(pou: &str, ast_id: usize, kind: AnchorKind) -> Vec<SemanticEvent> {
++    index()
++        .ast
++        .get(&(pou.to_ascii_lowercase(), ast_id))
++        .into_iter()
++        .flatten()
++        .filter(|anchor| anchor.kind == kind)
++        .flat_map(|anchor| anchor.events.clone())
++        .collect()
++}
++
++pub fn function_events(pou: &str, kind: AnchorKind) -> Vec<SemanticEvent> {
++    index()
++        .functions
++        .get(&pou.to_ascii_lowercase())
++        .into_iter()
++        .flatten()
++        .filter(|anchor| anchor.kind == kind)
++        .flat_map(|anchor| anchor.events.clone())
++        .collect()
++}
++
++pub fn attach(
++    context: &Context,
++    instruction: InstructionValue<'_>,
++    pou: &str,
++    ast_id: Option<usize>,
++    events: Vec<SemanticEvent>,
++) {
++    if events.is_empty() {
++        return;
++    }
++    let Ok(payload) = serde_json::to_string(&MetadataPayload {
++        schema_version: "semantist.llvm-semantic/1.0.0",
++        pou,
++        lowered_ast_id: ast_id,
++        events,
++    }) else {
++        return;
++    };
++    let value = context.metadata_string(&payload);
++    let metadata = context.metadata_node(&[value.into()]);
++    let _ = instruction.set_metadata(metadata, context.get_kind_id(METADATA_KIND));
++}
++
++pub fn attach_node(
++    context: &Context,
++    instruction: InstructionValue<'_>,
++    pou: &str,
++    node: &AstNode,
++    kind: AnchorKind,
++) {
++    attach(context, instruction, pou, Some(node.id), events_for_node(pou, node, kind));
++}
++
++pub fn attach_node_and_function(
++    context: &Context,
++    instruction: InstructionValue<'_>,
++    pou: &str,
++    node: &AstNode,
++    node_kind: AnchorKind,
++    function_kind: AnchorKind,
++) {
++    let mut events = events_for_node(pou, node, node_kind);
++    events.extend(function_events(pou, function_kind));
++    events.sort_by_key(|event| (event.successor_hint, event.runtime_id));
++    events.dedup_by_key(|event| (event.successor_hint, event.runtime_id));
++    attach(context, instruction, pou, Some(node.id), events);
++}
++
++pub fn attach_function(context: &Context, instruction: InstructionValue<'_>, pou: &str, kind: AnchorKind) {
++    attach(context, instruction, pou, None, function_events(pou, kind));
++}

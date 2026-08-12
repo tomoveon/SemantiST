@@ -1,0 +1,11 @@
+[package]
+name = "semantist"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+libafl = "0.15.4"
+libafl_bolts = "0.15.4"
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true

@@ -1,0 +1,61 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local environment/config
+.env
+.env.*
+*.local
+
+# Rust/Cargo build output
+target/
+artifacts/
+
+# SemantiST generated runtime/build outputs
+corpus/
+crashes/
+findings/
+llm-corpus/
+target-corpus/
+unified-corpus/
+runs/
+semantic_extraction/
+docs/
+/st/
+st-to-rusty-converter-old/
+.semantist-runtime/
+.runtime/
+.cur_input_*
+*.seed.tmp
+*.metadata
+*.jsonl
+*.log
+*.profraw
+*.profdata
+
+# Native build products
+fuzz_target
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+*.ll
+*.bc
+*.dSYM/
+
+# Editor/OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo

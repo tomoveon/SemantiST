@@ -1,0 +1,1505 @@
+{
+  "schema_version": "semantist.external-benchmarks/1.0.0",
+  "description": "Runnable SemantiST benchmark index imported from related public ST fuzzing artifacts.",
+  "target_count": 90,
+  "targets": [
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_bit_count",
+      "kind": "FUNCTION",
+      "function": "BIT_COUNT",
+      "st_file": "benchmarks/oscat_basic/functions/bit_count/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_buffer_comp",
+      "kind": "FUNCTION",
+      "function": "BUFFER_COMP",
+      "st_file": "benchmarks/oscat_basic/functions/buffer_comp/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic__buffer_insert",
+      "kind": "FUNCTION",
+      "function": "_BUFFER_INSERT",
+      "st_file": "benchmarks/oscat_basic/functions/buffer_insert/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_charname",
+      "kind": "FUNCTION",
+      "function": "CHARNAME",
+      "st_file": "benchmarks/oscat_basic/functions/charname/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/oscat_basic_charname/src/program.st",
+      "upstream_sha256": "d9eb1548a2bb6d653678ca264ccefa5369442e8fb3822f24f7bf7138b68718b5",
+      "lineage": "OSCAT Basic target also present in ICSQuartz; extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_clean",
+      "kind": "FUNCTION",
+      "function": "CLEAN",
+      "st_file": "benchmarks/oscat_basic/functions/clean/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/oscat_basic_clean/src/program.st",
+      "upstream_sha256": "9096feae5b697bd77dba97891a55b8125fc80b02eda74d932b4d90c50372be2c",
+      "lineage": "OSCAT Basic target also present in ICSQuartz; extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_del_chars",
+      "kind": "FUNCTION",
+      "function": "DEL_CHARS",
+      "st_file": "benchmarks/oscat_basic/functions/del_chars/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/oscat_basic_del_chars/src/program.st",
+      "upstream_sha256": "979afb654c7d674a1fbc06aad24da75e35d569f41efab49c02dd46a744467878",
+      "lineage": "OSCAT Basic target also present in ICSQuartz; extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_dt_to_strf",
+      "kind": "FUNCTION",
+      "function": "DT_TO_STRF",
+      "st_file": "benchmarks/oscat_basic/functions/dt_to_strf/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/oscat_basic_dt_to_strf/src/program.st",
+      "upstream_sha256": "09e243689450083a5f37520195b6243240a29a599ac7e7524ae14656bd9672a3",
+      "lineage": "OSCAT Basic target also present in ICSQuartz; extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_find_char",
+      "kind": "FUNCTION",
+      "function": "FIND_CHAR",
+      "st_file": "benchmarks/oscat_basic/functions/find_char/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/oscat_basic_find_char/src/program.st",
+      "upstream_sha256": "8d71c1c7b007cd7a23f2fa4d1f19ed5565413b65a634ae8d530ca4ae305393bc",
+      "lineage": "OSCAT Basic target also present in ICSQuartz; extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_find_ctrl",
+      "kind": "FUNCTION",
+      "function": "FIND_CTRL",
+      "st_file": "benchmarks/oscat_basic/functions/find_ctrl/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/oscat_basic_find_ctrl/src/program.st",
+      "upstream_sha256": "7d2d068b2dcbd34e8b62533c37084fc2e66ae9f78581df9c4a037ab30ec624a9",
+      "lineage": "OSCAT Basic target also present in ICSQuartz; extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_findb_nonum",
+      "kind": "FUNCTION",
+      "function": "FINDB_NONUM",
+      "st_file": "benchmarks/oscat_basic/functions/findb_nonum/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/oscat_basic_findb_nonum/src/program.st",
+      "upstream_sha256": "83ae9b8d65f685e1a84e4b1bdb34e974df2375d394306c12d707af7e0bc8cbdb",
+      "lineage": "OSCAT Basic target also present in ICSQuartz; extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_findb_num",
+      "kind": "FUNCTION",
+      "function": "FINDB_NUM",
+      "st_file": "benchmarks/oscat_basic/functions/findb_num/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/oscat_basic_findb_num/src/program.st",
+      "upstream_sha256": "dbbd68edd039a5d20a2775e18196c8a572e33c94d2c14ee96bd3c1c9d1c034d5",
+      "lineage": "OSCAT Basic target also present in ICSQuartz; extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_findp",
+      "kind": "FUNCTION",
+      "function": "FINDP",
+      "st_file": "benchmarks/oscat_basic/functions/findp/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/oscat_basic_findp/src/program.st",
+      "upstream_sha256": "56e196bcd948b0519199c01928585ec969b4f0faf1e0c2dbc9adb2ec22bc26eb",
+      "lineage": "OSCAT Basic target also present in ICSQuartz; extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_fstring_to_byte",
+      "kind": "FUNCTION",
+      "function": "FSTRING_TO_BYTE",
+      "st_file": "benchmarks/oscat_basic/functions/fstring_to_byte/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/oscat_basic_fstring_to_byte/src/program.st",
+      "upstream_sha256": "3a338b0ca21a74cb8c6f713b248ab619f4a94e09c8a6611835e4c5f9ea0cf572",
+      "lineage": "OSCAT Basic target also present in ICSQuartz; extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_fstring_to_dword",
+      "kind": "FUNCTION",
+      "function": "FSTRING_TO_DWORD",
+      "st_file": "benchmarks/oscat_basic/functions/fstring_to_dword/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/oscat_basic_fstring_to_dword/src/program.st",
+      "upstream_sha256": "501b01cb680a1edc59e1d680b73d2e9b4fdad8bb14b234e9f23351ca57d7b052",
+      "lineage": "OSCAT Basic target also present in ICSQuartz; extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_is_cc",
+      "kind": "FUNCTION",
+      "function": "IS_CC",
+      "st_file": "benchmarks/oscat_basic/functions/is_cc/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/oscat_basic_is_cc/src/program.st",
+      "upstream_sha256": "4e63a24c9b50fe495b8f9866691805ff269cb689eb0357479a1d6cabbc23c2b4",
+      "lineage": "OSCAT Basic target also present in ICSQuartz; extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_is_ncc",
+      "kind": "FUNCTION",
+      "function": "IS_NCC",
+      "st_file": "benchmarks/oscat_basic/functions/is_ncc/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/oscat_basic_is_ncc/src/program.st",
+      "upstream_sha256": "6091c4e04acc8e40ad5bfc2124c1e1f07f2a99d71b7da890386f9cf9917fd885",
+      "lineage": "OSCAT Basic target also present in ICSQuartz; extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_mirror",
+      "kind": "FUNCTION",
+      "function": "MIRROR",
+      "st_file": "benchmarks/oscat_basic/functions/mirror/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/oscat_basic_mirror/src/program.st",
+      "upstream_sha256": "f4214aebd708f32700a2a49939fe81de440fcc1438c5a4a15f9ddecb6d3225fd",
+      "lineage": "OSCAT Basic target also present in ICSQuartz; extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_month_to_string",
+      "kind": "FUNCTION",
+      "function": "MONTH_TO_STRING",
+      "st_file": "benchmarks/oscat_basic/functions/month_to_string/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/oscat_basic_month_to_string/src/program.st",
+      "upstream_sha256": "82b70c07cc6444cfec9f04d5d748058ff41e0413f9214afae4e282751fa90457",
+      "lineage": "OSCAT Basic target also present in ICSQuartz; extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_real_to_strf",
+      "kind": "FUNCTION",
+      "function": "REAL_TO_STRF",
+      "st_file": "benchmarks/oscat_basic/functions/real_to_strf/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/oscat_basic_real_to_strf/src/program.st",
+      "upstream_sha256": "49670fa3b10fd1619a9fc9c7a153000668b5d04370d6efef9df6c8df0669feaa",
+      "lineage": "OSCAT Basic target also present in ICSQuartz; extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_replace_all",
+      "kind": "FUNCTION",
+      "function": "REPLACE_ALL",
+      "st_file": "benchmarks/oscat_basic/functions/replace_all/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/oscat_basic_replace_all/src/program.st",
+      "upstream_sha256": "8d4e49a7013bff54a699e10253462c019b39e163a7ff7c71a0b624e1f276868f",
+      "lineage": "OSCAT Basic target also present in ICSQuartz; extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_replace_chars",
+      "kind": "FUNCTION",
+      "function": "REPLACE_CHARS",
+      "st_file": "benchmarks/oscat_basic/functions/replace_chars/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/oscat_basic_replace_chars/src/program.st",
+      "upstream_sha256": "10fb2770b16ede1bcc17b0f8f42ddb5832b96feb99485262044cc0f8c5979d84",
+      "lineage": "OSCAT Basic target also present in ICSQuartz; extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_trim",
+      "kind": "FUNCTION",
+      "function": "TRIM",
+      "st_file": "benchmarks/oscat_basic/functions/trim/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/oscat_basic_trim/src/program.st",
+      "upstream_sha256": "4ce2259eb0b63311fac72f96988784478d0adb5d3a44702c468706e1e48d3aeb",
+      "lineage": "OSCAT Basic target also present in ICSQuartz; extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_trim1",
+      "kind": "FUNCTION",
+      "function": "TRIM1",
+      "st_file": "benchmarks/oscat_basic/functions/trim1/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/oscat_basic_trim1/src/program.st",
+      "upstream_sha256": "431741b908112faffd95b6d7f91af7c5c7109a1ea05ea3064e89608035e6b425",
+      "lineage": "OSCAT Basic target also present in ICSQuartz; extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_trime",
+      "kind": "FUNCTION",
+      "function": "TRIME",
+      "st_file": "benchmarks/oscat_basic/functions/trime/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/oscat_basic_trime/src/program.st",
+      "upstream_sha256": "df368078d050ab14594c5049171f88f740fc8eb5acfe99cee1cf99a679b72640",
+      "lineage": "OSCAT Basic target also present in ICSQuartz; extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_uppercase",
+      "kind": "FUNCTION",
+      "function": "UPPERCASE",
+      "st_file": "benchmarks/oscat_basic/functions/uppercase/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_weekday_to_string",
+      "kind": "FUNCTION",
+      "function": "WEEKDAY_TO_STRING",
+      "st_file": "benchmarks/oscat_basic/functions/weekday_to_string/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/oscat_basic_weekday_to_string/src/program.st",
+      "upstream_sha256": "4625483b4049d62f999ac1690439a4f8ecc4ad139bb1b868258c83fd703c6090",
+      "lineage": "OSCAT Basic target also present in ICSQuartz; extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_inc2",
+      "kind": "FUNCTION",
+      "function": "INC2",
+      "st_file": "benchmarks/oscat_basic/functions/inc2/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_days_in_month",
+      "kind": "FUNCTION",
+      "function": "DAYS_IN_MONTH",
+      "st_file": "benchmarks/oscat_basic/functions/days_in_month/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_list_get",
+      "kind": "FUNCTION",
+      "function": "LIST_GET",
+      "st_file": "benchmarks/oscat_basic/functions/list_get/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_multi_in",
+      "kind": "FUNCTION",
+      "function": "MULTI_IN",
+      "st_file": "benchmarks/oscat_basic/functions/multi_in/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic__string_to_buffer",
+      "kind": "FUNCTION",
+      "function": "_STRING_TO_BUFFER",
+      "st_file": "benchmarks/oscat_basic/functions/string_to_buffer/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_alarm_2",
+      "kind": "FUNCTION_BLOCK",
+      "function": "ALARM_2",
+      "st_file": "benchmarks/oscat_basic/function_blocks/alarm_2/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_bar_graph",
+      "kind": "FUNCTION_BLOCK",
+      "function": "BAR_GRAPH",
+      "st_file": "benchmarks/oscat_basic/function_blocks/bar_graph/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_calibrate",
+      "kind": "FUNCTION_BLOCK",
+      "function": "CALIBRATE",
+      "st_file": "benchmarks/oscat_basic/function_blocks/calibrate/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_control_set1",
+      "kind": "FUNCTION_BLOCK",
+      "function": "CONTROL_SET1",
+      "st_file": "benchmarks/oscat_basic/function_blocks/control_set1/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_count_dr",
+      "kind": "FUNCTION_BLOCK",
+      "function": "COUNT_DR",
+      "st_file": "benchmarks/oscat_basic/function_blocks/count_dr/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_delay",
+      "kind": "FUNCTION_BLOCK",
+      "function": "DELAY",
+      "st_file": "benchmarks/oscat_basic/function_blocks/delay/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_driver_1",
+      "kind": "FUNCTION_BLOCK",
+      "function": "DRIVER_1",
+      "st_file": "benchmarks/oscat_basic/function_blocks/driver_1/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_fifo_16",
+      "kind": "FUNCTION_BLOCK",
+      "function": "FIFO_16",
+      "st_file": "benchmarks/oscat_basic/function_blocks/fifo_16/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_filter_i",
+      "kind": "FUNCTION_BLOCK",
+      "function": "FILTER_I",
+      "st_file": "benchmarks/oscat_basic/function_blocks/filter_i/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_filter_mav_dw",
+      "kind": "FUNCTION_BLOCK",
+      "function": "FILTER_MAV_DW",
+      "st_file": "benchmarks/oscat_basic/function_blocks/filter_mav_dw/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_flow_control",
+      "kind": "FUNCTION_BLOCK",
+      "function": "FLOW_CONTROL",
+      "st_file": "benchmarks/oscat_basic/function_blocks/flow_control/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_flow_meter",
+      "kind": "FUNCTION_BLOCK",
+      "function": "FLOW_METER",
+      "st_file": "benchmarks/oscat_basic/function_blocks/flow_meter/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_gen_pulse",
+      "kind": "FUNCTION_BLOCK",
+      "function": "GEN_PULSE",
+      "st_file": "benchmarks/oscat_basic/function_blocks/gen_pulse/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_hyst_1",
+      "kind": "FUNCTION_BLOCK",
+      "function": "HYST_1",
+      "st_file": "benchmarks/oscat_basic/function_blocks/hyst_1/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_integrate",
+      "kind": "FUNCTION_BLOCK",
+      "function": "INTEGRATE",
+      "st_file": "benchmarks/oscat_basic/function_blocks/integrate/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_interlock",
+      "kind": "FUNCTION_BLOCK",
+      "function": "INTERLOCK",
+      "st_file": "benchmarks/oscat_basic/function_blocks/interlock/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_list_next",
+      "kind": "FUNCTION_BLOCK",
+      "function": "LIST_NEXT",
+      "st_file": "benchmarks/oscat_basic/function_blocks/list_next/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_manual_1",
+      "kind": "FUNCTION_BLOCK",
+      "function": "MANUAL_1",
+      "st_file": "benchmarks/oscat_basic/function_blocks/manual_1/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_meter",
+      "kind": "FUNCTION_BLOCK",
+      "function": "METER",
+      "st_file": "benchmarks/oscat_basic/function_blocks/meter/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_parset",
+      "kind": "FUNCTION_BLOCK",
+      "function": "PARSET",
+      "st_file": "benchmarks/oscat_basic/function_blocks/parset/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_pwm_dc",
+      "kind": "FUNCTION_BLOCK",
+      "function": "PWM_DC",
+      "st_file": "benchmarks/oscat_basic/function_blocks/pwm_dc/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_rmp_b",
+      "kind": "FUNCTION_BLOCK",
+      "function": "RMP_B",
+      "st_file": "benchmarks/oscat_basic/function_blocks/rmp_b/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_scheduler_2",
+      "kind": "FUNCTION_BLOCK",
+      "function": "SCHEDULER_2",
+      "st_file": "benchmarks/oscat_basic/function_blocks/scheduler_2/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_signal",
+      "kind": "FUNCTION_BLOCK",
+      "function": "SIGNAL",
+      "st_file": "benchmarks/oscat_basic/function_blocks/signal/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_stack_16",
+      "kind": "FUNCTION_BLOCK",
+      "function": "STACK_16",
+      "st_file": "benchmarks/oscat_basic/function_blocks/stack_16/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_store_8",
+      "kind": "FUNCTION_BLOCK",
+      "function": "STORE_8",
+      "st_file": "benchmarks/oscat_basic/function_blocks/store_8/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_toggle",
+      "kind": "FUNCTION_BLOCK",
+      "function": "TOGGLE",
+      "st_file": "benchmarks/oscat_basic/function_blocks/toggle/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_trend",
+      "kind": "FUNCTION_BLOCK",
+      "function": "TREND",
+      "st_file": "benchmarks/oscat_basic/function_blocks/trend/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_ctrl_pi",
+      "kind": "FUNCTION_BLOCK",
+      "function": "CTRL_PI",
+      "st_file": "benchmarks/oscat_basic/function_blocks/ctrl_pi/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
+      "id": "oscat_basic_ctrl_pid",
+      "kind": "FUNCTION_BLOCK",
+      "function": "CTRL_PID",
+      "st_file": "benchmarks/oscat_basic/function_blocks/ctrl_pid/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "icsquartz_icsfuzz",
+      "id": "icsfuzz_bf_mcpy_1",
+      "kind": "FUNCTION",
+      "function": "STFZ_ICSF_ICSFUZZ_BF_MCPY_1",
+      "st_file": "benchmarks/external/icsquartz/icsfuzz/icsfuzz_bf_mcpy_1/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/icsfuzz_bf_mcpy_1/src/program.st",
+      "upstream_sha256": "529d90fcca4bafddde7153fff910801f4ebb1649f1e6588579935f246b80e9de",
+      "lineage": "ICSQuartz extracted ST benchmark with ICSFuzz lineage",
+      "transformations": [
+        "removed PROGRAM PLC_PRG harness wrapper",
+        "renamed target FUNCTION mcpy_1 to STFZ_ICSF_ICSFUZZ_BF_MCPY_1",
+        "normalized CODESYS string lengths and ADR()"
+      ],
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json"
+    },
+    {
+      "suite": "icsquartz_icsfuzz",
+      "id": "icsfuzz_bf_mcpy_12",
+      "kind": "FUNCTION",
+      "function": "STFZ_ICSF_ICSFUZZ_BF_MCPY_12",
+      "st_file": "benchmarks/external/icsquartz/icsfuzz/icsfuzz_bf_mcpy_12/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/icsfuzz_bf_mcpy_12/src/program.st",
+      "upstream_sha256": "d7922e4467847afd70c072997c04f96891c7ec39434b916ea776f9329dc31ae3",
+      "lineage": "ICSQuartz extracted ST benchmark with ICSFuzz lineage",
+      "transformations": [
+        "removed PROGRAM PLC_PRG harness wrapper",
+        "renamed target FUNCTION mcpy_12 to STFZ_ICSF_ICSFUZZ_BF_MCPY_12",
+        "normalized CODESYS string lengths and ADR()"
+      ],
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json"
+    },
+    {
+      "suite": "icsquartz_icsfuzz",
+      "id": "icsfuzz_bf_mcpy_6",
+      "kind": "FUNCTION",
+      "function": "STFZ_ICSF_ICSFUZZ_BF_MCPY_6",
+      "st_file": "benchmarks/external/icsquartz/icsfuzz/icsfuzz_bf_mcpy_6/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/icsfuzz_bf_mcpy_6/src/program.st",
+      "upstream_sha256": "603537744a6b830a1226a547615cdb2a86f6488749fffd21764d6a995f4b74a4",
+      "lineage": "ICSQuartz extracted ST benchmark with ICSFuzz lineage",
+      "transformations": [
+        "removed PROGRAM PLC_PRG harness wrapper",
+        "renamed target FUNCTION mcpy_6 to STFZ_ICSF_ICSFUZZ_BF_MCPY_6",
+        "normalized CODESYS string lengths and ADR()"
+      ],
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json"
+    },
+    {
+      "suite": "icsquartz_icsfuzz",
+      "id": "icsfuzz_bf_mcpy_8",
+      "kind": "FUNCTION",
+      "function": "STFZ_ICSF_ICSFUZZ_BF_MCPY_8",
+      "st_file": "benchmarks/external/icsquartz/icsfuzz/icsfuzz_bf_mcpy_8/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/icsfuzz_bf_mcpy_8/src/program.st",
+      "upstream_sha256": "e68e224fb3b1e6e7755a718ed951e38056d52ea3c8ba0bd4357e35ab0b6d403c",
+      "lineage": "ICSQuartz extracted ST benchmark with ICSFuzz lineage",
+      "transformations": [
+        "removed PROGRAM PLC_PRG harness wrapper",
+        "renamed target FUNCTION mcpy_8 to STFZ_ICSF_ICSFUZZ_BF_MCPY_8",
+        "normalized CODESYS string lengths and ADR()"
+      ],
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json"
+    },
+    {
+      "suite": "icsquartz_icsfuzz",
+      "id": "icsfuzz_bf_mmove_1",
+      "kind": "FUNCTION",
+      "function": "STFZ_ICSF_ICSFUZZ_BF_MMOVE_1",
+      "st_file": "benchmarks/external/icsquartz/icsfuzz/icsfuzz_bf_mmove_1/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/icsfuzz_bf_mmove_1/src/program.st",
+      "upstream_sha256": "05fb5b0214fff9193fda121410a8a171d9e5fce0efce23697c141ada4abd0302",
+      "lineage": "ICSQuartz extracted ST benchmark with ICSFuzz lineage",
+      "transformations": [
+        "removed PROGRAM PLC_PRG harness wrapper",
+        "renamed target FUNCTION mmove_1 to STFZ_ICSF_ICSFUZZ_BF_MMOVE_1",
+        "normalized CODESYS string lengths and ADR()"
+      ],
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json"
+    },
+    {
+      "suite": "icsquartz_icsfuzz",
+      "id": "icsfuzz_bf_mmove_12",
+      "kind": "FUNCTION",
+      "function": "STFZ_ICSF_ICSFUZZ_BF_MMOVE_12",
+      "st_file": "benchmarks/external/icsquartz/icsfuzz/icsfuzz_bf_mmove_12/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/icsfuzz_bf_mmove_12/src/program.st",
+      "upstream_sha256": "a240b1dd8fa1cbe3cb2d9b78b1fc0f2cd1105cd87e88ace62543d5980e0cf37d",
+      "lineage": "ICSQuartz extracted ST benchmark with ICSFuzz lineage",
+      "transformations": [
+        "removed PROGRAM PLC_PRG harness wrapper",
+        "renamed target FUNCTION mmove_12 to STFZ_ICSF_ICSFUZZ_BF_MMOVE_12",
+        "normalized CODESYS string lengths and ADR()"
+      ],
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json"
+    },
+    {
+      "suite": "icsquartz_icsfuzz",
+      "id": "icsfuzz_bf_mmove_4",
+      "kind": "FUNCTION",
+      "function": "STFZ_ICSF_ICSFUZZ_BF_MMOVE_4",
+      "st_file": "benchmarks/external/icsquartz/icsfuzz/icsfuzz_bf_mmove_4/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/icsfuzz_bf_mmove_4/src/program.st",
+      "upstream_sha256": "97347e195d2f2152e84c0033becd3f5bf4f1987f481fd3f8e996fbc27bb92765",
+      "lineage": "ICSQuartz extracted ST benchmark with ICSFuzz lineage",
+      "transformations": [
+        "removed PROGRAM PLC_PRG harness wrapper",
+        "renamed target FUNCTION mmove_4 to STFZ_ICSF_ICSFUZZ_BF_MMOVE_4",
+        "normalized CODESYS string lengths and ADR()"
+      ],
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json"
+    },
+    {
+      "suite": "icsquartz_icsfuzz",
+      "id": "icsfuzz_bf_mmove_7",
+      "kind": "FUNCTION",
+      "function": "STFZ_ICSF_ICSFUZZ_BF_MMOVE_7",
+      "st_file": "benchmarks/external/icsquartz/icsfuzz/icsfuzz_bf_mmove_7/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/icsfuzz_bf_mmove_7/src/program.st",
+      "upstream_sha256": "15372e4686d1db3baa00d4d2694fb1c1c1210bc93eb40d8658c77b93696ca619",
+      "lineage": "ICSQuartz extracted ST benchmark with ICSFuzz lineage",
+      "transformations": [
+        "removed PROGRAM PLC_PRG harness wrapper",
+        "renamed target FUNCTION mmove_7 to STFZ_ICSF_ICSFUZZ_BF_MMOVE_7",
+        "normalized CODESYS string lengths and ADR()"
+      ],
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json"
+    },
+    {
+      "suite": "icsquartz_icsfuzz",
+      "id": "icsfuzz_bf_mset_1",
+      "kind": "FUNCTION",
+      "function": "STFZ_ICSF_ICSFUZZ_BF_MSET_1",
+      "st_file": "benchmarks/external/icsquartz/icsfuzz/icsfuzz_bf_mset_1/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/icsfuzz_bf_mset_1/src/program.st",
+      "upstream_sha256": "dfe4d818a063ad91526d8c4c0e75fd76274a35ea474cd430d16eaeef6796a99c",
+      "lineage": "ICSQuartz extracted ST benchmark with ICSFuzz lineage",
+      "transformations": [
+        "removed PROGRAM PLC_PRG harness wrapper",
+        "renamed target FUNCTION mset_1 to STFZ_ICSF_ICSFUZZ_BF_MSET_1",
+        "normalized CODESYS string lengths and ADR()"
+      ],
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json"
+    },
+    {
+      "suite": "icsquartz_icsfuzz",
+      "id": "icsfuzz_bf_mset_3",
+      "kind": "FUNCTION",
+      "function": "STFZ_ICSF_ICSFUZZ_BF_MSET_3",
+      "st_file": "benchmarks/external/icsquartz/icsfuzz/icsfuzz_bf_mset_3/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/icsfuzz_bf_mset_3/src/program.st",
+      "upstream_sha256": "c25d99063f0cb433786f979241ae03f8f8536e4338e4349f4f09979b34456f30",
+      "lineage": "ICSQuartz extracted ST benchmark with ICSFuzz lineage",
+      "transformations": [
+        "removed PROGRAM PLC_PRG harness wrapper",
+        "renamed target FUNCTION mset_3 to STFZ_ICSF_ICSFUZZ_BF_MSET_3",
+        "normalized CODESYS string lengths and ADR()"
+      ],
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json"
+    },
+    {
+      "suite": "icsquartz_icsfuzz",
+      "id": "icsfuzz_bf_mset_5",
+      "kind": "FUNCTION",
+      "function": "STFZ_ICSF_ICSFUZZ_BF_MSET_5",
+      "st_file": "benchmarks/external/icsquartz/icsfuzz/icsfuzz_bf_mset_5/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/icsfuzz_bf_mset_5/src/program.st",
+      "upstream_sha256": "c25d99063f0cb433786f979241ae03f8f8536e4338e4349f4f09979b34456f30",
+      "lineage": "ICSQuartz extracted ST benchmark with ICSFuzz lineage",
+      "transformations": [
+        "removed PROGRAM PLC_PRG harness wrapper",
+        "renamed target FUNCTION mset_3 to STFZ_ICSF_ICSFUZZ_BF_MSET_5",
+        "normalized CODESYS string lengths and ADR()"
+      ],
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json"
+    },
+    {
+      "suite": "icsquartz_icsfuzz",
+      "id": "icsfuzz_oob_1_arr_1",
+      "kind": "FUNCTION",
+      "function": "STFZ_ICSF_ICSFUZZ_OOB_1_ARR_1",
+      "st_file": "benchmarks/external/icsquartz/icsfuzz/icsfuzz_oob_1_arr_1/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/icsfuzz_oob_1_arr_1/src/program.st",
+      "upstream_sha256": "027b23db9a659ff1c2f735a411a44e62836573fc7f09206d4ecf9288cc78ab47",
+      "lineage": "ICSQuartz extracted ST benchmark with ICSFuzz lineage",
+      "transformations": [
+        "removed PROGRAM PLC_PRG harness wrapper",
+        "renamed target FUNCTION arr_1 to STFZ_ICSF_ICSFUZZ_OOB_1_ARR_1",
+        "normalized CODESYS string lengths and ADR()"
+      ],
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json"
+    },
+    {
+      "suite": "icsquartz_icsfuzz",
+      "id": "icsfuzz_oob_1_arr_13",
+      "kind": "FUNCTION",
+      "function": "STFZ_ICSF_ICSFUZZ_OOB_1_ARR_13",
+      "st_file": "benchmarks/external/icsquartz/icsfuzz/icsfuzz_oob_1_arr_13/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/icsfuzz_oob_1_arr_13/src/program.st",
+      "upstream_sha256": "46cd0f10c1ef54eee306a7984c13c38f8128f63ea80d0cdd730d121bc4554975",
+      "lineage": "ICSQuartz extracted ST benchmark with ICSFuzz lineage",
+      "transformations": [
+        "removed PROGRAM PLC_PRG harness wrapper",
+        "renamed target FUNCTION arr_13 to STFZ_ICSF_ICSFUZZ_OOB_1_ARR_13",
+        "normalized CODESYS string lengths and ADR()"
+      ],
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json"
+    },
+    {
+      "suite": "icsquartz_icsfuzz",
+      "id": "icsfuzz_oob_1_arr_6",
+      "kind": "FUNCTION",
+      "function": "STFZ_ICSF_ICSFUZZ_OOB_1_ARR_6",
+      "st_file": "benchmarks/external/icsquartz/icsfuzz/icsfuzz_oob_1_arr_6/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/icsfuzz_oob_1_arr_6/src/program.st",
+      "upstream_sha256": "6fcce87ab242e25e68b1547cac9a8ec156b3a1f6372a01793a85afed470c4081",
+      "lineage": "ICSQuartz extracted ST benchmark with ICSFuzz lineage",
+      "transformations": [
+        "removed PROGRAM PLC_PRG harness wrapper",
+        "renamed target FUNCTION arr_6 to STFZ_ICSF_ICSFUZZ_OOB_1_ARR_6",
+        "normalized CODESYS string lengths and ADR()"
+      ],
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json"
+    },
+    {
+      "suite": "icsquartz_icsfuzz",
+      "id": "icsfuzz_oob_2_1",
+      "kind": "FUNCTION",
+      "function": "STFZ_ICSF_ICSFUZZ_OOB_2_1",
+      "st_file": "benchmarks/external/icsquartz/icsfuzz/icsfuzz_oob_2_1/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/icsfuzz_oob_2_1/src/program.st",
+      "upstream_sha256": "6ba3ca6e858be5f978cf41e268ea757120595ea9495ff2152c7df61e12057d95",
+      "lineage": "ICSQuartz extracted ST benchmark with ICSFuzz lineage",
+      "transformations": [
+        "removed PROGRAM PLC_PRG harness wrapper",
+        "renamed target FUNCTION arr_1 to STFZ_ICSF_ICSFUZZ_OOB_2_1",
+        "normalized CODESYS string lengths and ADR()"
+      ],
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json"
+    },
+    {
+      "suite": "icsquartz_icsfuzz",
+      "id": "icsfuzz_oob_2_13",
+      "kind": "FUNCTION",
+      "function": "STFZ_ICSF_ICSFUZZ_OOB_2_13",
+      "st_file": "benchmarks/external/icsquartz/icsfuzz/icsfuzz_oob_2_13/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/icsfuzz_oob_2_13/src/program.st",
+      "upstream_sha256": "70a9b810ab21b7691a7da8223f540776bc66335f241d5d2b60679608023f869b",
+      "lineage": "ICSQuartz extracted ST benchmark with ICSFuzz lineage",
+      "transformations": [
+        "removed PROGRAM PLC_PRG harness wrapper",
+        "renamed target FUNCTION arr_13 to STFZ_ICSF_ICSFUZZ_OOB_2_13",
+        "normalized CODESYS string lengths and ADR()"
+      ],
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json"
+    },
+    {
+      "suite": "icsquartz_icsfuzz",
+      "id": "icsfuzz_oob_2_5",
+      "kind": "FUNCTION",
+      "function": "STFZ_ICSF_ICSFUZZ_OOB_2_5",
+      "st_file": "benchmarks/external/icsquartz/icsfuzz/icsfuzz_oob_2_5/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/icsfuzz_oob_2_5/src/program.st",
+      "upstream_sha256": "df65c48a53cc8b3dc189f5fed0ed9b7fae89448b54d3bbf988165cdfeed9aea3",
+      "lineage": "ICSQuartz extracted ST benchmark with ICSFuzz lineage",
+      "transformations": [
+        "removed PROGRAM PLC_PRG harness wrapper",
+        "renamed target FUNCTION arr_5 to STFZ_ICSF_ICSFUZZ_OOB_2_5",
+        "normalized CODESYS string lengths and ADR()"
+      ],
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json"
+    },
+    {
+      "suite": "icsquartz_scan_cycle",
+      "id": "scan_cycle_aircraft_oobr",
+      "kind": "FUNCTION_BLOCK",
+      "function": "STFZ_SCAN_SCAN_CYCLE_AIRCRAFT_OOBR",
+      "st_file": "benchmarks/external/icsquartz/scan_cycle/scan_cycle_aircraft_oobr/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/scan_cycle_aircraft_oobr/src/program.st",
+      "upstream_sha256": "b5c387287644a043043a6b57271520b9c470448913ae637632198868139fe8de",
+      "lineage": "ICSQuartz scan-cycle ST extracted from ICSPatch/industrial-control examples",
+      "transformations": [
+        "removed PROGRAM PLC_PRG harness wrapper",
+        "renamed target FUNCTION_BLOCK Code to STFZ_SCAN_SCAN_CYCLE_AIRCRAFT_OOBR",
+        "normalized CODESYS string lengths and ADR()"
+      ],
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json"
+    },
+    {
+      "suite": "icsquartz_scan_cycle",
+      "id": "scan_cycle_aircraft_oobw_4",
+      "kind": "FUNCTION_BLOCK",
+      "function": "STFZ_SCAN_SCAN_CYCLE_AIRCRAFT_OOBW_4",
+      "st_file": "benchmarks/external/icsquartz/scan_cycle/scan_cycle_aircraft_oobw_4/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/scan_cycle_aircraft_oobw_4/src/program.st",
+      "upstream_sha256": "24f1069147d74b66b79ef529e62fe7dcbc8feb36cd039a4417fc0a3a4aaeb998",
+      "lineage": "ICSQuartz scan-cycle ST extracted from ICSPatch/industrial-control examples",
+      "transformations": [
+        "removed PROGRAM PLC_PRG harness wrapper",
+        "renamed target FUNCTION_BLOCK Code to STFZ_SCAN_SCAN_CYCLE_AIRCRAFT_OOBW_4",
+        "normalized CODESYS string lengths and ADR()"
+      ],
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json"
+    },
+    {
+      "suite": "icsquartz_scan_cycle",
+      "id": "scan_cycle_aircraft_oobw_5",
+      "kind": "FUNCTION_BLOCK",
+      "function": "STFZ_SCAN_SCAN_CYCLE_AIRCRAFT_OOBW_5",
+      "st_file": "benchmarks/external/icsquartz/scan_cycle/scan_cycle_aircraft_oobw_5/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/scan_cycle_aircraft_oobw_5/src/program.st",
+      "upstream_sha256": "04914d0e325c6c75d6fb78443480d50e45e606a0a501dd24e4f731d2de60b315",
+      "lineage": "ICSQuartz scan-cycle ST extracted from ICSPatch/industrial-control examples",
+      "transformations": [
+        "removed PROGRAM PLC_PRG harness wrapper",
+        "renamed target FUNCTION_BLOCK Code to STFZ_SCAN_SCAN_CYCLE_AIRCRAFT_OOBW_5",
+        "normalized CODESYS string lengths and ADR()"
+      ],
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json"
+    },
+    {
+      "suite": "icsquartz_scan_cycle",
+      "id": "scan_cycle_anaerobic_oobr_1",
+      "kind": "FUNCTION_BLOCK",
+      "function": "STFZ_SCAN_SCAN_CYCLE_ANAEROBIC_OOBR_1",
+      "st_file": "benchmarks/external/icsquartz/scan_cycle/scan_cycle_anaerobic_oobr_1/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/scan_cycle_anaerobic_oobr_1/src/program.st",
+      "upstream_sha256": "5435679fdbd8fe7260dd14aed408b9920acffc773a12d75efffee84bf24d84f9",
+      "lineage": "ICSQuartz scan-cycle ST extracted from ICSPatch/industrial-control examples",
+      "transformations": [
+        "removed PROGRAM PLC_PRG harness wrapper",
+        "renamed target FUNCTION_BLOCK Code to STFZ_SCAN_SCAN_CYCLE_ANAEROBIC_OOBR_1",
+        "normalized CODESYS string lengths and ADR()"
+      ],
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json"
+    },
+    {
+      "suite": "icsquartz_scan_cycle",
+      "id": "scan_cycle_anaerobic_oobr_2",
+      "kind": "FUNCTION_BLOCK",
+      "function": "STFZ_SCAN_SCAN_CYCLE_ANAEROBIC_OOBR_2",
+      "st_file": "benchmarks/external/icsquartz/scan_cycle/scan_cycle_anaerobic_oobr_2/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/scan_cycle_anaerobic_oobr_2/src/program.st",
+      "upstream_sha256": "f49aa31de7c023ba98ec34f07d77d5d65859be3c843ce83caf886eb761cc4837",
+      "lineage": "ICSQuartz scan-cycle ST extracted from ICSPatch/industrial-control examples",
+      "transformations": [
+        "removed PROGRAM PLC_PRG harness wrapper",
+        "renamed target FUNCTION_BLOCK Code to STFZ_SCAN_SCAN_CYCLE_ANAEROBIC_OOBR_2",
+        "normalized CODESYS string lengths and ADR()"
+      ],
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json"
+    },
+    {
+      "suite": "icsquartz_scan_cycle",
+      "id": "scan_cycle_anaerobic_oobw_1",
+      "kind": "FUNCTION_BLOCK",
+      "function": "STFZ_SCAN_SCAN_CYCLE_ANAEROBIC_OOBW_1",
+      "st_file": "benchmarks/external/icsquartz/scan_cycle/scan_cycle_anaerobic_oobw_1/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/scan_cycle_anaerobic_oobw_1/src/program.st",
+      "upstream_sha256": "a9d8463bfed0381e1aca6a7f404e6cc3cb072c638bbb0553312c0b0c90e75ebf",
+      "lineage": "ICSQuartz scan-cycle ST extracted from ICSPatch/industrial-control examples",
+      "transformations": [
+        "removed PROGRAM PLC_PRG harness wrapper",
+        "renamed target FUNCTION_BLOCK Code to STFZ_SCAN_SCAN_CYCLE_ANAEROBIC_OOBW_1",
+        "normalized CODESYS string lengths and ADR()"
+      ],
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json"
+    },
+    {
+      "suite": "icsquartz_scan_cycle",
+      "id": "scan_cycle_anaerobic_oobw_2",
+      "kind": "FUNCTION_BLOCK",
+      "function": "STFZ_SCAN_SCAN_CYCLE_ANAEROBIC_OOBW_2",
+      "st_file": "benchmarks/external/icsquartz/scan_cycle/scan_cycle_anaerobic_oobw_2/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/scan_cycle_anaerobic_oobw_2/src/program.st",
+      "upstream_sha256": "79f912ece983388efa0610900f14848bf993fcf32388f0eb5348460f160ff526",
+      "lineage": "ICSQuartz scan-cycle ST extracted from ICSPatch/industrial-control examples",
+      "transformations": [
+        "removed PROGRAM PLC_PRG harness wrapper",
+        "renamed target FUNCTION_BLOCK Code to STFZ_SCAN_SCAN_CYCLE_ANAEROBIC_OOBW_2",
+        "normalized CODESYS string lengths and ADR()"
+      ],
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json"
+    },
+    {
+      "suite": "icsquartz_scan_cycle",
+      "id": "scan_cycle_anaerobic_oobw_3",
+      "kind": "FUNCTION_BLOCK",
+      "function": "STFZ_SCAN_SCAN_CYCLE_ANAEROBIC_OOBW_3",
+      "st_file": "benchmarks/external/icsquartz/scan_cycle/scan_cycle_anaerobic_oobw_3/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/scan_cycle_anaerobic_oobw_3/src/program.st",
+      "upstream_sha256": "e5805170f5d02194f85dc96609d44af7ad104c028a771b2eb5d557666b4af253",
+      "lineage": "ICSQuartz scan-cycle ST extracted from ICSPatch/industrial-control examples",
+      "transformations": [
+        "removed PROGRAM PLC_PRG harness wrapper",
+        "renamed target FUNCTION_BLOCK Code to STFZ_SCAN_SCAN_CYCLE_ANAEROBIC_OOBW_3",
+        "normalized CODESYS string lengths and ADR()"
+      ],
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json"
+    },
+    {
+      "suite": "icsquartz_scan_cycle",
+      "id": "scan_cycle_chemical_oobr_1",
+      "kind": "FUNCTION_BLOCK",
+      "function": "STFZ_SCAN_SCAN_CYCLE_CHEMICAL_OOBR_1",
+      "st_file": "benchmarks/external/icsquartz/scan_cycle/scan_cycle_chemical_oobr_1/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/scan_cycle_chemical_oobr_1/src/program.st",
+      "upstream_sha256": "544f470cfe38d252b3412bb5912a2301958c3e305979f705e7b3a0663221ec5f",
+      "lineage": "ICSQuartz scan-cycle ST extracted from ICSPatch/industrial-control examples",
+      "transformations": [
+        "removed PROGRAM PLC_PRG harness wrapper",
+        "renamed target FUNCTION_BLOCK Code to STFZ_SCAN_SCAN_CYCLE_CHEMICAL_OOBR_1",
+        "normalized CODESYS string lengths and ADR()"
+      ],
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json"
+    },
+    {
+      "suite": "icsquartz_scan_cycle",
+      "id": "scan_cycle_chemical_oobw_1",
+      "kind": "FUNCTION_BLOCK",
+      "function": "STFZ_SCAN_SCAN_CYCLE_CHEMICAL_OOBW_1",
+      "st_file": "benchmarks/external/icsquartz/scan_cycle/scan_cycle_chemical_oobw_1/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/scan_cycle_chemical_oobw_1/src/program.st",
+      "upstream_sha256": "ef22190a846b74e41c5c26a55ab0ee0c6c451d789b4cb31b6bd10626b0362f1c",
+      "lineage": "ICSQuartz scan-cycle ST extracted from ICSPatch/industrial-control examples",
+      "transformations": [
+        "removed PROGRAM PLC_PRG harness wrapper",
+        "renamed target FUNCTION_BLOCK Code to STFZ_SCAN_SCAN_CYCLE_CHEMICAL_OOBW_1",
+        "normalized CODESYS string lengths and ADR()"
+      ],
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json"
+    },
+    {
+      "suite": "icsquartz_scan_cycle",
+      "id": "scan_cycle_smart_oobr_1",
+      "kind": "FUNCTION_BLOCK",
+      "function": "STFZ_SCAN_SCAN_CYCLE_SMART_OOBR_1",
+      "st_file": "benchmarks/external/icsquartz/scan_cycle/scan_cycle_smart_oobr_1/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/scan_cycle_smart_oobr_1/src/program.st",
+      "upstream_sha256": "3baf3bd934aa74a3d8c8af8f89f344bb1d618c6d68d2dc019794487589338ed4",
+      "lineage": "ICSQuartz scan-cycle ST extracted from ICSPatch/industrial-control examples",
+      "transformations": [
+        "removed PROGRAM PLC_PRG harness wrapper",
+        "renamed target FUNCTION_BLOCK Code to STFZ_SCAN_SCAN_CYCLE_SMART_OOBR_1",
+        "normalized CODESYS string lengths and ADR()"
+      ],
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json"
+    },
+    {
+      "suite": "icsquartz_scan_cycle",
+      "id": "scan_cycle_smart_oobw_1",
+      "kind": "FUNCTION_BLOCK",
+      "function": "STFZ_SCAN_SCAN_CYCLE_SMART_OOBW_1",
+      "st_file": "benchmarks/external/icsquartz/scan_cycle/scan_cycle_smart_oobw_1/target.st",
+      "upstream_repo": "https://github.com/momalab/ICSQuartz",
+      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
+      "upstream_path": "benchmarks/scan_cycle_smart_oobw_1/src/program.st",
+      "upstream_sha256": "f6173f21b4c520f1e4587cd2cca97aa0565193b996e3a34b564b0a0d905e56df",
+      "lineage": "ICSQuartz scan-cycle ST extracted from ICSPatch/industrial-control examples",
+      "transformations": [
+        "removed PROGRAM PLC_PRG harness wrapper",
+        "renamed target FUNCTION_BLOCK Code to STFZ_SCAN_SCAN_CYCLE_SMART_OOBW_1",
+        "normalized CODESYS string lengths and ADR()"
+      ],
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json"
+    }
+  ]
+}

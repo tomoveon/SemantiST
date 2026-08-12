@@ -1,0 +1,9 @@
+{
+  "schema_version": "semantist.compatibility-profile/1.0.0",
+  "name": "codesys-memory",
+  "dialects": ["codesys"],
+  "st_sources": ["interfaces.st"],
+  "native_sources": ["runtime.c"],
+  "native_compile_args": [],
+  "link_args": []
+}

@@ -1,0 +1,57 @@
+{
+  "schema_version": "semantist.dependency-report/1.0.0",
+  "library": "oscat.st",
+  "resolution_order": [
+    "compiler_intrinsic",
+    "rusty_iec_st_library",
+    "libiec61131std.a",
+    "input_library",
+    "stubs.st"
+  ],
+  "classifications": {
+    "declaration": [],
+    "semantic_adapter": [
+      "BYTE_TO_REAL",
+      "DATE_TO_DWORD",
+      "DATE_TO_UDINT",
+      "DINT_TO_TOD",
+      "DT_TO_DWORD",
+      "DT_TO_UDINT",
+      "DWORD_TO_DATE",
+      "DWORD_TO_DT",
+      "DWORD_TO_TIME",
+      "DWORD_TO_TOD",
+      "INT_TO_STRING",
+      "REAL_TO_TIME",
+      "STRING_TO_INT",
+      "TIME_TO_DINT",
+      "TIME_TO_DWORD",
+      "TIME_TO_INT",
+      "TIME_TO_REAL",
+      "TOD_TO_DINT",
+      "TOD_TO_DWORD",
+      "UDINT_TO_DATE",
+      "UDINT_TO_DT",
+      "WORD_TO_REAL"
+    ],
+    "environment_model": [],
+    "unresolved": []
+  },
+  "evidence": {
+    "codesys": "compiler/parser/st-to-rusty-converter/references/oscat-codesys-semantics.md",
+    "rusty_declarations": "artifacts/rusty-semantic/libs/stdlib/iec61131-st",
+    "runtime_archive": "artifacts/cargo-target/release/libiec61131std.a",
+    "implementation": "stubs.st",
+    "tests": "tests/integration/test_library_intake.py"
+  },
+  "assumptions": [
+    "OSCAT targets use the documented CODESYS 32-bit second/millisecond temporal representation.",
+    "Pinned RuSTy temporal values use signed 64-bit nanoseconds.",
+    "Inputs outside CODESYS documented temporal ranges are not claimed equivalent."
+  ],
+  "gate": {
+    "status": "passed",
+    "unresolved_count": 0,
+    "native_link_targets": ["INC2", "FIFO_16"]
+  }
+}

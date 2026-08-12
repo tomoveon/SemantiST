@@ -1,0 +1,9 @@
+{
+  "name": "stg_fixture",
+  "files": [
+    "../control_flow.st"
+  ],
+  "compile_type": "IR",
+  "output": "fixture.ll",
+  "libraries": []
+}

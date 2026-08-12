@@ -1,0 +1,4 @@
+interface:
+  display_name: "ST to RuSTy Intake"
+  short_description: "Audit and onboard ST libraries into SemantiST"
+  default_prompt: "Use $st-to-rusty-converter to onboard this ST library non-destructively and prove native linking."

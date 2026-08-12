@@ -1,0 +1,30 @@
+{
+  "schema_version": "semantist.compatibility/1.0.0",
+  "name": "external_codesys_memory",
+  "dialect": "codesys",
+  "profiles": [
+    "codesys-memory",
+    "codesys-memory-aliases"
+  ],
+  "library": {
+    "sources": [
+      "interfaces.st"
+    ],
+    "normalized_sources": [
+      "interfaces.st"
+    ],
+    "compatibility_sources": []
+  },
+  "native": {
+    "sources": [
+      "runtime.c"
+    ],
+    "objects": [],
+    "libraries": [],
+    "compile_args": [],
+    "link_args": []
+  },
+  "toolchain": {
+    "stdlib_glob": "artifacts/rusty-semantic/libs/stdlib/iec61131-st/*.st"
+  }
+}

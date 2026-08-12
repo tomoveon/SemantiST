@@ -1,0 +1,28 @@
+{
+  "schema_version": "semantist.compatibility/1.0.0",
+  "name": "oscat_basic",
+  "dialect": "codesys",
+  "profiles": [],
+  "library": {
+    "sources": [
+      "oscat.st",
+      "stubs.st"
+    ],
+    "normalized_sources": [
+      "oscat.st"
+    ],
+    "compatibility_sources": [
+      "stubs.st"
+    ]
+  },
+  "native": {
+    "sources": [],
+    "objects": [],
+    "libraries": [],
+    "compile_args": [],
+    "link_args": []
+  },
+  "toolchain": {
+    "stdlib_glob": "artifacts/rusty-semantic/libs/stdlib/iec61131-st/*.st"
+  }
+}

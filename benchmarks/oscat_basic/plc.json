@@ -1,0 +1,11 @@
+{
+  "name": "semantist_oscat_semantic",
+  "files": [
+    "artifacts/rusty-semantic/libs/stdlib/iec61131-st/*.st",
+    "source/oscat.st",
+    "source/stubs.st"
+  ],
+  "compile_type": "IR",
+  "output": "oscat-semantic.ll",
+  "libraries": []
+}

@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel>=0.41"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "semantist"
+version = "0.1.0"
+description = "Semantic-guided fuzzing for IEC 61131-3 Structured Text"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+semantist = "fuzzer.pipeline.core:main"
+semantist-report = "fuzzer.reporting.report:main"
+semantist-minimize = "fuzzer.cli.minimize_seed:main"
+semantist-check-llm = "fuzzer.cli.check_llm:main"
+semantist-compile = "compiler.instrumentation.compile:compile_st_project_main"
+semantist-prepare-ir = "compiler.instrumentation.compile:prepare_target_ir_main"
+semantist-harness = "compiler.harness.generator:main"
+
+[tool.setuptools.packages.find]
+include = ["compiler*", "fuzzer*"]
+
+[tool.setuptools.package-data]
+"compiler.toolchain.compatibility" = [
+  "README.md",
+  "profiles/*/*.json",
+  "profiles/*/*.st",
+  "profiles/*/*.c",
+  "profiles/*/*.cc",
+  "profiles/*/*.cpp",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
