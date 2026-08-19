@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     gnupg \
     lsb-release \
+    software-properties-common \
     make \
     build-essential \
     pkg-config \
@@ -32,7 +33,8 @@ RUN curl -fsSL https://apt.llvm.org/llvm.sh -o /tmp/llvm.sh \
 RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain "${RUST_TOOLCHAIN}"
 
 ENV VIRTUAL_ENV="/opt/semantist-venv" \
-    PATH="/opt/semantist-venv/bin:/root/.cargo/bin:${PATH}" \
+    PATH="/usr/lib/llvm-21/bin:/opt/semantist-venv/bin:/root/.cargo/bin:${PATH}" \
+    LLVM_CONFIG="/usr/lib/llvm-21/bin/llvm-config" \
     LLVM_SYS_211_PREFIX="/usr/lib/llvm-21" \
     SEMANTIST_LLVM_BIN="/usr/lib/llvm-21/bin" \
     SEMANTIST_SEMANTIC_LLVM_BIN="/usr/lib/llvm-21/bin" \

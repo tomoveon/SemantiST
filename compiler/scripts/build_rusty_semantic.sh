@@ -55,7 +55,22 @@ fi
 printf '%s\n' "${PATCH_SHA}" > "${STAMP}"
 
 export LLVM_SYS_211_PREFIX="${LLVM_SYS_211_PREFIX:-/usr/lib/llvm-21}"
+export LLVM_CONFIG="${LLVM_CONFIG:-${LLVM_SYS_211_PREFIX}/bin/llvm-config}"
+export PATH="${LLVM_SYS_211_PREFIX}/bin:${PATH}"
 export CARGO_TARGET_DIR="${CARGO_OUTPUT}"
+
+if [[ ! -x "${LLVM_CONFIG}" ]]; then
+  echo "[build_rusty_semantic] missing LLVM_CONFIG: ${LLVM_CONFIG}" >&2
+  exit 1
+fi
+
+LLVM_MAJOR="$("${LLVM_CONFIG}" --version | cut -d. -f1)"
+if [[ "${LLVM_MAJOR}" != "21" ]]; then
+  echo "[build_rusty_semantic] LLVM 21 required, found $("${LLVM_CONFIG}" --version)" >&2
+  exit 1
+fi
+
+
 if [[ "${PROFILE}" == "release" ]]; then
   cargo build --manifest-path "${DESTINATION}/Cargo.toml" --release --bin plc
 else
