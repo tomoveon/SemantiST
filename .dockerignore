@@ -13,7 +13,13 @@ htmlcov
 
 target
 artifacts
+
+# Runtime corpus at the build-context root.  The explicit exceptions protect
+# the fuzzer/corpus package, which is required by both the Python pipeline and
+# the Rust engine.
 corpus
+!fuzzer/corpus/
+!fuzzer/corpus/**
 crashes
 findings
 llm-corpus

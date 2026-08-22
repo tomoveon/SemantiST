@@ -19,7 +19,8 @@ target/
 artifacts/
 
 # SemantiST generated runtime/build outputs
-corpus/
+# Keep this root-anchored: fuzzer/corpus/ contains required source code.
+/corpus/
 crashes/
 findings/
 llm-corpus/
@@ -27,7 +28,6 @@ target-corpus/
 unified-corpus/
 runs/
 semantic_extraction/
-docs/
 /st/
 st-to-rusty-converter-old/
 .semantist-runtime/

