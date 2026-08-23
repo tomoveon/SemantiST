@@ -164,6 +164,7 @@ def launch_fuzzer(
         "-p",
         "semantist",
         "--release",
+        "--locked",
         "--",
         "--target",
         str(target_bin),

@@ -72,9 +72,9 @@ fi
 
 
 if [[ "${PROFILE}" == "release" ]]; then
-  cargo build --manifest-path "${DESTINATION}/Cargo.toml" --release --bin plc
+  cargo build --manifest-path "${DESTINATION}/Cargo.toml" --release --locked --bin plc
 else
-  cargo build --manifest-path "${DESTINATION}/Cargo.toml" --bin plc
+  cargo build --manifest-path "${DESTINATION}/Cargo.toml" --locked --bin plc
 fi
 
 echo "${CARGO_OUTPUT}/${PROFILE}/plc"

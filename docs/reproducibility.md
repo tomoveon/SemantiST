@@ -57,28 +57,29 @@ Record at least:
 
 ## Docker
 
-Build the development/reproduction image from the repository root:
+Build the development/reproduction image from a clean repository checkout. The
+build downloads its Ubuntu, LLVM, Python, Cargo, and RuSTy dependencies:
 
 ```bash
 docker build -t semantist:latest .
 ```
 
-Run an interactive container with the repository mounted so that experiment
-artifacts are written back to the host:
+Create a host output directory and mount only that directory. Do not mount the
+whole repository over `/work/SemantiST`, because doing so replaces the source
+snapshot that was compiled and checked while building the image:
 
 ```bash
+mkdir -p artifacts
 docker run --rm -it \
-  -v "$PWD":/work/SemantiST \
-  -w /work/SemantiST \
+  --mount type=bind,src="$PWD/artifacts",dst=/work/SemantiST/artifacts \
   semantist:latest
 ```
 
 Inside the container, run tests:
 
 ```bash
-cargo test
-LLVM_SYS_211_PREFIX=/usr/lib/llvm-21 cargo test -p semantist-stg --jobs 1
-.venv/bin/python -m pytest
+python3 -m pytest
+cargo test --workspace --locked --jobs 1
 ```
 
 Run a small SemantiST example:
@@ -91,6 +92,9 @@ semantist \
   --run-dir artifacts/runs/inc2-example \
   --fuzz-timeout 300
 ```
+
+The image stores Rust build products in `/opt`, so mounting
+`/work/SemantiST/artifacts` cannot hide the prebuilt tools.
 
 ## GitHub Release Checklist
 

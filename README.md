@@ -36,9 +36,9 @@ RuSTy 兼容 ST + compatibility.json
 
 - Docker Engine 或 Docker Desktop；
 - 建议至少 4 个 CPU、8 GiB 内存和 15 GiB 可用磁盘；
-- 构建时能够访问 Ubuntu 软件源、LLVM 软件源、crates.io 和 GitHub。
+- 构建时能够访问 Ubuntu 软件源、LLVM 软件源、PyPI、crates.io 和 GitHub。
 
-Docker 镜像包含 Python、Rust 1.90.0、LLVM 21、AFL++、固定提交并应用 SemantiST 补丁的 RuSTy，以及预编译的 IEC 标准库。
+Docker 镜像包含 Python、Rust 1.90.0、LLVM 21、AFL++、固定提交并应用 SemantiST 补丁的 RuSTy、预编译的 IEC 标准库，以及三个 SemantiST release 可执行文件。镜像构建需要联网；镜像构建完成后的本地 `mock` 实验不需要联网。
 
 ## Docker 快速开始
 
@@ -98,6 +98,8 @@ docker run --rm \
 ```
 
 每次运行都应使用一个不存在或为空的 `--run-dir`。`mock` 报告器完全离线。
+
+只挂载 `artifacts/`，不要把宿主机整个仓库挂载到 `/work/SemantiST`；后者会用宿主机文件覆盖镜像中已经完成构建和自检的源码快照。容器内的 Cargo target 和 RuSTy 位于 `/opt`，因此挂载输出目录不会遮住预编译工具。
 
 ## 主要输出
 

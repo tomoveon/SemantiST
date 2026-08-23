@@ -26,6 +26,16 @@ DEFAULT_PLC = ROOT / "artifacts/rusty-semantic/target/release/plc"
 DEFAULT_LLVM_BIN = Path("/usr/lib/llvm-21/bin")
 
 
+def configured_path(variable: str, default: Path) -> Path:
+    value = os.environ.get(variable)
+    return Path(value).expanduser() if value else default
+
+
+def configured_stdlib() -> Path:
+    value = os.environ.get("SEMANTIST_RUSTY_STDLIB_GLOB")
+    return Path(value).expanduser().parent if value else DEFAULT_STDLIB
+
+
 def run_logged(command: list[str], log: Path, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
         command,
@@ -62,12 +72,24 @@ def main() -> int:
     parser.add_argument("--library", type=Path)
     parser.add_argument("--stubs", type=Path)
     parser.add_argument("--pou", action="append", required=True, help="repeat for each link smoke target")
-    parser.add_argument("--plc", type=Path, default=DEFAULT_PLC)
-    parser.add_argument("--stdlib", type=Path, default=DEFAULT_STDLIB)
-    parser.add_argument("--runtime-archive", type=Path, default=DEFAULT_RUNTIME)
+    parser.add_argument(
+        "--plc",
+        type=Path,
+        default=configured_path("RUSTY_COMPILER", DEFAULT_PLC),
+    )
+    parser.add_argument("--stdlib", type=Path, default=configured_stdlib())
+    parser.add_argument(
+        "--runtime-archive",
+        type=Path,
+        default=configured_path("SEMANTIST_RUSTY_STDLIB_LIB", DEFAULT_RUNTIME),
+    )
     parser.add_argument("--native-object", type=Path, action="append", default=[])
     parser.add_argument("--environment-model", action="append", default=[])
-    parser.add_argument("--llvm-bin", type=Path, default=DEFAULT_LLVM_BIN)
+    parser.add_argument(
+        "--llvm-bin",
+        type=Path,
+        default=configured_path("SEMANTIST_LLVM_BIN", DEFAULT_LLVM_BIN),
+    )
     args = parser.parse_args()
 
     workspace = args.workspace.resolve()

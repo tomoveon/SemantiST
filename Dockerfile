@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     make \
     build-essential \
     pkg-config \
+    libzstd-dev \
     python3 \
     python3-dev \
     python3-pip \
@@ -22,11 +23,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     afl++ \
     clang \
     llvm \
+    perl \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL https://apt.llvm.org/llvm.sh -o /tmp/llvm.sh \
     && chmod +x /tmp/llvm.sh \
     && /tmp/llvm.sh 21 \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends libpolly-21-dev \
     && rm -f /tmp/llvm.sh \
     && rm -rf /var/lib/apt/lists/*
 
@@ -46,12 +50,13 @@ ENV VIRTUAL_ENV="/opt/semantist-venv" \
     SEMANTIST_RUSTY_STDLIB_MANIFEST="/opt/rusty-semantic/libs/stdlib/Cargo.toml" \
     SEMANTIST_RUSTY_STDLIB_GLOB="/opt/rusty-semantic/libs/stdlib/iec61131-st/*.st" \
     SEMANTIST_RUSTY_STDLIB_LIB="/opt/rusty-semantic/target/release/libiec61131std.a" \
-    CARGO_TARGET_DIR="/work/SemantiST/artifacts/cargo-target"
+    CARGO_TARGET_DIR="/opt/semantist/cargo-target"
 
 RUN mkdir -p /usr/local/lib/afl \
     && if [[ -e /usr/lib/afl/afl-compiler-rt.o && ! -e /usr/local/lib/afl/afl-compiler-rt.o ]]; then \
       ln -s /usr/lib/afl/afl-compiler-rt.o /usr/local/lib/afl/afl-compiler-rt.o; \
-    fi
+    fi \
+    && test -r "${SEMANTIST_AFL_RUNTIME}"
 
 WORKDIR /work/SemantiST
 COPY . .
@@ -63,7 +68,7 @@ RUN python3 -m venv "${VIRTUAL_ENV}" \
 
 # Build the exact RuSTy revision pinned by build_rusty_semantic.sh, apply the
 # SemantiST metadata patch, and keep the compiler outside the bind-mounted
-# repository.  The standard library is also prebuilt at the path consumed by
+# repository. The standard library is also prebuilt at the path consumed by
 # build_target.sh.
 RUN ./compiler/scripts/build_rusty_semantic.sh \
     && CARGO_TARGET_DIR="${SEMANTIST_RUSTY_CARGO_TARGET_DIR}" \
@@ -73,5 +78,12 @@ RUN ./compiler/scripts/build_rusty_semantic.sh \
          --locked \
     && test -x "${RUSTY_COMPILER}" \
     && test -r "${SEMANTIST_RUSTY_STDLIB_LIB}"
+
+# Prebuild all release binaries. /opt is not hidden when users mount the
+# repository's artifacts directory for persistent experiment output.
+RUN cargo build --workspace --release --locked \
+    && test -x "${CARGO_TARGET_DIR}/release/semantist" \
+    && test -x "${CARGO_TARGET_DIR}/release/semantist-stg" \
+    && test -x "${CARGO_TARGET_DIR}/release/stg-ir-instrument"
 
 CMD ["/bin/bash"]

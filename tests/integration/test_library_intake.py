@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -10,9 +11,26 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "compiler/parser/st-to-rusty-converter/scripts"
 FIXTURES = ROOT / "tests/fixtures/library_intake"
-PLC = ROOT / "artifacts/rusty-semantic/target/release/plc"
-RUNTIME = ROOT / "artifacts/cargo-target/release/libiec61131std.a"
-CLANG = Path("/usr/lib/llvm-21/bin/clang")
+
+
+def configured_path(variable: str, default: Path) -> Path:
+    value = os.environ.get(variable)
+    return Path(value) if value else default
+
+
+PLC = configured_path(
+    "RUSTY_COMPILER",
+    ROOT / "artifacts/rusty-semantic/target/release/plc",
+)
+RUNTIME = configured_path(
+    "SEMANTIST_RUSTY_STDLIB_LIB",
+    ROOT / "artifacts/cargo-target/release/libiec61131std.a",
+)
+LLVM_BIN = configured_path(
+    "SEMANTIST_LLVM_BIN",
+    Path("/usr/lib/llvm-21/bin"),
+)
+CLANG = LLVM_BIN / "clang"
 
 pytestmark = pytest.mark.skipif(
     not (PLC.exists() and RUNTIME.exists() and CLANG.exists()),
