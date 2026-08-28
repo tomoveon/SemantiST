@@ -40,6 +40,12 @@ RuSTy 兼容 ST + compatibility.json
 
 Docker 镜像包含 Python、Rust 1.90.0、LLVM 21、AFL++、固定提交并应用 SemantiST 补丁的 RuSTy、预编译的 IEC 标准库，以及三个 SemantiST release 可执行文件。镜像构建需要联网；镜像构建完成后的本地 `mock` 实验不需要联网。
 
+论文对照实验使用的 AFL++、ICSQuartz、ICSFuzz 和 StructuredFuzzer 环境由
+`experiments/baselines/` 中的独立 Dockerfile 构建。该目录只保存固定版本的
+构建配方和校验值，不把第三方工具源码复制到 SemantiST 仓库中。当前阶段只
+构建并验证基线环境，不运行正式实验；详见
+[`experiments/baselines/README.md`](experiments/baselines/README.md)。
+
 ## Docker 快速开始
 
 ### 构建镜像
