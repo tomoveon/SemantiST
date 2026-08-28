@@ -100,14 +100,28 @@ def main() -> int:
     parser.add_argument(
         "tools",
         nargs="*",
-        choices=("all", *TOOL_ORDER),
-        help="images to process; default: all",
+        metavar="TOOL",
+        help=(
+            "images to process; default: all; choices: "
+            + ", ".join(("all", *TOOL_ORDER))
+        ),
     )
     parser.add_argument("--platform", help="override the locked Docker platform")
     parser.add_argument("--skip-build", action="store_true", help="only smoke-test existing images")
     parser.add_argument("--skip-smoke", action="store_true", help="build without running smoke checks")
     parser.add_argument("--no-pull", action="store_true", help="do not refresh pinned base images")
     args = parser.parse_args()
+
+    valid_tools = ("all", *TOOL_ORDER)
+    invalid_tools = [tool for tool in args.tools if tool not in valid_tools]
+    if invalid_tools:
+        parser.error(
+            "argument tools: invalid choice: "
+            + ", ".join(repr(tool) for tool in invalid_tools)
+            + " (choose from "
+            + ", ".join(repr(tool) for tool in valid_tools)
+            + ")"
+        )
 
     if args.skip_build and args.skip_smoke:
         parser.error("--skip-build and --skip-smoke cannot be used together")
