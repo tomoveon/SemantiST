@@ -5,12 +5,20 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent
+REPOSITORY_ROOT = ROOT.parents[1]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
+
+from experiments.comparison.lib.process import resolve_container_runtime  # noqa: E402
+
+
 LOCK_FILE = ROOT / "baselines.lock.json"
 TOOL_ORDER = ("aflplusplus", "icsquartz", "icsfuzz", "structuredfuzzer")
 SMOKE_COMMANDS = {
@@ -57,9 +65,15 @@ def selected_tools(requested: list[str]) -> list[str]:
     return list(dict.fromkeys(requested))
 
 
-def build(tool: str, config: dict[str, object], platform: str, pull: bool) -> None:
+def build(
+    runtime: str,
+    tool: str,
+    config: dict[str, object],
+    platform: str,
+    pull: bool,
+) -> None:
     dockerfile = ROOT / str(config["dockerfile"])
-    command = ["docker", "build", "--platform", platform]
+    command = [runtime, "build", "--platform", platform]
     if pull:
         command.append("--pull")
     command.extend(("--tag", str(config["tag"]), "--file", str(dockerfile)))
@@ -69,10 +83,10 @@ def build(tool: str, config: dict[str, object], platform: str, pull: bool) -> No
     run(command)
 
 
-def smoke(tool: str, config: dict[str, object], platform: str) -> None:
+def smoke(runtime: str, tool: str, config: dict[str, object], platform: str) -> None:
     run(
         [
-            "docker",
+            runtime,
             "run",
             "--rm",
             "--platform",
@@ -85,7 +99,7 @@ def smoke(tool: str, config: dict[str, object], platform: str) -> None:
     )
     run(
         [
-            "docker",
+            runtime,
             "image",
             "inspect",
             str(config["tag"]),
@@ -106,7 +120,13 @@ def main() -> int:
             + ", ".join(("all", *TOOL_ORDER))
         ),
     )
-    parser.add_argument("--platform", help="override the locked Docker platform")
+    parser.add_argument("--platform", help="override the locked container platform")
+    parser.add_argument(
+        "--container-runtime",
+        choices=("auto", "docker", "podman"),
+        default=os.environ.get("CONTAINER_RUNTIME", "auto"),
+        help="container runtime; auto tries Docker then Podman (default: %(default)s)",
+    )
     parser.add_argument("--skip-build", action="store_true", help="only smoke-test existing images")
     parser.add_argument("--skip-smoke", action="store_true", help="build without running smoke checks")
     parser.add_argument("--no-pull", action="store_true", help="do not refresh pinned base images")
@@ -125,8 +145,13 @@ def main() -> int:
 
     if args.skip_build and args.skip_smoke:
         parser.error("--skip-build and --skip-smoke cannot be used together")
-    if shutil.which("docker") is None:
-        raise SystemExit("docker CLI was not found; run this script on the Docker host")
+    try:
+        runtime, runtime_status = resolve_container_runtime(args.container_runtime)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
+    if runtime is None:
+        raise SystemExit(f"no accessible container runtime: {runtime_status}")
+    print(f"[baselines] container runtime: {runtime}", flush=True)
 
     lock = load_lock()
     platform = args.platform or str(lock["platform"])
@@ -134,9 +159,9 @@ def main() -> int:
     for tool in selected_tools(args.tools):
         config = dict(images[tool])
         if not args.skip_build:
-            build(tool, config, platform, pull=not args.no_pull)
+            build(runtime, tool, config, platform, pull=not args.no_pull)
         if not args.skip_smoke:
-            smoke(tool, config, platform)
+            smoke(runtime, tool, config, platform)
     return 0
 
 

@@ -128,7 +128,7 @@ fn main() -> Result<(), Error> {
 
     // 5. state 保存 RNG、corpus、crashes，以及 feedback 的元数据。
     let mut state = StdState::new(
-        StdRand::with_seed(current_nanos()),
+        StdRand::with_seed(config.rng_seed.unwrap_or_else(current_nanos)),
         InMemoryOnDiskCorpus::<BytesInput>::new(&config.queue_dir)?,
         OnDiskCorpus::new(&config.crashes_dir)?,
         &mut feedback,

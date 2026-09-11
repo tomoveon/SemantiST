@@ -16,6 +16,7 @@ struct Config {
     semantic_task_budget: u64,
     semantic_task_state_file: PathBuf,
     fuzz_iterations: Option<u64>,
+    rng_seed: Option<u64>,
     debug_child: bool,
 }
 
@@ -44,6 +45,9 @@ impl Config {
             .and_then(|value| value.parse::<u64>().ok())
             .unwrap_or(1_000);
         let mut fuzz_iterations = env::var("SEMANTIST_FUZZ_ITERATIONS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok());
+        let mut rng_seed = env::var("SEMANTIST_RNG_SEED")
             .ok()
             .and_then(|value| value.parse::<u64>().ok());
         let mut debug_child = false;
@@ -93,6 +97,12 @@ impl Config {
                         Error::illegal_argument(format!(
                             "invalid --fuzz-iterations value {raw:?}: {e}"
                         ))
+                    })?);
+                }
+                "--seed" => {
+                    let raw = next_arg(&mut args, &arg)?;
+                    rng_seed = Some(raw.parse().map_err(|e| {
+                        Error::illegal_argument(format!("invalid --seed value {raw:?}: {e}"))
                     })?);
                 }
                 "--debug-child" | "-d" => {
@@ -172,6 +182,7 @@ impl Config {
             semantic_task_budget: semantic_task_budget.max(1),
             semantic_task_state_file,
             fuzz_iterations,
+            rng_seed,
             debug_child,
         })
     }

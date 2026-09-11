@@ -1,0 +1,33 @@
+FUNCTION STFZ_ICSF_ICSFUZZ_OOB_1_ARR_1 : WORD
+VAR_INPUT
+	input1: WORD;
+END_VAR
+VAR
+	array1: ARRAY [0 .. 100] OF WORD;
+	index: WORD;
+	load_val: WORD;
+END_VAR
+load_val := 16#DEAD;
+index := input1/256 + 32;
+array1[index] := load_val;
+STFZ_ICSF_ICSFUZZ_OOB_1_ARR_1 := index;
+END_FUNCTION
+
+
+PROGRAM PLC_PRG
+VAR_INPUT
+    input1 : WORD;
+END_VAR
+VAR
+    semantist_result : WORD;
+END_VAR
+semantist_result := STFZ_ICSF_ICSFUZZ_OOB_1_ARR_1(input1 := input1);
+END_PROGRAM
+
+
+CONFIGURATION STD_CONF
+  RESOURCE STD_RESSOURCE ON PLC
+    TASK TaskMain(INTERVAL := T#50ms,PRIORITY := 0);
+    PROGRAM Inst0 WITH TaskMain : PLC_PRG;
+  END_RESOURCE
+END_CONFIGURATION

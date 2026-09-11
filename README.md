@@ -32,9 +32,9 @@ RuSTy 兼容 ST + compatibility.json
 
 ## 环境要求
 
-推荐使用 Docker。当前主要复现环境为 Linux `x86_64`，需要：
+推荐使用 Docker 或 Podman。当前主要复现环境为 Linux `x86_64`，需要：
 
-- Docker Engine 或 Docker Desktop；
+- Docker Engine、Docker Desktop 或 Podman；
 - 建议至少 4 个 CPU、8 GiB 内存和 15 GiB 可用磁盘；
 - 构建时能够访问 Ubuntu 软件源、LLVM 软件源、PyPI、crates.io 和 GitHub。
 
@@ -46,7 +46,11 @@ Docker 镜像包含 Python、Rust 1.90.0、LLVM 21、AFL++、固定提交并应�
 构建并验证基线环境，不运行正式实验；详见
 [`experiments/baselines/README.md`](experiments/baselines/README.md)。
 
-## Docker 快速开始
+## 容器快速开始
+
+以下命令使用 Docker；Podman 用户可将命令中的 `docker` 直接替换为
+`podman`。论文对照实验和 baseline 构建脚本还支持
+`--container-runtime auto|docker|podman`。
 
 ### 构建镜像
 
@@ -141,7 +145,7 @@ python3 -m venv .venv
 .venv/bin/pip install -e '.[dev]'
 ```
 
-LLVM、AFL++ 和 RuSTy 仍需另外准备，因此一般建议优先使用 Docker。常用开发测试命令：
+LLVM、AFL++ 和 RuSTy 仍需另外准备，因此一般建议优先使用 Docker 或 Podman 容器。常用开发测试命令：
 
 ```bash
 .venv/bin/python -m pytest

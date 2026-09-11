@@ -1,0 +1,11 @@
+PROGRAM PLC_PRG
+VAR_INPUT
+    SEP : BYTE;
+    POS : INT;
+    LIST : STRING[LIST_LENGTH];
+END_VAR
+VAR
+    semantist_result : STRING[LIST_LENGTH];
+END_VAR
+semantist_result := LIST_GET(SEP := SEP, POS := POS, LIST := LIST);
+END_PROGRAM

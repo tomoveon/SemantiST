@@ -1,0 +1,91 @@
+FUNCTION_BLOCK MANUAL_1
+VAR_INPUT
+	IN : BOOL;
+	MAN : BOOL;
+	M_I : BOOL;
+	SET0 : BOOL;
+	RST : BOOL;
+END_VAR
+VAR_OUTPUT
+	Q : BOOL;
+	STATUS : BYTE;
+END_VAR
+VAR
+	S_edge : BOOL;
+	r_edge : BOOL;
+	edge: BOOL;
+END_VAR
+
+(*
+version 1.2	14. mar. 2009
+programmer 	hugo
+tested by		oscat
+
+MANUAL_1 is a manual override for digital signals.
+When MAN = FALSE, the output follows IN and when MAN = TRUE the Output follows M_I.
+
+
+*)
+(* @END_DECLARATION := '0' *)
+IF NOT man THEN
+	Q := IN;
+	STATUS := 100;
+	edge := FALSE;
+ELSIF NOT s_edge AND set0 THEN
+	Q := TRUE;
+	edge := TRUE;
+	status := 101;
+ELSIF NOT r_edge AND rst THEN
+	Q := FALSE;
+	edge := TRUE;
+	status := 102;
+ELSIF NOT edge THEN
+	Q := M_I;
+	status := 103;
+END_IF;
+
+(* remember levels of manual signals *)
+s_edge := SET0;
+r_edge := RST;
+
+
+
+(* revision history
+hm	17. jun 2008	rev 1.0
+	original version
+
+hm	17. oct 2008	rev 1.1
+	deleted unnecessary variable m_edge
+
+hm	14. mar. 2009	rev 1.2
+	replaced double assignments
+
+*)
+END_FUNCTION_BLOCK
+
+
+PROGRAM PLC_PRG
+VAR_INPUT
+    IN : BOOL;
+    MAN : BOOL;
+    M_I : BOOL;
+    SET0 : BOOL;
+    RST : BOOL;
+END_VAR
+VAR
+    semantist_fb : MANUAL_1;
+    semantist_out_Q : BOOL;
+    semantist_out_STATUS : BYTE;
+END_VAR
+semantist_fb(IN := IN, MAN := MAN, M_I := M_I, SET0 := SET0, RST := RST);
+semantist_out_Q := semantist_fb.Q;
+semantist_out_STATUS := semantist_fb.STATUS;
+END_PROGRAM
+
+
+CONFIGURATION STD_CONF
+  RESOURCE STD_RESSOURCE ON PLC
+    TASK TaskMain(INTERVAL := T#50ms,PRIORITY := 0);
+    PROGRAM Inst0 WITH TaskMain : PLC_PRG;
+  END_RESOURCE
+END_CONFIGURATION

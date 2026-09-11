@@ -1,0 +1,12 @@
+PROGRAM PLC_PRG
+VAR_INPUT
+    STR : STRING[STRING_LENGTH];
+    POS : INT;
+    PT : REF_TO ARRAY[0..32767] OF BYTE;
+    SIZE : UINT;
+END_VAR
+VAR
+    semantist_result : INT;
+END_VAR
+semantist_result := _STRING_TO_BUFFER(STR := STR, POS := POS, PT := PT, SIZE := SIZE);
+END_PROGRAM

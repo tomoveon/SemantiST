@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SemantiST full comparison run result",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "experiment_id",
+    "run_key",
+    "tool",
+    "target_id",
+    "suite",
+    "kind",
+    "function",
+    "trial_id",
+    "rng_seed_requested",
+    "rng_seed_applied",
+    "rng_seed_status",
+    "support_status",
+    "preprocessing_status",
+    "online_budget_seconds",
+    "observer_poll_interval_ms",
+    "online_elapsed_seconds",
+    "per_execution_timeout_ms",
+    "execution_timeout_model",
+    "run_status",
+    "finding_found",
+    "common_oracle_finding_found",
+    "semantic_objective_found",
+    "candidate_findings",
+    "common_replay",
+    "common_coverage",
+    "tool_specific_metrics",
+    "artifact_paths",
+    "failure_reason"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "semantist.full-comparison-run/1.0.0"
+    },
+    "tool": {
+      "enum": [
+        "semantist_full",
+        "aflplusplus_full",
+        "icsfuzz_full",
+        "icsquartz_full",
+        "structuredfuzzer_full"
+      ]
+    },
+    "kind": {
+      "enum": [
+        "FUNCTION",
+        "FUNCTION_BLOCK"
+      ]
+    },
+    "rng_seed_status": {
+      "enum": [
+        "applied",
+        "tool_missing_seed_control"
+      ]
+    },
+    "support_status": {
+      "enum": [
+        "supported",
+        "unsupported"
+      ]
+    },
+    "run_status": {
+      "enum": [
+        "budget_completed",
+        "early_completed_with_finding",
+        "early_completed_no_finding",
+        "unsupported",
+        "preprocessing_failed",
+        "online_start_failed",
+        "online_crashed",
+        "watchdog_timeout",
+        "runner_error",
+        "missing"
+      ]
+    },
+    "execution_timeout_model": {
+      "enum": [
+        "per_process",
+        "codesys_scan_cycle"
+      ]
+    },
+    "candidate_findings": {
+      "type": "array"
+    },
+    "tool_specific_metrics": {
+      "type": "object"
+    },
+    "artifact_paths": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": true
+}

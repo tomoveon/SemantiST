@@ -1,0 +1,9 @@
+PROGRAM PLC_PRG
+VAR_INPUT
+    IDATE : DATE;
+END_VAR
+VAR
+    semantist_result : INT;
+END_VAR
+semantist_result := DAYS_IN_MONTH(IDATE := IDATE);
+END_PROGRAM

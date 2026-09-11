@@ -1,16 +1,18 @@
-# AFL++、ICSFuzz 与 SemantiST 全量目标支持性与共同支持子集实验脚本规范
+# SemantiST、AFL++、ICSQuartz 与 StructuredFuzzer 四工具全量目标支持性与共同支持子集实验规范
 
 > 文档目标：本文是后续 agent 生成完整实验脚本、runner、adapter、schema、分析脚本和验收脚本的唯一依据。
 >
-> 实验对象：`semantist_full`、`aflplusplus_full`、`icsfuzz_full`。
+> 当前实验对象：`semantist_full`、`aflplusplus_full`、`icsquartz_full`、`structuredfuzzer_full`。
+>
+> `icsfuzz_full` 的规范段落暂时保留为未来扩展参考，但当前 smoke 与完整实验脚本不纳入 ICSFuzz。
 >
 > 实验范围：`/myfuzzer/SemantiST/benchmarks/external/manifest.json` 中的 90 个目标，包含 `FUNCTION` 与 `FUNCTION_BLOCK`。
 >
 > 固定预算：每个目标、每个工具、每个 trial 的在线 fuzzing 时间为 300 秒；每个目标、每个工具执行 5 个独立 trials。
 >
-> 运行矩阵规模：`3 tools x 90 targets x 5 trials = 1350` 条权威 run records。矩阵中的 unsupported、preprocessing failed、online start failed 也必须生成权威 run record。
+> 运行矩阵规模：`4 tools x 90 targets x 5 trials = 1800` 条权威 run records。矩阵中的 unsupported、preprocessing failed、online start failed 也必须生成权威 run record。
 >
-> 实验性质：本文定义的是三工具对 90 个目标的全量支持性尝试、支持率报告，以及共同支持目标子集上的 fuzzing 对比；本文不声称三个工具都在 90 个目标上实际完成 fuzzing。
+> 实验性质：本文定义的是四工具对 90 个目标的全量支持性尝试、支持率报告，以及四工具共同支持目标子集上的 fuzzing 对比；本文不声称四个工具都在 90 个目标上实际完成 fuzzing。
 
 ## 1. 固定输入与版本依据
 
@@ -41,11 +43,13 @@ d78e72690e8dc06c24714a660b264f34be927a58d011b45f3c70e7874cbc5fb4  /myfuzzer/ICSQ
 
 ```text
 SemantiST commit = 5ae1b74d064d303ecb7fc5aa70bf85f944b36907
-ICSFuzz commit = 4758eaac1e62da56b7e9fadbbe110700c3af3480
 ICSQuartz commit = 8021bd44f47147776c6394e008bbea23ac993076
+StructuredFuzzer commit = e648a52051fb1d6447a49c70d97cf140ecd861c3
 ```
 
 当实际提交与上列提交不同，脚本仍执行，但 `environment.json` 必须记录实际提交、dirty file 列表和 dirty diff SHA-256。
+
+容器基线的 tag、source revision、base-image digest 与 archive SHA-256 以 `/myfuzzer/SemantiST/experiments/baselines/baselines.lock.json` 为准。不得只记录 mutable image tag；环境快照还必须保存实际 image ID。
 
 ### 1.2 ICSQuartz 实验约定的采纳项
 
@@ -126,7 +130,8 @@ total = 90
   "tool_support": {
     "semantist_full": "pending",
     "aflplusplus_full": "pending",
-    "icsfuzz_full": "pending"
+    "icsquartz_full": "pending",
+    "structuredfuzzer_full": "pending"
   }
 }
 ```
@@ -142,30 +147,41 @@ target 不带 `compatibility_manifest` 时，`experiment-manifest.json` 中的 `
 默认实验 ID 固定为：
 
 ```text
-comparison_support_90targets_common_subset_300s_5trials
+comparison_4tools_90targets_300s_5trials
 ```
 
 矩阵生成规则：
 
 ```text
-tools = [semantist_full, aflplusplus_full, icsfuzz_full]
+tools = [semantist_full, aflplusplus_full, icsquartz_full, structuredfuzzer_full]
 trials = [1, 2, 3, 4, 5]
 targets = benchmark_manifest.targets in manifest order
 rows = cartesian_product(tools, targets, trials)
-expected_run_records = 1350
+expected_run_records = 1800
 ```
 
 本文固定使用下列目标集合名称：
 
 ```text
 all_90_attempted = benchmark_manifest.targets
-common_supported_targets = targets whose three tool_support values are supported
+common_supported_targets = targets whose four tool_support values are supported
 semantist_aflpp_supported_targets = targets whose semantist_full and aflplusplus_full support values are supported
 ```
 
-`all_90_attempted` 只表示三工具都必须尝试建立 run record。三工具横向 fuzzing 主结论只能基于 `common_supported_targets`。`all_90_attempted` 的结果只能用于支持率、稳定性、preprocessing 成功率和 unsupported 原因报告。
+`all_90_attempted` 只表示四工具都必须尝试建立 run record。四工具横向 fuzzing 主结论只能基于 `common_supported_targets`。`all_90_attempted` 的结果只能用于支持率、稳定性、preprocessing 成功率和 unsupported 原因报告。
 
-按本文第 4.3.1 节的 ICSFuzz support 判定，在本规范校验的输入树中 `icsfuzz_full` 支持 35 个目标，不支持 55 个目标。对应的 `icsfuzz_full` unsupported trial records 数为 `55 x 5 = 275`。runner 必须从实际路径重新计算该数量，并把计算结果写入 `support.json`；summary 标题不得把本实验称为“三工具 90 目标全量实际 fuzzing 对比”。
+按本文第 4.3.1 节与第 4.4.1 节的 support 判定，在当前输入树中：
+
+```text
+semantist_full supported = 90
+aflplusplus_full supported = 90
+icsquartz_full supported = 51, unsupported = 39
+structuredfuzzer_full supported = 90
+common_supported_targets = 51
+expected unsupported trial records = 39 x 5 = 195
+```
+
+runner 必须从实际路径重新计算这些数量，并写入 `support.json`，不能只相信上述快照。summary 标题不得把本实验称为“四工具 90 目标全量实际 fuzzing 对比”。
 
 每个 row 的稳定 key：
 
@@ -208,7 +224,9 @@ semantist_fb_state_trace = true
 semantist_report_llm_provider = mock
 ```
 
-`per_execution_timeout_ms` 对 SemantiST 和 AFL++ 固定为 1000 ms。ICSFuzz 的 CODESYS scan-cycle 执行模型不接受 per-testcase timeout 参数；ICSFuzz adapter 必须记录 `per_execution_timeout_ms=null` 与 `execution_timeout_model="codesys_scan_cycle"`。
+`per_execution_timeout_ms` 对 SemantiST、AFL++、ICSQuartz 和 StructuredFuzzer 固定为 1000 ms。
+
+`semantist_full`、`aflplusplus_full` 与 `icsquartz_full` 接受 runner seed，并记录 `rng_seed_status="applied"`。`structuredfuzzer_full` 没有可验证的显式 RNG 控制，必须记录 `rng_seed_status="tool_missing_seed_control"`。
 
 ### 3.4 CPU 与并发
 
@@ -216,9 +234,10 @@ runner CLI 固定为：
 
 ```bash
 python3 experiments/comparison/run_full_comparison.py \
-  --experiment-id comparison_support_90targets_common_subset_300s_5trials \
+  --experiment-id comparison_4tools_90targets_300s_5trials \
   --manifest /myfuzzer/SemantiST/benchmarks/external/manifest.json \
   --artifact-root /myfuzzer/artifacts/experiments \
+  --container-runtime auto \
   --cpus 1-8
 ```
 
@@ -232,7 +251,31 @@ sort_key = sha256("{experiment_id}|schedule|{tool}|{suite}|{target_id}|{trial_id
 
 runner 按 `sort_key` 升序调度 rows。该顺序写入 `schedule.jsonl`。
 
+### 3.5 容器运行时
+
+runner 必须支持：
+
+```text
+--container-runtime auto|docker|podman
+CONTAINER_RUNTIME=auto|docker|podman
+```
+
+`auto` 在实验开始前依次探测 Docker 与 Podman，并为整批实验固定一个运行时；不得在不同 row 间重新选择。显式指定 `docker` 或 `podman` 时不得静默回退。最终选择、版本、探测状态、platform 与 CPU binding 方式必须写入 `environment.json`。
+
+Docker 容器通过 `--cpuset-cpus={cpu}` 绑定单核。本地 rootless Podman 在 cpuset controller 未委派时，通过 `taskset --cpu-list {cpu} podman run ...` 让容器 PID 1 继承单核 affinity。Podman bind mount 必须处理 SELinux relabel；当前 adapter 使用 `:Z`。缺少所需的 `taskset`、运行时不可访问或请求 CPU 不在 runner affinity mask 中时，正式矩阵不得启动。
+
 ## 4. 工具全功能身份
+
+| Tool ID | 执行位置 | 显式 seed | 每次执行 timeout | 当前静态支持数 |
+| --- | --- | --- | --- | ---: |
+| `semantist_full` | SemantiST container | 是 | 1000 ms | 90 |
+| `aflplusplus_full` | SemantiST build container + AFL++ container | 是 | `1000+` ms | 90 |
+| `icsquartz_full` | target-specific container | 是 | 1000 ms，必须显式传入 | 51 |
+| `structuredfuzzer_full` | locked container | 否 | 1000 ms | 90 |
+
+表中的“当前静态支持数”只表示 `detect_support` 通过，不表示 preprocessing 或 online run 已成功。正式结果必须使用本次实验现场生成的 support matrix。
+
+宿主机是唯一 runner。所有工具 row 都作为 Docker/Podman sibling container 启动；SemantiST 容器内部不再启动子容器。
 
 ### 4.1 `semantist_full`
 
@@ -261,28 +304,28 @@ runner 按 `sort_key` 升序调度 rows。该顺序写入 `schedule.jsonl`。
 
 SemantiST preprocessing 为每个 `(tool, target)` 执行一次，并生成只读 preprocessing artifact。正式脚本禁止直接调用 `python3 -m fuzzer.pipeline.core --build-only` 作为 preprocessing 命令，因为该源码路径会在计时前生成并摄入 STG generated seeds。
 
-SemantiST preprocessing 必须使用低层构建步骤，命令模板：
+SemantiST preprocessing 必须使用低层构建步骤，命令在 `semantist_image` 容器中执行，宿主只负责调度与挂载。命令模板：
 
 ```bash
 cd /myfuzzer/SemantiST
-env -u GENERATED_SEED_DIR \
 SEMANTIST_SEMANTIC_INSTRUMENTATION=ir \
 SEMANTIST_STG_DIR="{preprocess_dir}/stg" \
 OUT_LL="{preprocess_dir}/target.ll" \
 OUT_OBJ="{preprocess_dir}/target.o" \
 OUT_BIN="{preprocess_dir}/fuzz_target" \
 HARNESS_OUT="{preprocess_dir}/harness.c" \
+GENERATED_SEED_DIR="{preprocess_dir}/base-seeds" \
 {compatibility_env} \
 ./compiler/scripts/compile_st.sh "{absolute_st_file}" "{function}"
 
 cd /myfuzzer/SemantiST
-env -u GENERATED_SEED_DIR \
 SEMANTIST_SEMANTIC_INSTRUMENTATION=ir \
 SEMANTIST_STG_DIR="{preprocess_dir}/stg" \
 OUT_LL="{preprocess_dir}/target.ll" \
 OUT_OBJ="{preprocess_dir}/target.o" \
 OUT_BIN="{preprocess_dir}/fuzz_target" \
 HARNESS_OUT="{preprocess_dir}/harness.c" \
+GENERATED_SEED_DIR="{preprocess_dir}/base-seeds" \
 {compatibility_env} \
 ./compiler/scripts/build_target.sh "{absolute_st_file}" "{function}"
 
@@ -306,11 +349,12 @@ preprocessing 产物必须包含：
 {preprocess_dir}/fuzz_target
 {preprocess_dir}/harness.c
 {preprocess_dir}/base-seeds/
+{preprocess_dir}/seed-manifest.json
 ```
 
 `target_name(function)` 的生成规则固定为：将 `function` 转为小写，将非 `[A-Za-z0-9_.-]` 字符替换为 `_`，删除首尾 `_`；空结果替换为 `target`。
 
-`base-seeds/` 只允许包含 `sorted({target_st_file_parent}/seeds/*.seed)` 中的基础 Harness seed。目标没有基础 seed 时，adapter 创建一个文件名为 `seed`、内容为 `X,INT,0\n` 的 fallback 基础 seed。
+`base-seeds/` 只允许包含 SemantiST harness generator 为当前 POU 生成的结构化默认 seed。STG bounded semantic initial generator 不得在 preprocessing 阶段运行；它只能在 online t0 之后由 Rust engine 执行。
 
 preprocessing 阶段不得保存、复制或引用下列路径：
 
@@ -362,15 +406,16 @@ SEMANTIST_FB_STATE_TRACE_FILE={run_dir}/tool-artifacts/fb-state-trace.log
 命令模板：
 
 ```bash
-cd /myfuzzer/SemantiST
-cargo run -p semantist --release -- \
+container run semantist_image \
+  /opt/semantist/cargo-target/release/semantist \
   --target "{target_bin}" \
   --function "{function}" \
   --run-dir "{run_dir}" \
   --semantic-task-budget 1000 \
   --semantic-task-plan "{run_dir}/semantic-task-plan.json" \
   --semantic-model "{run_dir}/stg/stg-model.json" \
-  --timeout-ms 1000
+  --timeout-ms 1000 \
+  --seed "{rng_seed}"
 ```
 
 Semantic initial generator 在 engine 启动后执行；它产生、执行并筛选的输入属于在线预算。`semantic_generation` 阶段触发的 objective 或 sanitizer finding 计入 `semantist_full`。
@@ -390,6 +435,7 @@ OUT_LL="{preprocess_dir}/target.ll" \
 OUT_OBJ="{preprocess_dir}/target.o" \
 OUT_BIN="{preprocess_dir}/fuzz_target" \
 HARNESS_OUT="{preprocess_dir}/harness.c" \
+GENERATED_SEED_DIR="{preprocess_dir}/base-seeds" \
 ./compiler/scripts/compile_st.sh "{absolute_st_file}" "{function}"
 
 cd /myfuzzer/SemantiST
@@ -398,6 +444,7 @@ OUT_LL="{preprocess_dir}/target.ll" \
 OUT_OBJ="{preprocess_dir}/target.o" \
 OUT_BIN="{preprocess_dir}/fuzz_target" \
 HARNESS_OUT="{preprocess_dir}/harness.c" \
+GENERATED_SEED_DIR="{preprocess_dir}/base-seeds" \
 ./compiler/scripts/build_target.sh "{absolute_st_file}" "{function}"
 ```
 
@@ -407,27 +454,31 @@ HARNESS_OUT="{preprocess_dir}/harness.c" \
 SEMANTIST_COMPATIBILITY_MANIFEST={absolute_compatibility_manifest}
 ```
 
-AFL++ seed corpus 固定为：
+AFL++ seed corpus 由 AFL++ adapter 在 preprocessing 阶段创建：
 
 ```text
-source seed files = sorted({target_st_file_parent}/seeds/*.seed)
-fallback seed file = seed with bytes "X,INT,0\n"
+source seed files = adapter-created raw byte seed in {preprocess_dir}/base-seeds
+seed-manifest = {preprocess_dir}/seed-manifest.json
 ```
 
-存在 source seed files 时，不创建 fallback seed。不存在 source seed files 时，创建 fallback seed。AFL++ 不接收 SemantiST generated seeds。
+SemantiST harness generator 的构建副产物必须隔离在 `{preprocess_dir}/harness-seeds/`，不得复制到 AFL++ online inputs。AFL++ 不接收 SemantiST STG semantic generated seeds，也不共享其他工具的 corpus。
 
 #### 4.2.2 AFL++ online command
 
 runner 在 `Popen` 前记录 `t0_monotonic_ns`。命令模板：
 
 ```bash
+AFL_NO_UI=1 \
+AFL_NO_AFFINITY=1 \
+AFL_SKIP_CPUFREQ=1 \
+AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES=1 \
 afl-fuzz \
   -i "{run_dir}/inputs" \
   -o "{run_dir}/tool-artifacts/afl" \
   -s "{rng_seed}" \
   -t 1000+ \
   -- \
-  "{preprocess_dir}/fuzz_target"
+  "{run_dir}/tool-artifacts/fuzz_target"
 ```
 
 AFL++ deterministic stage、calibration、havoc、splice、power schedule、queue management 全部属于 AFL++ 原生能力，并计入在线预算。
@@ -483,15 +534,16 @@ adapter 不生成 CODESYS 工程，不猜测 target offset，不猜测 target si
 
 #### 4.3.2 ICSFuzz preprocessing
 
-supported target 使用 ICSQuartz 的 CODESYS/ICSFuzz Docker 流程构建。preprocessing 必须完成：
+supported target 使用 `baselines.lock.json` 中固定的 `semantist-icsfuzz-env:8021bd4` 环境镜像。该镜像由 `experiments/baselines/build_images.py` 预先构建，不计入单 target preprocessing 时间。target preprocessing 必须完成：
 
 - 校验 ASLR 为 0；
 - 校验 `.config/codesys-area-zero` 存在；
-- 构建 CODESYS image；
-- 构建 target CODESYS artifact；
-- 构建 ICSFuzz container image；
-- 保存 build logs；
-- 保存 target offset、target size、CODESYS area zero、scan cycle ms。
+- 校验所选 Docker/Podman 运行时可访问；
+- 将 benchmark 的 `codesys/` 复制为只读 target artifact；
+- 将 `icsfuzz/harness.env` 复制为只读 target artifact；
+- 保存 CODESYS area zero、scan cycle ms、harness 内容和 baseline image tag。
+
+preprocessing 不得重新生成 PLC application，不得猜测 `harness.env` 中的 offset/size，也不得把镜像的全局构建时间混入某个 target 的 preprocessing 时间。
 
 #### 4.3.3 ICSFuzz online command
 
@@ -506,6 +558,101 @@ runner 在 container 启动前记录 `t0_monotonic_ns`。online command 使用 `
 - 直到 runner 达到 300 秒预算并终止整个 container/process group。
 
 ICSFuzz 的 `first_crash_time` 使用第 5.3 节的 runner-observed finding elapsed，不从 `icsfuzz.log` 第一行时间戳计算。`icsfuzz.log` 中的时间戳只用于辅助恢复 execution ordinal。
+
+### 4.4 `icsquartz_full`
+
+`icsquartz_full` 运行 ICSQuartz 原生 LibAFL fuzzer，不得用 SemantiST 或 AFL++ 输出替代。它使用 upstream benchmark 的 `src/`、`icsquartz/harness.c` 与 ICSQuartz target-specific container build 流程。
+
+ICSQuartz 接受 runner 生成的 `SEED`，并保留原生 mutation、power schedule、scan-cycle 和 state-reset 行为。`oscat_basic` 目标使用 upstream `bug.Dockerfile` 编译器，其余目标使用 `latest.Dockerfile`。ASAN alternate 配置只对 adapter 中固定的 upstream target allowlist 启用。
+
+#### 4.4.1 ICSQuartz support 判定
+
+adapter 对每个 target 校验：
+
+```text
+/myfuzzer/ICSQuartz/benchmarks/{target_id}/src/
+/myfuzzer/ICSQuartz/benchmarks/{target_id}/icsquartz/harness.c
+```
+
+两项都存在时写 `support_status="supported"`；否则写 `support_status="unsupported"` 与 `failure_reason.code="icsquartz_missing_benchmark_layout"`。当前输入树中支持 51 个目标、不支持 39 个目标，但 runner 必须现场重算。
+
+#### 4.4.2 ICSQuartz preprocessing
+
+preprocessing 为每个 supported `(tool, target)` 执行一次：
+
+1. 使用 `compiler/{bug|latest}.Dockerfile` 与 target build context 构建 target compiler image；
+2. 使用 `fuzzers/icsquartz/`、compiler image context 与 target context 构建 fuzzer image；
+3. 对 scan-cycle suite 设置 `SCAN_CYCLE=1`，其余设置为 0；
+4. 保存两条完整 build command、stdout/stderr、compiler/fuzzer image tag、ASAN alternate 和 scan-cycle metadata。
+
+Docker 与 Podman 都必须使用同一个已解析的 runtime。Podman 的 `--build-context ...=docker-image://...` 是允许的镜像 context，不得因为 transport 名称含 `docker-image` 而改回 Docker CLI。
+
+#### 4.4.3 ICSQuartz online command
+
+online 阶段以 detached container 运行 target-specific fuzzer image，并传入：
+
+```text
+SEED={rng_seed}
+CORES={assigned_cpu}
+SCAN_CYCLE_MAX=10000 for scan-cycle targets, otherwise 2
+SCAN_CYCLE_ARGS="--state-resets --dynamic-scan-cycle" for scan-cycle targets
+MUTATOR_POWER=4
+MIN_INPUT_GENERATION=128
+TIMEOUT=1000
+ASAN_OPTIONS={adapter-defined fixed options}
+```
+
+`start-fuzz.sh` 调用 ICSQuartz binary 时必须显式增加 `--timeout 1000`（或使用等价、可审计的参数传递）。upstream 默认值为 10000 ms；只在 `run-result.json` 中记录 1000、却让 binary 使用默认 10000，不符合本规范。
+
+runner 在 `container run` 前记录 `t0_monotonic_ns`，持续检查 container state，到预算后 stop，保存 `/out/fuzzer_stats.json`、`/out/crashes`、`/out/corpus` 与 `/out/fuzzer_log`，最后强制删除 container。所有 `inspect/cp/stop/rm` 必须使用启动时选定的同一 runtime。
+
+`/out` 必须以 host-visible 方式写入 `{run_dir}/tool-artifacts`，使 observer 能在运行期间按不超过 10 ms 的间隔发现 crash metadata。允许直接 bind mount；若运行时限制只能使用 `container cp`，则必须实现等价的增量同步。只在 300 秒结束后复制一次 `/out` 不满足首次 finding 时间合同。
+
+### 4.5 `structuredfuzzer_full`
+
+`structuredfuzzer_full` 使用锁定镜像 `semantist-structuredfuzzer-env:e648a52` 中的 StructuredFuzzer、MatIEC snapshot 和 AFL++ runtime。它不使用 SemantiST STG、semantic task、semantic mutation 或 SemantiST generated seeds。
+
+当前 StructuredFuzzer 使用内部 `current_nanos()` 初始化随机性，没有可验证的显式 seed 参数，因此每个 row 必须写：
+
+```json
+{
+  "rng_seed_requested": 123,
+  "rng_seed_applied": null,
+  "rng_seed_status": "tool_missing_seed_control"
+}
+```
+
+#### 4.5.1 StructuredFuzzer support 判定
+
+adapter 必须先执行公共 ST 文件/kind 校验，再用 SemantiST 的 ST signature parser 解析指定 POU。解析成功时允许尝试 StructuredFuzzer preprocessing；解析失败时写 `support_status="unsupported"` 与 `failure_reason.code="structuredfuzzer_signature_parse_failed"`。当前 manifest 的 90 个目标均通过该静态 support 判定；这表示“可尝试构建”，不保证 target-specific `stcompile` 必然成功。
+
+#### 4.5.2 StructuredFuzzer preprocessing
+
+adapter 必须：
+
+1. 读取原始 ST，生成包含 `PROGRAM PLC_PRG` 的 wrapper；
+2. 为 FUNCTION 保存返回值，为 FUNCTION_BLOCK 生成实例调用；
+3. 生成调用 `config_init__`、`set_plc_input`、`config_run__` 的 C harness；
+4. 创建单字节 `0x00` base seed；
+5. 在锁定 baseline image 中执行 `stcompile program.st harness.c -o build -n fuzz_target`；
+6. 保存 program、harness、target binary、image tag 与 build logs。
+
+任何 wrapper 生成、signature 转换或 `stcompile` 失败必须写结构化 preprocessing failure，不得回退到 SemantiST compiler 结果。
+
+#### 4.5.3 StructuredFuzzer online command
+
+online command 语义固定为：
+
+```bash
+stfuzz \
+  -i /inputs \
+  -o /out/fuzzer \
+  -t 1000 \
+  -l /out/libafl.log \
+  /out/fuzz_target
+```
+
+`inputs` 只读挂载，`tool-artifacts` 可写挂载；完整 container startup、corpus loading 与 fuzzer loop 均计入 300 秒在线预算。raw crash 来源为 `/out/fuzzer/crashes/**`，queue 来源为 `/out/fuzzer/queue/**`，`libafl.log` 只作为工具特定性能字段来源。
 
 ## 5. 时间计量标准
 
@@ -522,7 +669,7 @@ preprocessing_time_seconds
 preprocessing_status
 ```
 
-preprocessing 不执行 fuzzer 主循环，不执行 AFL++ calibration，不执行 ICSFuzz input mutation loop，不执行 SemantiST engine。
+preprocessing 不执行 fuzzer 主循环，不执行 AFL++ calibration，不执行 ICSFuzz input mutation loop，不执行 SemantiST engine，不执行 ICSQuartz 或 StructuredFuzzer online loop。
 
 ### 5.2 Online 时间
 
@@ -543,6 +690,8 @@ t0_monotonic_ns = time.monotonic_ns() immediately before Popen/start_container
 - AFL++ deterministic/havoc/splice；
 - ICSFuzz CODESYS 启动等待；
 - ICSFuzz 原生初始化；
+- ICSQuartz container startup、LibAFL 初始化与 initial corpus generation；
+- StructuredFuzzer container startup、corpus loading 与 LibAFL 初始化；
 - target testcase 执行；
 - crash restart；
 - fuzzer 内部日志 flush。
@@ -590,6 +739,8 @@ adapter 的工具特定来源固定为：
 semantist_full: {run_dir}/findings/**/*.json and {run_dir}/events.jsonl
 aflplusplus_full: {run_dir}/tool-artifacts/afl/default/crashes/id:* and hangs/id:*
 icsfuzz_full: {run_dir}/tool-artifacts/wrapper.log lines containing "Crash detected"
+icsquartz_full: {run_dir}/tool-artifacts/crashes/.*.metadata
+structuredfuzzer_full: {run_dir}/tool-artifacts/fuzzer/crashes/**/*
 ```
 
 adapter 保存工具自带时间字段时，字段名固定为：
@@ -647,21 +798,22 @@ missing
 实验完成条件：
 
 ```text
-raw-runs.jsonl line count == 1350
+raw-runs.jsonl line count == 1800
 每个 run_key 恰好出现一次
-support-matrix.csv row count == 270
+support-matrix.csv row count == 360
 missing run count == 0
 unsupported run count == sum(unsupported tool-target rows in support-matrix.csv x 5)
-validated input tree expected icsfuzz_full unsupported run count == 275
+validated input tree expected icsquartz_full unsupported run count == 195
+validated input tree expected total unsupported run count == 195
 ```
 
-`experiment_status="complete"` 表示 1350 条权威记录完整、支持性矩阵完整、共同支持子集对比完整。它不表示 `supported tool-target pairs == 270`。声明三工具 90 目标全量实际 fuzzing 的实验必须使用新的 experiment ID，并把完成条件改为 `supported tool-target pairs == 270` 与 `unsupported runs == 0`。
+`experiment_status="complete"` 表示 1800 条权威记录完整、支持性矩阵完整、共同支持子集对比完整。它不表示 `supported tool-target pairs == 360`。声明四工具 90 目标全量实际 fuzzing 的实验必须使用新的 experiment ID，并把完成条件改为 `supported tool-target pairs == 360` 与 `unsupported runs == 0`。
 
 ## 7. Finding 与 oracle 标准
 
 ### 7.1 Common oracle
 
-三工具横向主表只使用 common oracle。common oracle 包含：
+四工具横向主表只使用 common oracle。common oracle 包含：
 
 ```text
 asan
@@ -684,7 +836,7 @@ first_semantic_objective
 semantic_objective_events
 ```
 
-三工具主表中，`semantic_objective_found=true` 且 `common_oracle_finding_found=false` 的结果列为 `semantic_only`，不合并进 common finding 数。
+四工具主表中，`semantic_objective_found=true` 且 `common_oracle_finding_found=false` 的结果列为 `semantic_only`，不合并进 common finding 数。
 
 ### 7.3 Discovery phase
 
@@ -698,7 +850,7 @@ tool_native_initialization
 replay
 ```
 
-`replay` 不改变首次发现时间。SemantiST `semantic_generation` 阶段发现计入 `semantist_full`。AFL++ calibration 阶段发现计入 `aflplusplus_full`。ICSFuzz 初始化输入触发 crash 计入 `icsfuzz_full`。
+`replay` 不改变首次发现时间。SemantiST `semantic_generation` 阶段发现计入 `semantist_full`。AFL++ calibration 阶段发现计入 `aflplusplus_full`。ICSFuzz 初始化输入触发 crash 计入 `icsfuzz_full`。ICSQuartz initial generation 与 StructuredFuzzer corpus calibration 中的 finding 分别计入对应工具。
 
 ### 7.4 首次发现记录
 
@@ -789,23 +941,36 @@ cycle_ids_observed_total
 
 `mapped_semantic_coverage_ratio` 与 `total_stg_coverage_ratio` 的值域固定为 `[0, 1]`。
 
-## 9. Adapter 合同
+## 9. Adapter 与离线分析合同
 
-每个 adapter 必须实现相同接口：
+### 9.1 Online adapter 必需接口
+
+五个 online adapter 必须实现：
 
 ```text
 detect_support(target) -> support-result
 prepare(target) -> preprocessing-result
 materialize_trial(preprocessing-result, trial) -> trial-run-dir
 run(trial-run-dir, budget, rng_seed, cpu) -> online-result
-collect_corpus(trial-run-dir) -> testcase-list
-collect_findings(trial-run-dir) -> finding-candidate-list
+scan_finding_events(target, trial-run-dir) -> finding-candidate-list
+collect_metrics(target, trial-run-dir, observed-events) -> common-metrics
+```
+
+`run` 必须消费 runner 分配的 `cpu` 和 adapter seed contract；不能只接收参数而不应用。接口返回值必须 JSON serializable。adapter 不得通过自然语言日志作为唯一结果来源；日志只能作为辅助证据。缺失结构化文件时，adapter 必须写 `failure_reason.code="structured_result_missing"`。
+
+### 9.2 离线 replay/coverage 接口
+
+离线分析可以由 adapter 方法或 `analysis/` 中的统一 dispatcher 实现，但必须提供等价能力：
+
+```text
+collect_corpus(tool, trial-run-dir) -> testcase-list
+collect_findings(tool, trial-run-dir) -> finding-candidate-list
 normalize_testcase(testcase) -> common-replay-input or unsupported-conversion
 replay(testcase, replay-target) -> replay-result
 collect_coverage(testcase-list, coverage-target) -> coverage-result
 ```
 
-接口返回值必须 JSON serializable。adapter 不得通过自然语言日志作为唯一结果来源；日志只能作为辅助证据。缺失结构化文件时，adapter 必须写 `failure_reason.code="structured_result_missing"`。
+common stdin harness 必须把 testcase bytes 写到 target stdin，不得把 testcase path 当作 `argv[1]`，除非该 target 的记录明确声明 `input_model="file_argument"`。离线结果必须按 `run_key` 和 `candidate_id` 回写或合并进最终权威数据，使 `common_replay`、`common_coverage` 与 `unique_confirmed_fault_ids` 不再保持默认 `not-run`/空值。只生成一个无法与最终汇总合并的 best-effort JSON 不满足完成判定。
 
 ## 10. 结果 schema
 
@@ -813,8 +978,8 @@ collect_coverage(testcase-list, coverage-target) -> coverage-result
 
 ```json
 {
-  "schema_version": "semantist.three-tool-full-run/1.0.0",
-  "experiment_id": "comparison_support_90targets_common_subset_300s_5trials",
+  "schema_version": "semantist.full-comparison-run/1.0.0",
+  "experiment_id": "comparison_4tools_90targets_300s_5trials",
   "run_key": "{run_key}",
   "tool": "semantist_full",
   "configuration_id": "full",
@@ -876,10 +1041,14 @@ collect_coverage(testcase-list, coverage-target) -> coverage-result
 ├── README.md
 ├── metrics_schema.json
 ├── run_full_comparison.py
+├── run_smoke_comparison.py
+├── run_complete_comparison.py
 ├── adapters/
 │   ├── semantist.py
 │   ├── aflplusplus.py
-│   └── icsfuzz.py
+│   ├── icsfuzz.py
+│   ├── icsquartz.py
+│   └── structuredfuzzer.py
 ├── analysis/
 │   ├── aggregate.py
 │   ├── replay.py
@@ -925,7 +1094,7 @@ collect_coverage(testcase-list, coverage-target) -> coverage-result
     └── tool-artifacts/
 ```
 
-`raw-runs.jsonl` 由 1350 个 `run-result.json` 合并生成。summary 只能从 `raw-runs.jsonl`、replay results 和 coverage results 重建。
+`raw-runs.jsonl` 由 1800 个 `run-result.json` 合并生成。summary 只能从 `raw-runs.jsonl`、replay results 和 coverage results 重建。
 
 ## 12. 回放与确认
 
@@ -1038,37 +1207,66 @@ count_by_reason
 
 ## 14. 预检
 
-正式全量运行前必须执行预检命令：
+正式全量运行前必须先执行结构预检，再执行短时 smoke run。两者不得混为同一个参数。
+
+### 14.1 结构预检
 
 ```bash
 python3 experiments/comparison/run_full_comparison.py \
-  --experiment-id comparison_support_90targets_common_subset_300s_5trials_preflight \
+  --experiment-id comparison_4tools_90targets_300s_5trials_plan \
   --manifest /myfuzzer/SemantiST/benchmarks/external/manifest.json \
   --artifact-root /myfuzzer/artifacts/experiments \
+  --target-id oscat_basic_charname \
+  --target-id icsfuzz_bf_mcpy_1 \
+  --target-id scan_cycle_aircraft_oobw_4 \
+  --trials 1 \
+  --container-runtime auto \
   --cpus 1-2 \
-  --preflight
+  --preflight-only
 ```
 
-预检目标固定为：
+结构预检不得启动 preprocessing 或 online fuzzing。它必须成功写出环境、manifest snapshot、四工具 support matrix 与 12 行 schedule，并验证：
 
 ```text
-oscat_basic_inc2
+selected container runtime and version are recorded
+requested CPUs are inside runner_cpu_affinity
+support-matrix.csv row count == 3 targets x 4 tools == 12
+schedule.jsonl line count == 3 targets x 4 tools x 1 trial == 12
+all run_key and rng_seed values are deterministic
+```
+
+### 14.2 短时 smoke run
+
+smoke run 目标固定为：
+
+```text
+oscat_basic_charname
 icsfuzz_bf_mcpy_1
 scan_cycle_aircraft_oobw_4
-oscat_basic_month_to_string
-oscat_basic_fifo_16
 ```
 
-预检的 `trial_id` 固定为 1。每个 selected target 与每个 tool 运行 1 个 20 秒 trial；unsupported target 仍生成 run-result。预检通过条件：
+执行命令：
+
+```bash
+python3 experiments/comparison/run_smoke_comparison.py \
+  --manifest /myfuzzer/SemantiST/benchmarks/external/manifest.json \
+  --artifact-root /myfuzzer/artifacts/experiments \
+  --overwrite
+```
+
+smoke run 的 `trial_id` 固定为 1。每个 selected target 与每个 tool 运行 1 个 20 秒 trial；unsupported target 仍生成 run-result。通过条件：
 
 ```text
-preflight raw run count == selected_targets x 3 tools
+smoke raw run count == selected_targets x 4 tools == 12
 每个 supported SemantiST row 写出 events.jsonl
 每个 supported AFL++ row 写出 AFL fuzzer_stats 或 structured_result_missing
-每个 supported ICSFuzz row 写出 wrapper.log 或 structured_result_missing
+每个 supported ICSQuartz row 写出 fuzzer_stats.json 或 structured_result_missing
+每个 supported StructuredFuzzer row 写出 libafl.log 或 structured_result_missing
 SemantiST semantic_generation 事件能被解析
 SemantiST preprocessing/trial 目录均不存在 STG generated seeds before t0
-ICSFuzz run-result.json 中 rng_seed_status == tool_missing_seed_control
+StructuredFuzzer run-result.json 中 rng_seed_status == tool_missing_seed_control
+ICSQuartz command.json 中 SEED 与 assigned CPU 可追溯
+所有 container command 使用 environment.json 记录的同一 runtime
 observer_poll_interval_ms <= 10
 首个 finding candidate 包含 observed_monotonic_ns 与 observed_elapsed_seconds
 runner SIGTERM 不被记录为 target crash
@@ -1076,6 +1274,23 @@ validate_complete.py exit code == 0
 ```
 
 预检失败时，正式实验不得启动。
+
+### 14.3 正式启动门禁
+
+启动 1800-row 正式矩阵前还必须满足：
+
+```text
+all tags in experiments/baselines/baselines.lock.json exist in selected runtime
+semantist_image exists in selected runtime and contains cargo/rustc, afl-fuzz, afl-showmap, LLVM 21, and RuSTy
+taskset is available when Podman is selected
+estimated artifact disk space and wall-clock allocation are documented
+20-second four-tool smoke run passes before the 300-second matrix starts
+ICSQuartz findings are host-visible during the online budget, not copied only at exit
+common replay feeds stdin harnesses through stdin and merges results by candidate_id
+common coverage merges per-run results into the final authoritative dataset
+```
+
+环境只满足容器 runtime 与 baseline image smoke，不等价于正式实验 ready。
 
 ## 15. 禁止事项
 
@@ -1088,10 +1303,9 @@ validate_complete.py exit code == 0
 - 不给任一工具免费 target-specific online 初始化时间。
 - 不给任一工具手工漏洞触发 seed。
 - 不用 SemantiST generated seeds 作为 AFL++ 输入。
-- 不用 SemantiST 或 AFL++ 结果替代 ICSFuzz。
-- 不把 ICSFuzz 的 `rng_seed_status` 写成 `applied`。
+- 当前四工具 profile 不启动 ICSFuzz；以后恢复 ICSFuzz 时，不用 SemantiST 或 AFL++ 结果替代 ICSFuzz。
 - 不把 unsupported target 从矩阵中删除。
-- 不把本实验称为“三工具 90 目标全量实际 fuzzing 对比”。
+- 不把本实验称为“四工具 90 目标全量实际 fuzzing 对比”。
 - 不把 raw finding metadata 数量当作 unique fault 数。
 - 不把不同定义的工具内部 coverage 放在同一横向列。
 - 不把 runner SIGTERM/SIGKILL 当作 target crash。
@@ -1106,18 +1320,20 @@ validate_complete.py exit code == 0
 完整实验完成必须同时满足：
 
 ```text
-/myfuzzer/artifacts/experiments/comparison_support_90targets_common_subset_300s_5trials/raw-runs.jsonl exists
-raw-runs.jsonl line count == 1350
-support-matrix.csv row count == 270
+/myfuzzer/artifacts/experiments/comparison_4tools_90targets_300s_5trials/raw-runs.jsonl exists
+raw-runs.jsonl line count == 1800
+support-matrix.csv row count == 360
 missing run count == 0
 unsupported run count == sum(unsupported tool-target rows in support-matrix.csv x 5)
-validated input tree expected icsfuzz_full unsupported run count == 275
+validated input tree expected icsquartz_full unsupported run count == 195
+validated input tree expected total unsupported run count == 195
+common_supported_targets count == 51 for the validated input tree
 common_supported_targets is computed and saved in summaries/support.json
 每个 run-result.json 通过 metrics_schema.json 校验
 每个 supported run 有 command.json、stdout.log、stderr.log
-每个 candidate finding 有 replay 状态
-每个 coverage-supported run 有 common coverage 状态
-summaries/ 下 5 个 summary JSON 全部存在
+每个 candidate finding 有 replay 状态并能按 candidate_id 关联
+每个 coverage-supported run 有 common coverage 状态并能按 run_key 关联
+summaries/ 下 6 个 primary summary JSON 全部存在
 validate_complete.py exit code == 0
 ```
 

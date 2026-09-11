@@ -1,0 +1,9 @@
+PROGRAM PLC_PRG
+VAR_INPUT
+    IN : STRING[40];
+END_VAR
+VAR
+    semantist_result : DWORD;
+END_VAR
+semantist_result := FSTRING_TO_DWORD(IN := IN);
+END_PROGRAM

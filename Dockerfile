@@ -50,10 +50,11 @@ ENV VIRTUAL_ENV="/opt/semantist-venv" \
     SEMANTIST_RUSTY_STDLIB_MANIFEST="/opt/rusty-semantic/libs/stdlib/Cargo.toml" \
     SEMANTIST_RUSTY_STDLIB_GLOB="/opt/rusty-semantic/libs/stdlib/iec61131-st/*.st" \
     SEMANTIST_RUSTY_STDLIB_LIB="/opt/rusty-semantic/target/release/libiec61131std.a" \
+    CARGO_NET_GIT_FETCH_WITH_CLI="true" \
     CARGO_TARGET_DIR="/opt/semantist/cargo-target"
 
 RUN mkdir -p /usr/local/lib/afl \
-    && if [[ -e /usr/lib/afl/afl-compiler-rt.o && ! -e /usr/local/lib/afl/afl-compiler-rt.o ]]; then \
+    && if [ -e /usr/lib/afl/afl-compiler-rt.o ] && [ ! -e /usr/local/lib/afl/afl-compiler-rt.o ]; then \
       ln -s /usr/lib/afl/afl-compiler-rt.o /usr/local/lib/afl/afl-compiler-rt.o; \
     fi \
     && test -r "${SEMANTIST_AFL_RUNTIME}"

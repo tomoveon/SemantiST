@@ -3,7 +3,7 @@
 This directory builds the AFL++, ICSQuartz, ICSFuzz, and StructuredFuzzer
 environments used by the SemantiST evaluation. It does not vendor the
 third-party repositories.
-Each Docker build downloads a pinned upstream image or source archive and
+Each container build downloads a pinned upstream image or source archive and
 verifies the recorded digest before installing it.
 
 The current images are environment images only. They contain the compilers,
@@ -12,12 +12,23 @@ run an experiment or embed a benchmark target.
 
 ## Build
 
-Docker Desktop or Docker Engine must be running. From the SemantiST repository
-root, build and smoke-test all four Linux `amd64` images:
+Docker or Podman must be accessible. From the SemantiST repository root, build
+and smoke-test all four Linux `amd64` images (automatic Docker-to-Podman
+fallback is the default):
 
 ```bash
 python3 experiments/baselines/build_images.py
 ```
+
+Require one runtime when reproducibility scripts should not fall back:
+
+```bash
+python3 experiments/baselines/build_images.py --container-runtime docker
+python3 experiments/baselines/build_images.py --container-runtime podman
+```
+
+`CONTAINER_RUNTIME=podman` provides the same default without repeating the CLI
+option.
 
 On Windows PowerShell, use `python` if that is the Python 3 launcher:
 

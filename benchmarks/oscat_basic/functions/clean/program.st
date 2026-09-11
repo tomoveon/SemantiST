@@ -1,0 +1,10 @@
+PROGRAM PLC_PRG
+VAR_INPUT
+    IN : STRING[STRING_LENGTH];
+    CX : STRING[80];
+END_VAR
+VAR
+    semantist_result : STRING[STRING_LENGTH];
+END_VAR
+semantist_result := CLEAN(IN := IN, CX := CX);
+END_PROGRAM
