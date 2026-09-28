@@ -13,6 +13,7 @@ from experiments.comparison.lib.manifest import Target
 from experiments.comparison.lib.process import (
     container_cpu_bound_command,
     container_run_command,
+    remove_container_quiet,
     run_capture,
     run_with_budget,
 )
@@ -29,7 +30,7 @@ class AFLPlusPlusAdapter(BaseAdapter):
         base = super().detect_support(target)
         if base.status != "supported":
             return base
-        return SupportResult.supported("RuSTy semantic-off target with AFL++ runtime")
+        return SupportResult.supported("fixed benchmark PROGRAM/raw harness with AFL++ runtime")
 
     def prepare(self, target: Target) -> PreprocessingResult:
         preprocess_dir = self.preprocessing_dir(target)
@@ -37,7 +38,7 @@ class AFLPlusPlusAdapter(BaseAdapter):
             return PreprocessingResult("completed", preprocess_dir, 0, 0)
         if preprocess_dir.exists():
             shutil.rmtree(preprocess_dir)
-        for child in ("base-seeds", "harness-seeds", "logs"):
+        for child in ("base-seeds", "logs"):
             (preprocess_dir / child).mkdir(parents=True, exist_ok=True)
 
         runtime = self.config.container_runtime
@@ -57,20 +58,25 @@ class AFLPlusPlusAdapter(BaseAdapter):
 
         env = {
             "PYTHONDONTWRITEBYTECODE": "1",
-            "PYTHONPATH": str(self.config.semantist_root),
+            "PYTHONPATH": "/repo",
+            "SEMANTIST_ARTIFACT_DIR": self.container_path(preprocess_dir),
+            "SEMANTIST_BUILD_ARTIFACT_DIR": self.container_path(preprocess_dir / "build"),
             "SEMANTIST_SEMANTIC_INSTRUMENTATION": "off",
-            "OUT_LL": str(preprocess_dir / "target.ll"),
-            "OUT_OBJ": str(preprocess_dir / "target.o"),
-            "OUT_BIN": str(preprocess_dir / "fuzz_target"),
-            "HARNESS_OUT": str(preprocess_dir / "harness.c"),
-            "GENERATED_SEED_DIR": str(preprocess_dir / "harness-seeds"),
+            "OUT_LL": self.container_path(preprocess_dir / "target.ll"),
+            "OUT_OBJ": self.container_path(preprocess_dir / "target.o"),
+            "OUT_BIN": self.container_path(preprocess_dir / "fuzz_target"),
+            "HARNESS_OUT": self.container_path(preprocess_dir / "harness.c"),
+            "SEMANTIST_HARNESS_SOURCE": self.container_path(target.fixture("harness.c")),
+            "SEMANTIST_PROGRAM_FILE": self.container_path(target.fixture("program.st")),
+            "SEMANTIST_PUBLIC_API_EXTRA": "PLC_PRG,PLC_PRG__ctor,PLC_PRG_instance",
             "CARGO_TARGET_DIR": "/opt/semantist/cargo-target",
         }
         if target.compatibility_manifest is not None:
-            env["SEMANTIST_COMPATIBILITY_MANIFEST"] = str(target.compatibility_manifest)
+            env["SEMANTIST_COMPATIBILITY_MANIFEST"] = self.container_path(target.compatibility_manifest)
+        target_path = self.container_path(target.st_file)
         inner_commands = [
-            ["./compiler/scripts/compile_st.sh", str(target.st_file), target.function],
-            ["./compiler/scripts/build_target.sh", str(target.st_file), target.function],
+            ["./compiler/scripts/compile_st.sh", target_path, target.function],
+            ["./compiler/scripts/build_target.sh", target_path, target.function],
         ]
         commands = [self._semantist_container_command(env, command) for command in inner_commands]
         self.write_preprocessing_command(
@@ -108,7 +114,7 @@ class AFLPlusPlusAdapter(BaseAdapter):
         self.write_seed_manifest(
             preprocess_dir,
             base_seeds,
-            note="Adapter-owned AFL++ byte corpus. The SemantiST harness generator output is isolated under harness-seeds/ and is not copied into AFL++ online inputs.",
+            note="AFL++ native one-byte corpus; the target uses the checked-in benchmark raw harness.",
         )
         missing = [
             path
@@ -155,7 +161,14 @@ class AFLPlusPlusAdapter(BaseAdapter):
         shutil.copy2(preprocessing.preprocess_dir / "seed-manifest.json", run_dir / "seed-manifest.json")
         return run_dir
 
-    def run(self, target: Target, run_dir: Path, preprocessing: PreprocessingResult, rng_seed: int, cpu: int) -> dict[str, Any]:
+    def run(
+        self,
+        target: Target,
+        run_dir: Path,
+        preprocessing: PreprocessingResult,
+        rng_seed: int,
+        cpu: int | list[int],
+    ) -> dict[str, Any]:
         runtime = self.config.container_runtime
         if runtime is None:
             return {
@@ -176,6 +189,9 @@ class AFLPlusPlusAdapter(BaseAdapter):
             "AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES": "1",
         }
         image = self.baseline_image("aflplusplus")
+        assigned_cpu = cpu[0] if isinstance(cpu, list) else cpu
+        container_name = self.container_name(target, run_dir, "online")
+        remove_container_quiet(runtime, container_name)
         command = container_run_command(
             runtime,
             image,
@@ -185,6 +201,7 @@ class AFLPlusPlusAdapter(BaseAdapter):
             ],
             env=env,
             platform=self.config.container_platform,
+            name=container_name,
             command=[
                 "afl-fuzz",
                 "-i",
@@ -199,12 +216,17 @@ class AFLPlusPlusAdapter(BaseAdapter):
                 "/out/fuzz_target",
             ],
         )
-        command = container_cpu_bound_command(command, runtime, cpu)
+        command = container_cpu_bound_command(command, runtime, assigned_cpu)
         self.write_command(
             run_dir,
             command,
             env,
-            {"assigned_cpu": cpu, "container_runtime": runtime, "image": image},
+            {
+                "assigned_cpu": assigned_cpu,
+                "container_runtime": runtime,
+                "image": image,
+                "container_name": container_name,
+            },
         )
         result = run_with_budget(
             command,
@@ -257,13 +279,14 @@ class AFLPlusPlusAdapter(BaseAdapter):
                         elapsed_seconds=elapsed,
                     )
                 )
+                events[-1]["execution_count_source"] = "afl_crash_filename" if executions is not None else "unavailable"
         return events
 
     def collect_metrics(self, target: Target, run_dir: Path, observed_events: list[dict[str, Any]]) -> dict[str, Any]:
         metrics = self.collect_common_metrics(run_dir)
         stats = self.parse_afl_stats(run_dir / "tool-artifacts" / "afl" / "default" / "fuzzer_stats")
         metrics.update({key: value for key, value in stats.items() if value is not None})
-        all_events = observed_events or self.scan_finding_events(target, run_dir)
+        all_events = observed_events
         common_events = [event for event in all_events if event.get("oracle") != "testcase_timeout"]
         metrics["candidate_findings"] = all_events
         metrics["finding_found"] = bool(all_events)
@@ -288,11 +311,11 @@ class AFLPlusPlusAdapter(BaseAdapter):
             runtime,
             self.config.semantist_image,
             mounts=[
-                (self.config.semantist_root, str(self.config.semantist_root), True),
-                (self.config.artifact_root, str(self.config.artifact_root), False),
+                (self.config.semantist_root, "/repo", True),
+                (self.config.artifact_root, "/artifacts", False),
             ],
             env=env,
-            workdir=str(self.config.semantist_root),
+            workdir="/repo",
             platform=self.config.container_platform,
             command=command,
         )
@@ -307,13 +330,17 @@ def _copy_dir(source: Path, destination: Path) -> None:
 def _filtered_env(env: dict[str, str]) -> dict[str, str]:
     keep = {
         "CARGO_TARGET_DIR",
-        "GENERATED_SEED_DIR",
+        "SEMANTIST_ARTIFACT_DIR",
+        "SEMANTIST_BUILD_ARTIFACT_DIR",
         "PYTHONDONTWRITEBYTECODE",
         "PYTHONPATH",
         "OUT_LL",
         "OUT_OBJ",
         "OUT_BIN",
         "HARNESS_OUT",
+        "SEMANTIST_HARNESS_SOURCE",
+        "SEMANTIST_PROGRAM_FILE",
+        "SEMANTIST_PUBLIC_API_EXTRA",
         "SEMANTIST_SEMANTIC_INSTRUMENTATION",
         "SEMANTIST_COMPATIBILITY_MANIFEST",
     }

@@ -1,0 +1,9 @@
+trigger_Low,REAL,0.0
+trigger_High,REAL,0.0
+Alarm_low,BOOL,0
+Alarm_high,BOOL,0
+log_scale,BOOL,0
+0.X,REAL,0.0
+0.rst,BOOL,0
+1.X,REAL,1.0
+1.rst,BOOL,1

@@ -9,7 +9,21 @@ The suite covers scalar and structured inputs, `STRING`, arrays, pointers,
 `VAR_INPUT`, `VAR_IN_OUT`, `VAR_OUTPUT`, internal state, constants, retained
 state, and multi-cycle execution.
 
+## Source-body alignment
+
+The 61 target POU bodies were compared with the CODESYS OSCAT Basic 3.3.5.0
+export produced by `extract_codesys_library_functions.py` (export SHA-256:
+`3b3f886d384bc915b459278139e4596c6eab5e6231bdaac69d41c860b074b9b7`).
+After ignoring comments and whitespace, 43 bodies match directly. The other
+18 differ only by the documented RuSTy dialect rules `ADR` to `REF`, variable
+`SET` to `SET0`, and `TOD#12:00` to `TOD#12:00:00`. Every `target.st` body
+matches the corresponding POU in `source/oscat.st`. In particular,
+the `MONTH_TO_STRING` dependency retained in `source/oscat.st` uses the original
+`LANG <= 0` branch condition.
+
 ## Function targets
+
+`INC` contains a modulo-by-zero boundary when `M = -1`.
 
 `INC2` contains a modulo-by-zero boundary. The trigger sets `U = L - 1`, making
 `tmp := U - L + 1` equal to zero before `MOD`.

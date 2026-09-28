@@ -1,4 +1,4 @@
-"""Manifest loading and validation for the 90-target benchmark set."""
+"""Manifest loading and validation for the benchmark set."""
 
 from __future__ import annotations
 
@@ -30,6 +30,13 @@ REQUIRED_TARGET_FIELDS = {
     "lineage",
     "transformations",
 }
+BENCHMARK_FIXTURE_FILES = (
+    "target.st",
+    "program.st",
+    "harness.c",
+    "semantist_harness.c",
+    "semantist.seed",
+)
 
 
 @dataclass(frozen=True)
@@ -45,6 +52,19 @@ class Target:
     compatibility_manifest_rel: str | None
     compatibility_manifest_sha256: str | None
     raw: dict[str, object]
+
+    @property
+    def benchmark_dir(self) -> Path:
+        return self.st_file.parent
+
+    def fixture(self, name: str) -> Path:
+        if name not in BENCHMARK_FIXTURE_FILES:
+            raise ValueError(f"unknown benchmark fixture: {name}")
+        return self.benchmark_dir / name
+
+    @property
+    def fixture_hashes(self) -> dict[str, str]:
+        return {name: sha256_file(self.fixture(name)) for name in BENCHMARK_FIXTURE_FILES}
 
     @property
     def ground_truth_status(self) -> str:
@@ -107,6 +127,10 @@ def load_manifest(path: Path, semantist_root: Path, *, strict: bool = True) -> B
             st_hash = ""
         else:
             st_hash = sha256_file(st_file)
+        for fixture_name in BENCHMARK_FIXTURE_FILES:
+            fixture_path = st_file.parent / fixture_name
+            if not fixture_path.is_file():
+                errors.append(f"target {target_id}: missing benchmark fixture: {fixture_path}")
         compat_rel = item.get("compatibility_manifest")
         compat_path: Path | None = None
         compat_hash: str | None = None
@@ -164,6 +188,8 @@ def experiment_manifest_entry(target: Target, tools: Iterable[str]) -> dict[str,
         "function": target.function,
         "st_file": str(target.st_file),
         "st_file_sha256": target.st_file_sha256,
+        "benchmark_dir": str(target.benchmark_dir),
+        "benchmark_fixture_sha256": target.fixture_hashes,
         "compatibility_manifest": str(target.compatibility_manifest)
         if target.compatibility_manifest is not None
         else None,

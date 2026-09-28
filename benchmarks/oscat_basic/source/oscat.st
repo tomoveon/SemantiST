@@ -25522,7 +25522,7 @@ the decoding is according to the language setup in global vars
 
 *)
 (* @END_DECLARATION := '0' *)
-IF LANG = 0 THEN Ly := LANGUAGE.DEFAULT; ELSE ly := MIN(LANG, language.LMAX); END_IF;
+IF LANG <= 0 THEN Ly := LANGUAGE.DEFAULT; ELSE ly := MIN(LANG, language.LMAX); END_IF;
 IF MTH < 1 OR MTH > 12 THEN
 	RETURN;
 ELSIF LX = 0 THEN

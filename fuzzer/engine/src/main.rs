@@ -924,6 +924,7 @@ mod tests {
             semantic_task_budget: 1_000,
             semantic_task_state_file: PathBuf::from("semantic-task-state.json"),
             fuzz_iterations: None,
+            rng_seed: None,
             debug_child: false,
         };
 

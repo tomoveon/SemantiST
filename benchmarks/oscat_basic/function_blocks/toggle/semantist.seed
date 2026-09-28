@@ -1,0 +1,4 @@
+0.CLK,BOOL,0
+0.rst,BOOL,0
+1.CLK,BOOL,1
+1.rst,BOOL,1

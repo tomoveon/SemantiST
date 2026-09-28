@@ -5,9 +5,6 @@ normalized target.st file so that the generated PLC_PRG wrapper can re-declare
 the target's inputs with byte-identical types (including array bounds that
 reference VAR_GLOBAL CONSTANT names such as ``ARRAY[0..ArraySize] OF LREAL``).
 
-Also provides a small dependency-closure resolver used to inline the minimal
-set of library POUs into ``structuredfuzzer.st`` for the matiec/StructuredFuzzer
-toolchain.
 """
 
 from __future__ import annotations
@@ -234,34 +231,11 @@ def _parse_declarations(tokens: list[StToken], start: int, block_kind: str,
     return i
 
 
-# ---------------------------------------------------------------------------
-# Dependency closure
-# ---------------------------------------------------------------------------
-
-_CALL_RE = re.compile(r"(?i)\b([A-Z_][A-Z0-9_]*)\s*\(")
 _POU_HEADER_RE = re.compile(r"(?im)^[ \t]*(FUNCTION|FUNCTION_BLOCK)[ \t]+([A-Z_][A-Z0-9_]*)")
 
 _POU_END = {
     "FUNCTION": "END_FUNCTION",
     "FUNCTION_BLOCK": "END_FUNCTION_BLOCK",
-}
-
-_ST_KEYWORDS = {
-    "IF", "THEN", "ELSIF", "ELSE", "END_IF", "FOR", "TO", "BY", "DO", "END_FOR",
-    "WHILE", "END_WHILE", "REPEAT", "UNTIL", "END_REPEAT", "CASE", "END_CASE",
-    "VAR", "VAR_INPUT", "VAR_OUTPUT", "VAR_IN_OUT", "VAR_TEMP", "VAR_GLOBAL",
-    "VAR_EXTERNAL", "VAR_ACCESS", "END_VAR", "FUNCTION", "END_FUNCTION",
-    "FUNCTION_BLOCK", "END_FUNCTION_BLOCK", "PROGRAM", "END_PROGRAM",
-    "TYPE", "END_TYPE", "STRUCT", "END_STRUCT", "CONFIGURATION",
-    "END_CONFIGURATION", "RESOURCE", "END_RESOURCE", "TASK",
-    "ARRAY", "OF", "AT", "RETAIN", "PERSISTENT", "NON_RETAIN", "CONSTANT",
-    "RETURN", "EXIT", "CONTINUE", "NOT", "AND", "OR", "XOR", "MOD", "TRUE",
-    "FALSE", "INITIAL_STEP", "END_STEP", "TRANSITION", "END_TRANSITION",
-    "ACTION", "END_ACTION", "WITH", "ON", "ONLY", "REF", "ADR", "SIZEOF",
-    "REF_TO", "POINTER", "STEP", "EN", "ENO", "BOOL", "SINT", "INT", "DINT",
-    "LINT", "USINT", "UINT", "UDINT", "ULINT", "REAL", "LREAL", "BYTE", "WORD",
-    "DWORD", "LWORD", "STRING", "WSTRING", "CHAR", "WCHAR", "TIME", "DATE",
-    "DATE_AND_TIME", "DT", "TOD", "TIME_OF_DAY", "LTIME", "LDATE", "LTOD",
 }
 
 
@@ -279,77 +253,6 @@ def _pou_map(source: str) -> dict[str, str]:
         block_end = match.end() + end.end()
         result[name] = source[start:block_end]
     return result
-
-
-def _call_names(text: str) -> list[str]:
-    stripped = strip_comments(text)
-    return [m for m in _CALL_RE.findall(stripped) if m.upper() not in _ST_KEYWORDS]
-
-
-_SCALAR_TYPE_NAMES = {
-    "BOOL", "SINT", "INT", "DINT", "LINT", "USINT", "UINT", "UDINT", "ULINT",
-    "REAL", "LREAL", "BYTE", "WORD", "DWORD", "LWORD", "STRING", "WSTRING",
-    "CHAR", "WCHAR", "TIME", "LTIME", "DATE", "LDATE", "DATE_AND_TIME", "DT",
-    "LDT", "TIME_OF_DAY", "TOD", "LTOD", "LDATE_AND_TIME", "ARRAY", "POINTER",
-    "REF_TO", "ANY", "ANY_NUM", "ANY_INT", "ANY_REAL", "ANY_BIT", "ANY_STRING",
-    "ANY_DATE", "ANY_DERIVED", "ANY_MAGNITUDE", "ANY_ELEMENTARY",
-}
-
-
-def _declared_identifiers(text: str) -> set[str]:
-    """Collect identifiers declared in VAR blocks (variable and POU names)."""
-    stripped = strip_comments(text)
-    tokens = tokenize_st(stripped)
-    declared: set[str] = set()
-    i = 0
-    n = len(tokens)
-    while i < n:
-        if tokens[i].upper in VAR_BLOCK_STARTS:
-            i += 1
-            while i < n and tokens[i].upper in VAR_BLOCK_MODIFIERS:
-                i += 1
-            while i < n and tokens[i].upper != "END_VAR":
-                if tokens[i].kind == "identifier":
-                    names = [tokens[i].text]
-                    j = i + 1
-                    while j < n and tokens[j].text == ",":
-                        if j + 1 < n and tokens[j + 1].kind == "identifier":
-                            names.append(tokens[j + 1].text)
-                            j += 2
-                        else:
-                            break
-                    for name in names:
-                        declared.add(name.upper())
-                    i = j
-                    continue
-                i += 1
-            if i < n and tokens[i].upper == "END_VAR":
-                i += 1
-        else:
-            i += 1
-    return declared
-
-
-def _external_refs(text: str, stdlib_names: set[str]) -> set[str]:
-    """Return identifiers referenced by a POU that are external (functions/types)."""
-    stripped = strip_comments(text)
-    tokens = tokenize_st(stripped)
-    declared = _declared_identifiers(text)
-    refs: set[str] = set()
-    for token in tokens:
-        if token.kind != "identifier":
-            continue
-        up = token.upper
-        if up in _ST_KEYWORDS:
-            continue
-        if up in _SCALAR_TYPE_NAMES:
-            continue
-        if up in stdlib_names:
-            continue
-        if up in declared:
-            continue
-        refs.add(up)
-    return refs
 
 
 def extract_pou_text(path: str, target: str) -> str:
@@ -386,36 +289,3 @@ def strip_pou(source: str, target: str) -> str:
             block_end = match.end() + end.end()
             return source[:start] + source[block_end:]
     return source[:index] + source[index + len(block):]
-
-
-def resolve_dependencies(target_name: str, target_pou_text: str, libraries: list[str],
-                         stdlib_names: set[str]) -> tuple[list[str], list[str]]:
-    """Return (ordered POU texts, unresolved names) for the transitive closure."""
-    pou_texts: dict[str, str] = {}
-    library_maps = [_pou_map(lib) for lib in libraries]
-    order: list[str] = []
-    unresolved: list[str] = []
-
-    def visit(name: str) -> None:
-        up = name.upper()
-        if up in pou_texts or up == target_name.upper():
-            return
-        found = None
-        for lib in library_maps:
-            if up in lib:
-                found = lib[up]
-                break
-        if found is None:
-            if up not in stdlib_names:
-                unresolved.append(up)
-            return
-        pou_texts[up] = found
-        order.append(up)
-        for ref in _external_refs(found, stdlib_names):
-            if ref not in pou_texts and ref != target_name.upper():
-                visit(ref)
-
-    for ref in _external_refs(target_pou_text, stdlib_names):
-        visit(ref)
-
-    return [pou_texts[name] for name in order], unresolved

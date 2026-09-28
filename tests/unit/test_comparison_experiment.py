@@ -63,7 +63,8 @@ class ComparisonExperimentTests(unittest.TestCase):
         self.assertEqual(parse_cpus("1-3,5,3"), [1, 2, 3, 5])
 
     def test_cpu_bound_command_uses_one_logical_cpu(self):
-        command = cpu_bound_command(["afl-fuzz", "--", "target"], 7)
+        with patch("experiments.comparison.lib.process.shutil.which", return_value="taskset"):
+            command = cpu_bound_command(["afl-fuzz", "--", "target"], 7)
         self.assertEqual(Path(command[0]).name, "taskset")
         self.assertEqual(command[1:3], ["--cpu-list", "7"])
         self.assertEqual(command[3:], ["afl-fuzz", "--", "target"])
@@ -92,13 +93,13 @@ class ComparisonExperimentTests(unittest.TestCase):
         source = Path("/tmp/input")
         self.assertEqual(
             bind_mount("docker", source, "/input", readonly=True),
-            "/tmp/input:/input:ro",
+            f"{source}:/input:ro",
         )
         self.assertEqual(
             bind_mount("podman", source, "/input", readonly=True),
-            "/tmp/input:/input:ro,Z",
+            f"{source}:/input:ro,Z",
         )
-        self.assertEqual(bind_mount("podman", source, "/input"), "/tmp/input:/input:Z")
+        self.assertEqual(bind_mount("podman", source, "/input"), f"{source}:/input:Z")
 
     def test_semantist_container_command_mounts_source_readonly_and_artifacts_writable(self):
         with tempfile.TemporaryDirectory() as raw_tmp:
@@ -107,8 +108,8 @@ class ComparisonExperimentTests(unittest.TestCase):
             command = adapter._container_command({"PYTHONPATH": str(ROOT)}, ["true"])
             self.assertEqual(command[:2], ["podman", "run"])
             self.assertIn("semantist:0.1.0", command)
-            self.assertIn(f"{ROOT}:{ROOT}:ro,Z", command)
-            self.assertIn(f"{tmp_path}:{tmp_path}:Z", command)
+            self.assertIn(f"{ROOT}:/repo:ro,Z", command)
+            self.assertIn(f"{tmp_path}:/artifacts:Z", command)
 
     def test_container_cpu_binding_supports_docker_and_rootless_podman(self):
         docker = container_cpu_bound_command(["docker", "run", "image"], "docker", 3)
@@ -116,7 +117,8 @@ class ComparisonExperimentTests(unittest.TestCase):
             docker,
             ["docker", "run", "--cpuset-cpus", "3", "image"],
         )
-        podman = container_cpu_bound_command(["podman", "run", "image"], "podman", 3)
+        with patch("experiments.comparison.lib.process.shutil.which", return_value="taskset"):
+            podman = container_cpu_bound_command(["podman", "run", "image"], "podman", 3)
         self.assertEqual(Path(podman[0]).name, "taskset")
         self.assertEqual(podman[1:5], ["--cpu-list", "3", "podman", "run"])
 
@@ -138,7 +140,8 @@ class ComparisonExperimentTests(unittest.TestCase):
             (run_dir / "tool-artifacts").mkdir(parents=True)
             (run_dir / "tool-artifacts" / "fuzz_target").write_bytes(b"")
             adapter = AFLPlusPlusAdapter(comparison_config(tmp_path))
-            result = adapter.run(target, run_dir, PreprocessingResult("completed", tmp_path, 0, 0), 123, 3)
+            with patch("experiments.comparison.lib.process.shutil.which", return_value="taskset"):
+                result = adapter.run(target, run_dir, PreprocessingResult("completed", tmp_path, 0, 0), 123, 3)
             command = json.loads((run_dir / "command.json").read_text(encoding="utf-8"))["command"]
         self.assertEqual(result["run_status"], "budget_completed")
         self.assertIn("podman", command)
@@ -239,23 +242,9 @@ class ComparisonExperimentTests(unittest.TestCase):
             suite="suite",
             kind="FUNCTION",
             function="TARGET",
+            st_file_sha256="test-source-hash",
+            fixture_hashes={"harness.c": "test-harness-hash"},
         )
-        with tempfile.TemporaryDirectory() as raw_tmp:
-            adapter = ADAPTERS["structuredfuzzer_full"](comparison_config(Path(raw_tmp)))
-            result = make_base_result(
-                {
-                    "run_key": "exp|structuredfuzzer_full|suite|target|trial_01",
-                    "tool": "structuredfuzzer_full",
-                    "trial_id": 1,
-                    "rng_seed": 123,
-                },
-                target,
-                adapter,
-                "supported",
-            )
-        self.assertEqual(result["rng_seed_status"], "tool_missing_seed_control")
-        self.assertEqual(result["initial_seed_provider"], "structuredfuzzer_adapter")
-        self.assertEqual(result["initial_seed_policy"], "single_zero_byte_seed")
         with tempfile.TemporaryDirectory() as raw_tmp:
             adapter = ADAPTERS["aflplusplus_full"](comparison_config(Path(raw_tmp)))
             result = make_base_result(
@@ -281,6 +270,7 @@ class ComparisonExperimentTests(unittest.TestCase):
                 "#!/usr/bin/env python3\n"
                 "import sys\n"
                 "data = sys.stdin.buffer.read()\n"
+                "if data == b'crash': print('ERROR: AddressSanitizer: heap-buffer-overflow', file=sys.stderr)\n"
                 "sys.exit(1 if data == b'crash' else 0)\n",
                 encoding="utf-8",
             )
@@ -317,10 +307,12 @@ class ComparisonExperimentTests(unittest.TestCase):
         manifest = load_manifest(ROOT / "benchmarks" / "external" / "manifest.json", ROOT)
         self.assertEqual(
             manifest.sha256,
-            "d9d12e1b2d2d406e5304745679bae0bf7c08b5a6afaba470607f2ece25976079",
+            "0ab4c3a89c1538fbbda8bb4443b8d72cb336df277850354a4becc8e25d78fce5",
         )
         self.assertEqual(len(manifest.targets), 90)
         self.assertEqual(sum(target.suite == "oscat_basic" for target in manifest.targets), 61)
+        self.assertTrue({"_STRING_TO_BUFFER", "INC", "INC2", "REAL_TO_STRF", "WEEKDAY_TO_STRING"}
+                        <= {target.function for target in manifest.targets})
         self.assertEqual(sum(target.suite == "icsquartz_icsfuzz" for target in manifest.targets), 17)
         self.assertEqual(sum(target.suite == "icsquartz_scan_cycle" for target in manifest.targets), 12)
 
@@ -357,7 +349,6 @@ class ComparisonExperimentTests(unittest.TestCase):
             "semantist_full",
             "aflplusplus_full",
             "icsquartz_full",
-            "structuredfuzzer_full",
         ))
         self.assertIn("icsfuzz_full", ADAPTERS)
         self.assertEqual(len(rows), len(DEFAULT_TOOL_ORDER) * 90)
@@ -367,9 +358,7 @@ class ComparisonExperimentTests(unittest.TestCase):
             counts[key] = counts.get(key, 0) + 1
         self.assertEqual(counts[("semantist_full", "supported")], 90)
         self.assertEqual(counts[("aflplusplus_full", "supported")], 90)
-        self.assertEqual(counts[("structuredfuzzer_full", "supported")], 90)
-        self.assertEqual(counts[("icsquartz_full", "supported")], 51)
-        self.assertEqual(counts[("icsquartz_full", "unsupported")], 39)
+        self.assertEqual(counts[("icsquartz_full", "supported")], 90)
 
 
 if __name__ == "__main__":

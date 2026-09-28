@@ -16,9 +16,11 @@ from experiments.comparison.adapters.base import (
 )
 from experiments.comparison.lib.hashing import sha256_file
 from experiments.comparison.lib.manifest import Target
+from experiments.comparison.lib.metrics import CRASH_ORACLES, read_events, execution_count, reported_executions
 from experiments.comparison.lib.process import (
     container_cpu_bound_command,
     container_run_command,
+    remove_container_quiet,
     run_capture,
     run_with_budget,
 )
@@ -27,15 +29,15 @@ from experiments.comparison.lib.process import (
 class SemantiSTAdapter(BaseAdapter):
     tool_name = "semantist_full"
     supports_rng_seed = True
-    initial_seed_provider = "semantist_harness_generator"
+    initial_seed_provider = "benchmark_fixed_semantist_seed"
     initial_seed_format = "semantist_structured_seed"
-    initial_seed_policy = "adapter_generated_default_seed"
+    initial_seed_policy = "checked_in_deterministic_seed"
 
     def detect_support(self, target: Target) -> SupportResult:
         base = super().detect_support(target)
         if base.status != "supported":
             return base
-        return SupportResult.supported("SemantiST native ST compiler/harness path")
+        return SupportResult.supported("fixed benchmark ST/harness with SemantiST semantic engine")
 
     def prepare(self, target: Target) -> PreprocessingResult:
         preprocess_dir = self.preprocessing_dir(target)
@@ -45,6 +47,10 @@ class SemantiSTAdapter(BaseAdapter):
             shutil.rmtree(preprocess_dir)
         for child in ("stg", "base-seeds", "logs"):
             (preprocess_dir / child).mkdir(parents=True, exist_ok=True)
+
+        fixed_harness = target.fixture("semantist_harness.c")
+        fixed_seed = target.fixture("semantist.seed")
+        shutil.copy2(fixed_seed, preprocess_dir / "base-seeds" / "seed1")
 
         runtime = self.config.container_runtime
         if runtime is None:
@@ -63,30 +69,35 @@ class SemantiSTAdapter(BaseAdapter):
 
         env = {
             "PYTHONDONTWRITEBYTECODE": "1",
-            "PYTHONPATH": str(self.config.semantist_root),
+            "PYTHONPATH": "/repo",
+            "SEMANTIST_ARTIFACT_DIR": self.container_path(preprocess_dir),
+            "SEMANTIST_BUILD_ARTIFACT_DIR": self.container_path(preprocess_dir / "build"),
             "SEMANTIST_SEMANTIC_INSTRUMENTATION": "ir",
-            "SEMANTIST_STG_DIR": str(preprocess_dir / "stg"),
-            "OUT_LL": str(preprocess_dir / "target.ll"),
-            "OUT_OBJ": str(preprocess_dir / "target.o"),
-            "OUT_BIN": str(preprocess_dir / "fuzz_target"),
-            "HARNESS_OUT": str(preprocess_dir / "harness.c"),
-            "GENERATED_SEED_DIR": str(preprocess_dir / "base-seeds"),
+            "SEMANTIST_STG_DIR": self.container_path(preprocess_dir / "stg"),
+            "OUT_LL": self.container_path(preprocess_dir / "target.ll"),
+            "OUT_OBJ": self.container_path(preprocess_dir / "target.o"),
+            "OUT_BIN": self.container_path(preprocess_dir / "fuzz_target"),
+            "HARNESS_OUT": self.container_path(preprocess_dir / "harness.c"),
+            "SEMANTIST_HARNESS_SOURCE": self.container_path(fixed_harness),
             "CARGO_TARGET_DIR": "/opt/semantist/cargo-target",
         }
         if target.compatibility_manifest is not None:
-            env["SEMANTIST_COMPATIBILITY_MANIFEST"] = str(target.compatibility_manifest)
+            env["SEMANTIST_COMPATIBILITY_MANIFEST"] = self.container_path(target.compatibility_manifest)
+        target_path = self.container_path(target.st_file)
+        stg_dir = self.container_path(preprocess_dir / "stg")
+        task_plan = self.container_path(preprocess_dir / "semantic-task-plan.json")
         inner_commands = [
-            ["./compiler/scripts/compile_st.sh", str(target.st_file), target.function],
-            ["./compiler/scripts/build_target.sh", str(target.st_file), target.function],
+            ["./compiler/scripts/compile_st.sh", target_path, target.function],
+            ["./compiler/scripts/build_target.sh", target_path, target.function],
             [
                 "python3",
                 "-c",
                 (
                     "from pathlib import Path; "
                     "from fuzzer.semantic.planning import generate_semantic_task_plan; "
-                    f"generate_semantic_task_plan(Path({str(preprocess_dir / 'stg' / 'stg-model.json')!r}), "
-                    f"Path({str(preprocess_dir / 'stg' / 'stg-runtime-ids.json')!r}), "
-                    f"Path({str(preprocess_dir / 'semantic-task-plan.json')!r}))"
+                    f"generate_semantic_task_plan(Path({(stg_dir + '/stg-model.json')!r}), "
+                    f"Path({(stg_dir + '/stg-runtime-ids.json')!r}), "
+                    f"Path({task_plan!r}))"
                 ),
             ],
         ]
@@ -126,7 +137,7 @@ class SemantiSTAdapter(BaseAdapter):
         self.write_seed_manifest(
             preprocess_dir,
             base_seeds,
-            note="Generated by the SemantiST C harness generator during target build; STG semantic initial generation happens after online t0.",
+            note="Checked-in benchmark seed copied byte-for-byte; STG semantic initial generation happens after online t0.",
         )
         missing = [
             path
@@ -159,6 +170,8 @@ class SemantiSTAdapter(BaseAdapter):
             "stg_model": str(preprocess_dir / "stg" / "stg-model.json"),
             "semantic_task_plan": str(preprocess_dir / "semantic-task-plan.json"),
             "seed_manifest": str(preprocess_dir / "seed-manifest.json"),
+            "benchmark_harness_sha256": sha256_file(fixed_harness),
+            "benchmark_seed_sha256": sha256_file(fixed_seed),
         }
         return PreprocessingResult("completed", preprocess_dir, start, end, artifacts=artifacts)
 
@@ -184,7 +197,14 @@ class SemantiSTAdapter(BaseAdapter):
             )
         return run_dir
 
-    def run(self, target: Target, run_dir: Path, preprocessing: PreprocessingResult, rng_seed: int, cpu: int) -> dict[str, Any]:
+    def run(
+        self,
+        target: Target,
+        run_dir: Path,
+        preprocessing: PreprocessingResult,
+        rng_seed: int,
+        cpu: int | list[int],
+    ) -> dict[str, Any]:
         runtime = self.config.container_runtime
         if runtime is None:
             return {
@@ -198,10 +218,15 @@ class SemantiSTAdapter(BaseAdapter):
                 },
                 **self.collect_metrics(target, run_dir, []),
             }
+        assigned_cpu = cpu[0] if isinstance(cpu, list) else cpu
         target_bin = run_dir / "tool-artifacts" / "fuzz_target"
+        trace_file = run_dir / "semantic-coverage.jsonl"
+        runtime_ids = run_dir / "stg" / "stg-runtime-ids.json"
+        task_plan = run_dir / "semantic-task-plan.json"
+        semantic_model = run_dir / "stg" / "stg-model.json"
         env = {
-            "SEMANTIST_SEMANTIC_TRACE_FILE": str(run_dir / "semantic-coverage.jsonl"),
-            "SEMANTIST_SEMANTIC_RUNTIME_IDS": str(run_dir / "stg" / "stg-runtime-ids.json"),
+            "SEMANTIST_SEMANTIC_TRACE_FILE": self.container_path(trace_file),
+            "SEMANTIST_SEMANTIC_RUNTIME_IDS": self.container_path(runtime_ids),
             "SEMANTIST_FB_MAX_CYCLES": str(self.config.semantist_fb_max_cycles),
             "SEMANTIST_FB_STALE_THRESHOLD": str(self.config.semantist_fb_stale_threshold),
             "SEMANTIST_RNG_SEED": str(rng_seed),
@@ -209,31 +234,40 @@ class SemantiSTAdapter(BaseAdapter):
         }
         if self.config.semantist_fb_state_trace:
             env["SEMANTIST_FB_STATE_TRACE"] = "1"
-            env["SEMANTIST_FB_STATE_TRACE_FILE"] = str(run_dir / "tool-artifacts" / "fb-state-trace.log")
+            env["SEMANTIST_FB_STATE_TRACE_FILE"] = self.container_path(
+                run_dir / "tool-artifacts" / "fb-state-trace.log"
+            )
+        container_name = self.container_name(target, run_dir, "online")
+        remove_container_quiet(runtime, container_name)
         command = self._container_command(
             env,
             [
                 "/opt/semantist/cargo-target/release/semantist",
                 "--target",
-                str(target_bin),
+                self.container_path(target_bin),
                 "--function",
                 target.function,
                 "--run-dir",
-                str(run_dir),
+                self.container_path(run_dir),
                 "--semantic-task-budget",
                 str(self.config.semantic_task_budget),
                 "--semantic-task-plan",
-                str(run_dir / "semantic-task-plan.json"),
+                self.container_path(task_plan),
                 "--semantic-model",
-                str(run_dir / "stg" / "stg-model.json"),
+                self.container_path(semantic_model),
                 "--timeout-ms",
                 str(self.config.per_execution_timeout_ms),
-                "--seed",
-                str(rng_seed),
             ],
+            workdir=self.container_path(run_dir),
+            name=container_name,
         )
-        command = container_cpu_bound_command(command, runtime, cpu)
-        self.write_command(run_dir, command, _filtered_env(env), {"assigned_cpu": cpu})
+        command = container_cpu_bound_command(command, runtime, assigned_cpu)
+        self.write_command(
+            run_dir,
+            command,
+            _filtered_env(env),
+            {"assigned_cpu": assigned_cpu, "container_name": container_name},
+        )
         result = run_with_budget(
             command,
             cwd=self.config.semantist_root,
@@ -269,11 +303,27 @@ class SemantiSTAdapter(BaseAdapter):
     def scan_finding_events(self, target: Target, run_dir: Path) -> list[dict[str, Any]]:
         events: list[dict[str, Any]] = []
         trial_id = int(run_dir.name.rsplit("_", 1)[-1])
+        runtime = None
         for json_path in sorted((run_dir / "findings").rglob("*.json")):
             try:
                 raw = json.loads(json_path.read_text(encoding="utf-8"))
             except json.JSONDecodeError:
                 continue
+            if not isinstance(raw, dict) or not (raw.get("kind") or raw.get("finding_kind")):
+                continue
+            executions = execution_count(raw.get("executions"))
+            count_source = "finding_record"
+            if executions is None:
+                # New native reports carry the counter directly. Do not reread
+                # an ever-growing event log on every poll when it is unneeded.
+                if runtime is None:
+                    runtime = {}
+                    for row in read_events(run_dir / "events.jsonl"):
+                        if row.get("event") == "runtime_finding":
+                            runtime.setdefault((row.get("content_hash"), row.get("source")), row)
+                native_event = runtime.get((raw.get("content_hash"), raw.get("source")), {})
+                executions = execution_count(native_event.get("executions"))
+                count_source = "runtime_finding_event" if executions is not None else "unavailable"
             oracle = _oracle_from_kind(str(raw.get("kind") or raw.get("finding_kind") or "target_signal"))
             event = self.candidate_from_path(
                 path=json_path,
@@ -281,11 +331,18 @@ class SemantiSTAdapter(BaseAdapter):
                 trial_id=trial_id,
                 oracle=oracle,
                 discovery_phase=_phase_from_source(str(raw.get("source") or raw.get("finding_source") or "fuzzing")),
-                execution_ordinal=_safe_int(raw.get("executions")),
+                execution_ordinal=executions,
             )
+            event["execution_count_source"] = count_source
+            event["tool_reported_unix_time_seconds"] = raw.get("unix_time_seconds")
+            # Report JSON is evidence, never a target input. Keep identity
+            # stable while the writer finishes metadata after the seed file.
+            event["candidate_id"] = f"{self.tool_name}:{target.target_id}:{trial_id}:{oracle}:{json_path.stem}"
+            event["artifact_path"] = None
+            event["finding_report_path"] = self.relative_artifact(json_path)
             reproducer = raw.get("reproducer")
-            if isinstance(reproducer, str) and Path(reproducer).is_file():
-                reproducer_path = Path(reproducer)
+            reproducer_path = self.host_artifact_path(reproducer) if isinstance(reproducer, str) else None
+            if reproducer_path is not None:
                 event["seed_sha256"] = sha256_file(reproducer_path)
                 event["reproducer_artifact_path"] = self.relative_artifact(reproducer_path)
             events.append(event)
@@ -295,8 +352,8 @@ class SemantiSTAdapter(BaseAdapter):
         metrics = self.collect_common_metrics(run_dir)
         queue = run_dir / "unified-corpus" / "runtime"
         metrics["corpus_count"] = sum(1 for path in queue.rglob("*") if path.is_file())
-        all_events = observed_events or self.scan_finding_events(target, run_dir)
-        common_events = [event for event in all_events if event.get("oracle") != "semantic_objective"]
+        all_events = observed_events
+        common_events = [event for event in all_events if event.get("oracle") in CRASH_ORACLES]
         semantic_events = [event for event in all_events if event.get("oracle") == "semantic_objective"]
         metrics["candidate_findings"] = all_events
         metrics["finding_found"] = bool(all_events)
@@ -305,7 +362,10 @@ class SemantiSTAdapter(BaseAdapter):
         metrics["first_common_finding"] = common_events[0] if common_events else None
         metrics["first_semantic_objective"] = semantic_events[0] if semantic_events else None
         metrics["crash_count_raw"] = len(common_events)
-        metrics["total_executions"] = _max_executions(run_dir / "events.jsonl")
+        metrics["timeout_count_raw"] = sum(e.get("oracle") == "testcase_timeout" for e in all_events)
+        reported_counts = [reported_executions(run_dir / "stdout.log"), _max_executions(run_dir / "events.jsonl")]
+        reported_counts.extend(execution_count(e.get("execution_ordinal")) for e in all_events)
+        metrics["total_executions"] = max((n for n in reported_counts if n is not None), default=None)
         elapsed = _last_event_elapsed(run_dir / "events.jsonl")
         if metrics["total_executions"] is not None and elapsed:
             metrics["execs_per_sec"] = metrics["total_executions"] / elapsed
@@ -318,21 +378,29 @@ class SemantiSTAdapter(BaseAdapter):
         metrics["tool_specific_metrics"] = _semantic_coverage_metrics(run_dir)
         return metrics
 
-    def _container_command(self, env: dict[str, str], command: list[str]) -> list[str]:
+    def _container_command(
+        self,
+        env: dict[str, str],
+        command: list[str],
+        *,
+        workdir: str = "/repo",
+        name: str | None = None,
+    ) -> list[str]:
         runtime = self.config.container_runtime
         if runtime is None:
             raise AdapterError("container_runtime_unavailable", self.config.container_runtime_status)
         mounts = [
-            (self.config.semantist_root, str(self.config.semantist_root), True),
-            (self.config.artifact_root, str(self.config.artifact_root), False),
+            (self.config.semantist_root, "/repo", True),
+            (self.config.artifact_root, "/artifacts", False),
         ]
         return container_run_command(
             runtime,
             self.config.semantist_image,
             mounts=mounts,
             env=env,
-            workdir=str(self.config.semantist_root),
+            workdir=workdir,
             platform=self.config.container_platform,
+            name=name,
             command=command,
         )
 
@@ -351,13 +419,15 @@ def _reuse_preprocessing(preprocess_dir: Path) -> PreprocessingResult:
 def _filtered_env(env: dict[str, str]) -> dict[str, str]:
     keep = {
         "CARGO_TARGET_DIR",
-        "GENERATED_SEED_DIR",
+        "SEMANTIST_ARTIFACT_DIR",
+        "SEMANTIST_BUILD_ARTIFACT_DIR",
         "PYTHONDONTWRITEBYTECODE",
         "PYTHONPATH",
         "OUT_LL",
         "OUT_OBJ",
         "OUT_BIN",
         "HARNESS_OUT",
+        "SEMANTIST_HARNESS_SOURCE",
         "SEMANTIST_SEMANTIC_INSTRUMENTATION",
         "SEMANTIST_STG_DIR",
         "SEMANTIST_SEMANTIC_RUNTIME_IDS",

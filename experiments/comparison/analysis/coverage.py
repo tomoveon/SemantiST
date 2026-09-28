@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Best-effort common coverage replay using afl-showmap when available."""
+"""Best-effort native coverage replay using afl-showmap when available.
+
+The edge slots come from each tool's own instrumented binary and are therefore
+useful for within-tool diagnostics only.  They are deliberately marked as
+non-comparable in the output rather than presented as a shared coverage scale.
+"""
 
 from __future__ import annotations
 
@@ -136,7 +141,6 @@ def corpus_paths(run_dir: Path, tool: str) -> list[Path]:
         "semantist_full": run_dir / "unified-corpus" / "runtime",
         "aflplusplus_full": run_dir / "tool-artifacts" / "afl" / "default" / "queue",
         "icsquartz_full": run_dir / "tool-artifacts" / "corpus",
-        "structuredfuzzer_full": run_dir / "tool-artifacts" / "fuzzer" / "queue",
     }
     root = candidates.get(tool, run_dir / "corpus")
     if not root.is_dir():
@@ -161,6 +165,8 @@ def _coverage_record(
         "covered_slots": covered_slots,
         "covered_slots_sha256": digest,
         "conversion_failures": failures,
+        "metric": "tool_native_edge_slots",
+        "cross_tool_comparable": False,
     }
 
 
@@ -175,6 +181,8 @@ def merge_coverage_results(experiment_dir: Path, records: list[dict[str, Any]]) 
                 "covered_slots": record["covered_slots"],
                 "covered_slots_sha256": record["covered_slots_sha256"],
                 "conversion_failures": record["conversion_failures"],
+                "metric": record.get("metric", "tool_native_edge_slots"),
+                "cross_tool_comparable": bool(record.get("cross_tool_comparable", False)),
             }
         validate_run_result(run)
         write_json(result_path, run)

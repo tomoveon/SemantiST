@@ -57,7 +57,17 @@ if [[ ${#TARGET_SANITIZER_FLAGS[@]} -gt 0 ]]; then
   echo "[build_target] using target sanitizers: ${TARGET_SANITIZER_FLAGS[*]}"
 fi
 
-python3 -m compiler.scripts.generate_harness "$ST_FILE" "$ST_FUNCTION"
+if [[ -n "${SEMANTIST_HARNESS_SOURCE:-}" ]]; then
+  if [[ ! -r "$SEMANTIST_HARNESS_SOURCE" ]]; then
+    echo "[build_target] missing fixed benchmark harness: $SEMANTIST_HARNESS_SOURCE" >&2
+    exit 1
+  fi
+  mkdir -p "$(dirname "$HARNESS_OUT")"
+  cp "$SEMANTIST_HARNESS_SOURCE" "$HARNESS_OUT"
+  echo "[build_target] using fixed benchmark harness: $SEMANTIST_HARNESS_SOURCE"
+else
+  python3 -m compiler.scripts.generate_harness "$ST_FILE" "$ST_FUNCTION"
+fi
 PREPARE_ARGS=(
   "$OUT_LL"
   "$ST_FUNCTION"

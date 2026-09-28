@@ -16,7 +16,7 @@
 extern "C" {
 #endif
 void PLC_PRG(void *instance);
-void PLC_PRG__ctor(void *instance);
+void PLC_PRG__ctor(void *instance) __attribute__((weak));
 extern unsigned char PLC_PRG_instance[SEMANTIST_INSTANCE_SIZE];
 #ifdef __cplusplus
 }
@@ -37,10 +37,17 @@ unsigned program_state_size = SEMANTIST_INSTANCE_SIZE - SEMANTIST_INPUT_SIZE;
 
 static unsigned char semantist_ptr_buf_2[32768];
 
+#ifdef __cplusplus
+extern "C"
+#endif
 int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
     static int semantist_initialized = 0;
     if (!semantist_initialized) {
-        PLC_PRG__ctor(PLC_PRG_instance);
+        if (PLC_PRG__ctor) {
+            PLC_PRG__ctor(PLC_PRG_instance);
+        } else {
+            memset(PLC_PRG_instance, 0, SEMANTIST_INSTANCE_SIZE);
+        }
         memcpy(semantist_fuzzer_instance, PLC_PRG_instance, SEMANTIST_INSTANCE_SIZE);
         semantist_initialized = 1;
     }

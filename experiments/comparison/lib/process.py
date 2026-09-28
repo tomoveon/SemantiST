@@ -9,6 +9,7 @@ import subprocess
 import time
 from pathlib import Path
 from typing import Callable
+from experiments.comparison.lib.metrics import FindingObserver
 
 
 def parse_cpus(text: str) -> list[int]:
@@ -44,14 +45,25 @@ def command_exists(command: str) -> bool:
     return shutil.which(command) is not None
 
 
-def cpu_bound_command(command: list[str], cpu: int) -> list[str]:
+def _cpu_list_text(cpus: int | list[int] | tuple[int, ...]) -> str:
+    if isinstance(cpus, int):
+        values = [cpus]
+    else:
+        values = list(cpus)
+    if not values:
+        raise ValueError("at least one CPU id is required")
+    for cpu in values:
+        if cpu < 0:
+            raise ValueError(f"CPU id must be non-negative, got {cpu}")
+    return ",".join(str(cpu) for cpu in values)
+
+
+def cpu_bound_command(command: list[str], cpu: int | list[int] | tuple[int, ...]) -> list[str]:
     """Return a command constrained to one logical CPU via util-linux taskset."""
-    if cpu < 0:
-        raise ValueError(f"CPU id must be non-negative, got {cpu}")
     taskset = shutil.which("taskset")
     if taskset is None:
         raise RuntimeError("taskset was not found; per-row CPU affinity is required")
-    return [taskset, "--cpu-list", str(cpu), *command]
+    return [taskset, "--cpu-list", _cpu_list_text(cpu), *command]
 
 
 CONTAINER_RUNTIMES = ("docker", "podman")
@@ -179,7 +191,9 @@ def container_run_command(
     return result
 
 
-def container_cpu_bound_command(command: list[str], runtime: str, cpu: int) -> list[str]:
+def container_cpu_bound_command(
+    command: list[str], runtime: str, cpu: int | list[int] | tuple[int, ...]
+) -> list[str]:
     """Constrain a container run without requiring rootless Podman cpuset delegation."""
     if command[:2] != [runtime, "run"]:
         raise ValueError("container CPU binding requires a '<runtime> run' command")
@@ -188,8 +202,67 @@ def container_cpu_bound_command(command: list[str], runtime: str, cpu: int) -> l
         # inherit the CLI process affinity even when cpuset cgroups are not delegated.
         return cpu_bound_command(command, cpu)
     if runtime == "docker":
-        return [runtime, "run", "--cpuset-cpus", str(cpu), *command[2:]]
+        return [runtime, "run", "--cpuset-cpus", _cpu_list_text(cpu), *command[2:]]
     raise ValueError(f"unsupported container runtime: {runtime}")
+
+
+def container_name_from_run_command(command: list[str]) -> tuple[str, str] | None:
+    """Return (runtime, name) when a docker/podman run command has --name."""
+    for index in range(len(command) - 1):
+        runtime = command[index]
+        if runtime not in CONTAINER_RUNTIMES or command[index + 1] != "run":
+            continue
+        try:
+            name_index = command.index("--name", index + 2)
+        except ValueError:
+            return None
+        if name_index + 1 >= len(command):
+            return None
+        return runtime, command[name_index + 1]
+    return None
+
+
+def remove_container_quiet(runtime: str, name: str) -> None:
+    """Best-effort cleanup for a possibly stale named container."""
+    if runtime not in CONTAINER_RUNTIMES or shutil.which(runtime) is None:
+        return
+    try:
+        subprocess.run(
+            [runtime, "rm", "-f", name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+            check=False,
+        )
+    except Exception:
+        return
+
+
+def _stop_named_container(command: list[str]) -> dict[str, object] | None:
+    parsed = container_name_from_run_command(command)
+    if parsed is None:
+        return None
+    runtime, name = parsed
+    result: dict[str, object] = {"runtime": runtime, "name": name, "stop_attempted": True}
+    try:
+        completed = subprocess.run(
+            [runtime, "stop", "--time", "2", name],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=10,
+            check=False,
+        )
+    except Exception as error:  # noqa: BLE001 - timeout path must stay best-effort.
+        result["stop_error"] = str(error)
+        remove_container_quiet(runtime, name)
+        return result
+    result["stop_returncode"] = completed.returncode
+    output = (completed.stdout or completed.stderr or "").strip()
+    if output:
+        result["stop_output"] = output[-500:]
+    remove_container_quiet(runtime, name)
+    return result
 
 
 def docker_accessible() -> tuple[bool, str]:
@@ -270,18 +343,23 @@ def run_with_budget(
     stdout_path.parent.mkdir(parents=True, exist_ok=True)
     stderr_path.parent.mkdir(parents=True, exist_ok=True)
     t0 = time.monotonic_ns()
-    events: list[dict[str, object]] = []
-    seen: set[str] = set()
+    observer = FindingObserver(t0, stdout_path.parent / "measurement-events.jsonl")
     try:
         stdout = stdout_path.open("ab")
         stderr = stderr_path.open("ab")
+        popen_kwargs: dict[str, object] = {
+            "cwd": str(cwd),
+            "env": env,
+            "stdout": stdout,
+            "stderr": stderr,
+        }
+        if os.name == "nt":
+            popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        else:
+            popen_kwargs["start_new_session"] = True
         process = subprocess.Popen(
             command,
-            cwd=str(cwd),
-            env=env,
-            stdout=stdout,
-            stderr=stderr,
-            start_new_session=True,
+            **popen_kwargs,
         )
     except FileNotFoundError as error:
         stderr_path.write_text(str(error) + "\n", encoding="utf-8")
@@ -299,19 +377,10 @@ def run_with_budget(
     deadline = t0 + budget_seconds * 1_000_000_000
     poll_seconds = poll_interval_ms / 1000
     timed_out = False
+    container_stop: dict[str, object] | None = None
 
     def observe_findings() -> None:
-        for event in scan_findings():
-            candidate_id = str(event.get("candidate_id"))
-            if candidate_id in seen:
-                continue
-            seen.add(candidate_id)
-            observed = dict(event)
-            observed["observed_monotonic_ns"] = time.monotonic_ns()
-            observed["observed_elapsed_seconds"] = (
-                observed["observed_monotonic_ns"] - t0
-            ) / 1_000_000_000
-            events.append(observed)
+        observer.observe(scan_findings(), after_budget=time.monotonic_ns() > deadline)
 
     try:
         while True:
@@ -321,12 +390,14 @@ def run_with_budget(
                 break
             if now >= deadline:
                 timed_out = True
-                try:
-                    os.killpg(process.pid, signal.SIGTERM)
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    os.killpg(process.pid, signal.SIGKILL)
-                    process.wait(timeout=5)
+                container_stop = _stop_named_container(command)
+                if container_stop is not None:
+                    try:
+                        process.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        _terminate_process(process)
+                else:
+                    _terminate_process(process)
                 break
             time.sleep(min(poll_seconds, max((deadline - now) / 1_000_000_000, 0)))
         # Capture artifacts flushed during normal exit or signal handling.
@@ -340,11 +411,31 @@ def run_with_budget(
         "started": True,
         "t0_monotonic_ns": t0,
         "end_monotonic_ns": end,
-        "elapsed_seconds": (end - t0) / 1_000_000_000,
+        "elapsed_seconds": float(budget_seconds) if timed_out else (end - t0) / 1_000_000_000,
+        "cleanup_inclusive_elapsed_seconds": (end - t0) / 1_000_000_000,
         "returncode": process.returncode,
         "timed_out": timed_out,
-        "events": events,
+        "container_stop": container_stop,
+        "events": observer.events,
     }
+
+
+def _terminate_process(process: subprocess.Popen[bytes]) -> None:
+    if os.name == "nt":
+        try:
+            process.terminate()
+            process.wait(timeout=5)
+            return
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+            return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait(timeout=5)
 
 
 def log_tail(path: Path, lines: int = 80) -> str:

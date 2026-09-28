@@ -19,6 +19,7 @@ CSV_FIELDS = [
     "kind",
     "function",
     "trial_id",
+    "execution_model",
     "support_status",
     "preprocessing_status",
     "run_status",
@@ -70,10 +71,15 @@ def aggregate_experiment(experiment_dir: Path) -> dict[str, Path]:
         "stability": summaries_dir / "stability.json",
     }
     write_json(paths["support"], support_summary(runs, experiment_dir / "support-matrix.csv"))
-    write_json(paths["findings_common_oracle"], common_finding_summary(runs))
+    support_rows = _read_csv(experiment_dir / "support-matrix.csv")
+    tools = {str(run["tool"]) for run in runs}
+    common_targets = _common_supported_targets(support_rows, tools)
+    if not common_targets:
+        common_targets = _common_supported_targets_from_runs(runs, tools)
+    write_json(paths["findings_common_oracle"], common_finding_summary(runs, common_targets))
     write_json(paths["findings_semantist_semantic"], semantist_semantic_summary(runs))
     write_json(paths["coverage_common"], coverage_summary(runs))
-    write_json(paths["performance"], performance_summary(runs))
+    write_json(paths["performance"], performance_summary(runs, common_targets))
     write_json(paths["stability"], stability_summary(runs))
     return paths
 
@@ -93,6 +99,7 @@ def write_raw_csv(path: Path, runs: list[dict[str, Any]]) -> None:
                     "kind": run.get("kind"),
                     "function": run.get("function"),
                     "trial_id": run.get("trial_id"),
+                    "execution_model": run.get("execution_model"),
                     "support_status": run.get("support_status"),
                     "preprocessing_status": run.get("preprocessing_status"),
                     "run_status": run.get("run_status"),
@@ -136,11 +143,17 @@ def support_summary(runs: list[dict[str, Any]], support_matrix_path: Path) -> di
     }
 
 
-def common_finding_summary(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def common_finding_summary(
+    runs: list[dict[str, Any]], target_scope: set[str] | None = None
+) -> list[dict[str, Any]]:
     result = []
     for (tool, suite), group in sorted(_group_by(runs, "tool", "suite").items()):
+        if target_scope is not None:
+            group = [run for run in group if run.get("target_id") in target_scope]
+        if not group:
+            continue
         targets = {run["target_id"] for run in group}
-        supported = [run for run in group if run.get("support_status") == "supported"]
+        supported = [run for run in group if _analysis_eligible(run)]
         finding_runs = [run for run in supported if run.get("common_oracle_finding_found")]
         times = [
             _first_value(run, "observed_elapsed_seconds", "tool_reported_time_seconds")
@@ -151,10 +164,12 @@ def common_finding_summary(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
             {
                 "tool": tool,
                 "suite": suite,
+                "analysis_scope": "common_supported" if target_scope is not None else "all_supported",
                 "target_count": len(targets),
                 "supported_target_count": len({run["target_id"] for run in supported}),
                 "trial_count": len(group),
                 "supported_trial_count": len(supported),
+                "excluded_trial_count": len(group) - len(supported),
                 "common_oracle_finding_trials": len(finding_runs),
                 "common_oracle_finding_targets": len({run["target_id"] for run in finding_runs}),
                 "unique_confirmed_faults": len(
@@ -231,28 +246,41 @@ def coverage_summary(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "online_elapsed_seconds": run.get("online_elapsed_seconds"),
                 "preprocessing_time_seconds": run.get("preprocessing_time_seconds"),
                 "coverage_status": coverage.get("status"),
+                "coverage_metric": coverage.get("metric", "tool_native_edge_slots"),
+                "coverage_cross_tool_comparable": bool(
+                    coverage.get("cross_tool_comparable", False)
+                ),
             }
         )
     return rows
 
 
-def performance_summary(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def performance_summary(
+    runs: list[dict[str, Any]], target_scope: set[str] | None = None
+) -> list[dict[str, Any]]:
     result = []
     for (tool, suite), group in sorted(_group_by(runs, "tool", "suite").items()):
-        execs = [run.get("total_executions") for run in group if run.get("total_executions") is not None]
-        eps = [run.get("execs_per_sec") for run in group if run.get("execs_per_sec") is not None]
+        if target_scope is not None:
+            group = [run for run in group if run.get("target_id") in target_scope]
+        if not group:
+            continue
+        eligible = [run for run in group if _analysis_eligible(run)]
+        execs = [run.get("total_executions") for run in eligible if run.get("total_executions") is not None]
+        eps = [run.get("execs_per_sec") for run in eligible if run.get("execs_per_sec") is not None]
         result.append(
             {
                 "tool": tool,
                 "suite": suite,
-                "run_count": len(group),
-                "budget_completed": len([run for run in group if run.get("run_status") == "budget_completed"]),
+                "analysis_scope": "common_supported" if target_scope is not None else "all_runs",
+                "run_count": len(eligible),
+                "excluded_run_count": len(group) - len(eligible),
+                "budget_completed": len([run for run in eligible if run.get("run_status") == "budget_completed"]),
                 "total_executions_median": _median(execs),
                 "execs_per_sec_median": _median(eps),
                 "online_elapsed_seconds_median": _median(
                     [
                         run.get("online_elapsed_seconds")
-                        for run in group
+                        for run in eligible
                         if run.get("online_elapsed_seconds") is not None
                     ]
                 ),
@@ -307,6 +335,36 @@ def _common_supported_targets(support_rows: list[dict[str, str]], tools: set[str
         for target_id, statuses in by_target.items()
         if tools <= statuses.keys() and all(statuses[tool] == "supported" for tool in tools)
     }
+
+
+def _common_supported_targets_from_runs(
+    runs: list[dict[str, Any]], tools: set[str]
+) -> set[str]:
+    by_target: dict[str, dict[str, str]] = defaultdict(dict)
+    for run in runs:
+        by_target[str(run["target_id"])][str(run["tool"])] = str(run.get("support_status"))
+    return {
+        target_id
+        for target_id, statuses in by_target.items()
+        if tools <= statuses.keys() and all(statuses[tool] == "supported" for tool in tools)
+    }
+
+
+_NON_ELIGIBLE_STATUSES = {
+    "unsupported",
+    "preprocessing_failed",
+    "online_start_failed",
+    "watchdog_timeout",
+    "runner_error",
+    "missing",
+}
+
+
+def _analysis_eligible(run: dict[str, Any]) -> bool:
+    return (
+        run.get("support_status") == "supported"
+        and run.get("run_status") not in _NON_ELIGIBLE_STATUSES
+    )
 
 
 def _group_by(rows: list[dict[str, Any]], *keys: str) -> dict[Any, list[dict[str, Any]]]:

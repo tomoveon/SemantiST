@@ -52,29 +52,6 @@
         "license": "CC-BY-NC-SA-4.0",
         "runtime": "CODESYS Control for Linux SL 3.5.16.10"
       }
-    },
-    "structuredfuzzer": {
-      "tag": "semantist-structuredfuzzer-env:e648a52",
-      "dockerfile": "structuredfuzzer/Dockerfile",
-      "build_args": {
-        "PYTHON_IMAGE": "docker.m.daocloud.io/library/python:3.13.7-slim-bookworm@sha256:adafcc17694d715c905b4c7bebd96907a1fd5cf183395f0ebc4d3428bd22d92d",
-        "RUST_IMAGE": "docker.m.daocloud.io/library/rust:1.75.0-bookworm@sha256:87f3b2f93b82995443a1a558c234212dafe79cfdc3af956539610560369ddcd0",
-        "STRUCTUREDFUZZER_REVISION": "e648a52051fb1d6447a49c70d97cf140ecd861c3",
-        "STRUCTUREDFUZZER_ARCHIVE_SHA256": "1a3063c9ec7942ff83ce22fea98eef82e9828cb6ca198b9939698282ef47a270",
-        "MATIEC_SNAPSHOT_REVISION": "22695b91b609ba7aecf1774f3c197cc7a629a432",
-        "MATIEC_SNAPSHOT_ARCHIVE_SHA256": "3d3fde81ef5080b511868961a57d60e943f8b2e00264f305369b3b9ede7a5315",
-        "AFLPLUSPLUS_VERSION": "v4.21c",
-        "AFLPLUSPLUS_ARCHIVE_SHA256": "11f7c77d37cff6e7f65ac7cc55bab7901e0c6208e845a38764394d04ed567b30",
-        "BUILD_JOBS": "2"
-      },
-      "upstream": {
-        "kind": "git-archive",
-        "source": "https://github.com/kandersonko/StructuredFuzzer",
-        "revision": "e648a52051fb1d6447a49c70d97cf140ecd861c3",
-        "license": "LicenseRef-StructuredFuzzer-Notice",
-        "matiec_source": "StructuredFuzzer historical bundled snapshot 22695b91b609ba7aecf1774f3c197cc7a629a432",
-        "aflplusplus_version": "v4.21c"
-      }
     }
   }
 }

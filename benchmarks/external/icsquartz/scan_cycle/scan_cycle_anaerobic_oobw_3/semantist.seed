@@ -1,0 +1,4 @@
+ssMethodType,SINT,0
+In1_Size,WORD,0
+0.In1_Ptr,POINTER,0x00
+1.In1_Ptr,POINTER,0x00

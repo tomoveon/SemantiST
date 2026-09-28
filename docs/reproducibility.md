@@ -18,12 +18,16 @@ into Git.
 
 ## Timing Policy
 
-Use fixed fuzzing-time budgets, for example 5 minutes and 10 minutes per
-target. Fuzzing time does not include preprocessing.
+The main comparison profile uses a fixed 5-minute online budget per target.
+A 10-minute profile, when run, is a separate sensitivity experiment and must
+not be merged with the 5-minute trials. Online time does not include static
+preprocessing.
 
 For SemantiST, preprocessing includes STG extraction, semantic IR
-instrumentation, compilation, harness generation, and semantic seed generation.
-Record preprocessing time separately from fuzzing time.
+instrumentation, compilation, harness generation, and semantic task-plan
+construction. Semantic initial-seed generation starts after online time zero,
+matching the measurement contract used by the comparison runner. Record static
+preprocessing time separately from online time.
 
 ## Initialization Policy
 
@@ -38,8 +42,10 @@ Do not hand-write vulnerability-triggering seeds for the benchmark runs.
 For each supported target, run each tool with:
 
 - 5 independent trials.
-- 5-minute and 10-minute fuzzing budgets.
-- One CPU core per trial, unless explicitly evaluating parallel fuzzing.
+- A 5-minute online budget for the main profile; keep any 10-minute profile separate.
+- One fuzzing worker per trial. Reserve two CPU slots for ICSQuartz (broker plus
+  one client) and one CPU slot for the other default tools, and record this
+  resource difference.
 - A fresh output directory per trial.
 
 Record at least:
@@ -61,7 +67,9 @@ Build the development/reproduction image from a clean repository checkout. The
 build downloads its Ubuntu, LLVM, Python, Cargo, and RuSTy dependencies:
 
 ```bash
-docker build -t semantist:latest .
+docker build \
+  --build-arg SEMANTIST_SOURCE_REVISION="$(git rev-parse HEAD)" \
+  -t semantist:0.1.0 .
 ```
 
 Create a host output directory and mount only that directory. Do not mount the
@@ -72,7 +80,7 @@ snapshot that was compiled and checked while building the image:
 mkdir -p artifacts
 docker run --rm -it \
   --mount type=bind,src="$PWD/artifacts",dst=/work/SemantiST/artifacts \
-  semantist:latest
+  semantist:0.1.0
 ```
 
 Inside the container, run tests:

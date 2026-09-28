@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import os
+import re
 import shutil
 import time
 from dataclasses import dataclass, field
@@ -87,6 +89,7 @@ class BaseAdapter:
     initial_seed_policy = "adapter_provided"
     per_execution_timeout_model = "per_process"
     per_execution_timeout_ms: int | None = None
+    cpu_slots = 1
 
     def __init__(self, config: ExperimentConfig) -> None:
         self.config = config
@@ -127,9 +130,50 @@ class BaseAdapter:
     def relative_artifact(self, path: Path) -> str:
         experiment_root = self.config.artifact_root / self.config.experiment_id
         try:
-            return str(path.relative_to(experiment_root))
+            return path.relative_to(experiment_root).as_posix()
         except ValueError:
             return str(path)
+
+    def container_path(self, path: Path) -> str:
+        """Map a repository/artifact path to the stable Linux container ABI."""
+        resolved = path.resolve()
+        for host_root, container_root in (
+            (self.config.artifact_root.resolve(), Path("/artifacts")),
+            (self.config.semantist_root.resolve(), Path("/repo")),
+        ):
+            try:
+                relative = resolved.relative_to(host_root)
+            except ValueError:
+                continue
+            return (container_root / relative).as_posix()
+        raise ValueError(f"path is outside comparison mounts: {resolved}")
+
+    def host_artifact_path(self, value: str) -> Path | None:
+        """Resolve /artifacts paths emitted by a container on either host OS."""
+        normalized = value.replace("\\", "/")
+        if normalized.startswith("/artifacts/"):
+            path = self.config.artifact_root / normalized[len("/artifacts/"):]
+        else:
+            path = Path(normalized)
+            if not path.is_absolute():
+                path = self.config.artifact_root / self.config.experiment_id / path
+        root = (self.config.artifact_root / self.config.experiment_id).resolve()
+        try:
+            path.resolve().relative_to(root)
+        except ValueError:
+            return None
+        return path if path.is_file() else None
+
+    def container_name(self, target: Target, run_dir: Path, suffix: str) -> str:
+        """Build a stable, short container name for timeout-safe cleanup."""
+        raw = (
+            f"semantist-{self.config.experiment_id}-{self.tool_name}-"
+            f"{target.suite}-{target.target_id}-{run_dir.name}-{suffix}"
+        )
+        digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
+        normalized = re.sub(r"[^a-z0-9_.-]+", "-", raw.lower()).strip("-")
+        prefix = normalized[:48].strip("-") or "semantist-run"
+        return f"{prefix}-{digest}"
 
     def prepare(self, target: Target) -> PreprocessingResult:
         start = time.monotonic_ns()
@@ -152,7 +196,14 @@ class BaseAdapter:
             (run_dir / child).mkdir(parents=True, exist_ok=True)
         return run_dir
 
-    def run(self, target: Target, run_dir: Path, preprocessing: PreprocessingResult, rng_seed: int, cpu: int) -> dict[str, Any]:
+    def run(
+        self,
+        target: Target,
+        run_dir: Path,
+        preprocessing: PreprocessingResult,
+        rng_seed: int,
+        cpu: int | list[int],
+    ) -> dict[str, Any]:
         raise NotImplementedError
 
     def seed_fields(self, rng_seed: int) -> dict[str, Any]:
@@ -282,7 +333,7 @@ class BaseAdapter:
     ) -> dict[str, Any]:
         digest = sha256_file(path) if path.is_file() else canonical_json_sha256(str(path))
         return {
-            "candidate_id": f"{self.tool_name}:{target.target_id}:{trial_id}:{oracle}:{digest}",
+            "candidate_id": f"{self.tool_name}:{target.target_id}:{trial_id}:{oracle}:{canonical_json_sha256(self.relative_artifact(path))}",
             "tool": self.tool_name,
             "target_id": target.target_id,
             "trial_id": trial_id,

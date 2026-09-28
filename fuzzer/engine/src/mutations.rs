@@ -1809,6 +1809,7 @@ impl RuntimeFindingFeedback {
         let trace_metadata = read_fb_state_trace_metadata();
         let record = RuntimeFindingRecord {
             schema_version: "1.0",
+            executions: *state.executions(),
             content_hash: digest.clone(),
             source: source_label.clone(),
             kind: kind.clone(),

@@ -5,12 +5,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
 from experiments.comparison.lib.process import container_run_command
 from experiments.comparison.lib.schema import validate_run_result
+from experiments.comparison.lib.metrics import CRASH_ORACLES, paper_metrics
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -32,16 +35,21 @@ def replay_experiment(
 ) -> list[dict[str, Any]]:
     experiment_dir = experiment_dir.resolve()
     records = []
-    for run in read_jsonl(experiment_dir / "raw-runs.jsonl"):
+    for result_path in sorted((experiment_dir / "runs").rglob("run-result.json")):
+        run = json.loads(result_path.read_text(encoding="utf-8"))
         run_dir = experiment_dir / "runs" / run["tool"] / run["suite"] / run["target_id"] / f"trial_{int(run['trial_id']):02d}"
         target_bin = run_dir / "tool-artifacts" / "fuzz_target"
         for event in run.get("candidate_findings", []):
+            if event.get("oracle") not in CRASH_ORACLES:
+                continue
             seed = resolve_event_seed(experiment_dir, event)
-            if not target_bin.is_file() or not seed.is_file():
+            unsupported_history = run.get("execution_model") == "scan_cycle"
+            if unsupported_history or not target_bin.is_file() or not seed.is_file():
                 status = "conversion_unsupported"
                 confirmed = False
                 stderr = ""
                 returncode = None
+                reason = "state_history_unavailable" if unsupported_history else "missing_target_or_seed"
             else:
                 outcome = replay_seed(
                     experiment_dir,
@@ -49,13 +57,14 @@ def replay_experiment(
                     seed,
                     timeout_seconds,
                     container_runtime=container_runtime,
-                    semantist_image=semantist_image,
+                    semantist_image=str(run.get("replay_image") or semantist_image),
                     container_platform=container_platform,
                 )
                 status = outcome["status"]
                 stderr = str(outcome.get("stderr") or "")
                 returncode = outcome.get("returncode")
                 confirmed = bool(outcome.get("confirmed"))
+                reason = outcome.get("reason")
             records.append(
                 {
                     "run_key": run["run_key"],
@@ -67,6 +76,8 @@ def replay_experiment(
                     "confirmed": confirmed,
                     "oracle": event.get("oracle"),
                     "returncode": returncode,
+                    "reason": reason,
+                    "input_mode": "stdin",
                     "stderr_preview": stderr[:2000],
                 }
             )
@@ -86,17 +97,32 @@ def replay_seed(
 ) -> dict[str, Any]:
     data = seed.read_bytes()
     if container_runtime:
+        try:
+            relative_target = target_bin.resolve().relative_to(experiment_dir.resolve())
+            seed.resolve().relative_to(experiment_dir.resolve())
+        except ValueError:
+            return {
+                "status": "replay_error",
+                "confirmed": False,
+                "returncode": None,
+                "stderr": "target and seed must be inside experiment_dir for container replay",
+                "reason": "path_outside_experiment",
+            }
+        container_target = "/replay/" + relative_target.as_posix()
+        inner_command = [container_target]
         command = container_run_command(
             container_runtime,
             semantist_image,
-            mounts=[(experiment_dir, str(experiment_dir), True)],
+            mounts=[(experiment_dir, "/replay", True)],
             env={"ASAN_OPTIONS": "detect_leaks=0"},
             platform=container_platform,
             interactive_stdin=True,
-            command=[str(target_bin)],
+            command=inner_command,
         )
     else:
         command = [str(target_bin)]
+        if target_bin.suffix.lower() == ".py":
+            command.insert(0, sys.executable)
     try:
         completed = subprocess.run(
             command,
@@ -106,6 +132,9 @@ def replay_seed(
             timeout=timeout_seconds,
             check=False,
         )
+    except OSError as error:
+        return {"status": "replay_error", "confirmed": False, "returncode": None,
+                "stderr": str(error), "reason": "exec_failed"}
     except subprocess.TimeoutExpired as error:
         stderr = (error.stderr or b"").decode("utf-8", errors="replace")
         return {
@@ -113,15 +142,65 @@ def replay_seed(
             "confirmed": False,
             "returncode": None,
             "stderr": stderr,
+            "reason": "timeout",
         }
+    stdout = completed.stdout.decode("utf-8", errors="replace")
     stderr = completed.stderr.decode("utf-8", errors="replace")
-    confirmed = completed.returncode != 0 or "Sanitizer" in stderr or "runtime error:" in stderr
+    combined = f"{stdout}\n{stderr}"
+    startup_reason = _startup_failure_reason(combined)
+    if startup_reason:
+        return {
+            "status": "replay_error",
+            "confirmed": False,
+            "returncode": completed.returncode,
+            "stderr": stderr,
+            "reason": startup_reason,
+        }
+    sanitizer = bool(re.search(r"(?:ERROR|SUMMARY): (?:Address|UndefinedBehavior)Sanitizer:|runtime error:", combined))
+    crash_signals = {4, 5, 6, 7, 8, 11, 31}  # ILL, TRAP, ABRT, BUS, FPE, SEGV, SYS on Linux.
+    signal_exit = completed.returncode is not None and (
+        -completed.returncode in crash_signals
+        or bool(container_runtime) and completed.returncode - 128 in crash_signals
+    )
+    confirmed = sanitizer or signal_exit
     return {
-        "status": "confirmed" if confirmed else "not_reproduced",
+        "status": "confirmed" if confirmed else "not_reproduced" if completed.returncode == 0 else "replay_error",
         "confirmed": confirmed,
         "returncode": completed.returncode,
         "stderr": stderr,
+        "reason": (
+            "sanitizer_or_signal"
+            if sanitizer or signal_exit
+            else "clean_or_unclassified_nonzero"
+        ),
     }
+
+
+def _startup_failure_reason(output: str) -> str | None:
+    lowered = output.lower()
+    patterns = (
+        ("asan runtime does not come first", "sanitizer_initialization_failed"),
+        ("shadow memory range interleaves", "sanitizer_initialization_failed"),
+        ("sanitizer check failed", "sanitizer_initialization_failed"),
+        ("malformed line detected", "invalid_input"),
+        ("unknown type", "invalid_input"),
+        ("invalid bool value", "invalid_input"),
+        ("invalid sint value", "invalid_input"),
+        ("invalid int value", "invalid_input"),
+        ("invalid real value", "invalid_input"),
+        ("usage:", "invalid_command"),
+        ("error while loading shared libraries", "missing_runtime_or_input"),
+        ("failed to load initial corpus", "initial_corpus_load_failed"),
+        ("unable to request new process from fork server", "forkserver_start_failed"),
+        ("wrong forkserver message", "forkserver_protocol_mismatch"),
+        ("failed to start a forkserver", "forkserver_start_failed"),
+        ("failed to open", "input_or_file_open_failed"),
+        ("no such file or directory", "missing_runtime_or_input"),
+    )
+    for needle, reason in patterns:
+        if needle in lowered:
+            return reason
+    return None
 
 
 def resolve_event_seed(experiment_dir: Path, event: dict[str, Any]) -> Path:
@@ -142,7 +221,7 @@ def merge_replay_results(experiment_dir: Path, records: list[dict[str, Any]]) ->
     by_candidate = {}
     for record in records:
         by_run.setdefault(str(record["run_key"]), []).append(record)
-        by_candidate[str(record.get("candidate_id"))] = record
+        by_candidate[(str(record["run_key"]), str(record.get("candidate_id")))] = record
     for result_path in sorted((experiment_dir / "runs").rglob("run-result.json")):
         run = json.loads(result_path.read_text(encoding="utf-8"))
         run_records = by_run.get(str(run.get("run_key")), [])
@@ -151,24 +230,31 @@ def merge_replay_results(experiment_dir: Path, records: list[dict[str, Any]]) ->
             continue
         confirmed_records = [record for record in run_records if record.get("confirmed")]
         for event in run.get("candidate_findings", []):
-            record = by_candidate.get(str(event.get("candidate_id")))
+            record = by_candidate.get((str(run["run_key"]), str(event.get("candidate_id"))))
             if record is not None:
                 event["common_replay"] = {
                     "status": record["status"],
                     "confirmed": record["confirmed"],
                     "returncode": record["returncode"],
+                    "reason": record.get("reason"),
+                    "input_mode": record.get("input_mode"),
                 }
         if confirmed_records:
+            confirmed_ids = {str(record.get("candidate_id")) for record in confirmed_records}
+            confirmed_events = [
+                event
+                for event in run.get("candidate_findings", [])
+                if str(event.get("candidate_id")) in confirmed_ids
+            ]
             run["common_replay"] = {
                 "status": "confirmed",
                 "confirmed": True,
                 "oracle": confirmed_records[0].get("oracle"),
+                "reason": confirmed_records[0].get("reason"),
             }
-            run["unique_confirmed_fault_ids"] = sorted(
-                set(run.get("unique_confirmed_fault_ids") or [])
-                | {str(record.get("candidate_id")) for record in confirmed_records}
-            )
+            run["confirmed_candidate_ids"] = sorted(confirmed_ids)
         else:
+            run["confirmed_candidate_ids"] = []
             statuses = {str(record.get("status")) for record in run_records}
             status = "conversion_unsupported" if statuses == {"conversion_unsupported"} else "not_reproduced"
             if "replay_error" in statuses:
@@ -179,7 +265,12 @@ def merge_replay_results(experiment_dir: Path, records: list[dict[str, Any]]) ->
                 "status": status,
                 "confirmed": False,
                 "oracle": None,
+                "reason": next(
+                    (record.get("reason") for record in run_records if record.get("reason")),
+                    None,
+                ),
             }
+        run["paper_metrics"] = paper_metrics(run)
         validate_run_result(run)
         write_json(result_path, run)
 

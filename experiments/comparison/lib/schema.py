@@ -53,6 +53,15 @@ def run_result_template(
     support_status: str,
     observer_poll_interval_ms: int = 10,
 ) -> dict[str, Any]:
+    # Keep the execution contract explicit in every row.  The ordinary
+    # RuSTy/byte-level harnesses execute one isolated cycle; the scan-cycle
+    # suite and SemantiST's stateful FB harnesses intentionally retain state.
+    if tool == "semantist_full" and target.kind == "FUNCTION_BLOCK":
+        execution_model = "stateful_semantic_sequence"
+    elif tool == "icsfuzz_full" or (tool == "icsquartz_full" and target.suite == "icsquartz_scan_cycle"):
+        execution_model = "scan_cycle"
+    else:
+        execution_model = "single_cycle"
     return {
         "schema_version": RUN_SCHEMA_VERSION,
         "experiment_id": experiment_id,
@@ -78,6 +87,7 @@ def run_result_template(
         "online_elapsed_seconds": None,
         "per_execution_timeout_ms": per_execution_timeout_ms,
         "execution_timeout_model": execution_timeout_model,
+        "execution_model": execution_model,
         "run_status": "missing",
         "finding_found": False,
         "common_oracle_finding_found": False,
@@ -95,12 +105,15 @@ def run_result_template(
             "status": "not-run",
             "confirmed": False,
             "oracle": None,
+            "reason": None,
         },
         "common_coverage": {
             "status": "not-run",
             "covered_slots": None,
             "covered_slots_sha256": None,
             "conversion_failures": 0,
+            "metric": "tool_native_edge_slots",
+            "cross_tool_comparable": False,
         },
         "tool_specific_metrics": {},
         "artifact_paths": {},

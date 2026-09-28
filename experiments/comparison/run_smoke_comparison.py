@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the short four-tool comparison smoke profile."""
+"""Run the short three-tool comparison smoke profile."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from experiments.comparison.run_full_comparison import main  # noqa: E402
 
 DEFAULT_ARGS = [
     "--experiment-id",
-    "comparison_4tools_20s_smoke",
+    "comparison_3tools_20s_smoke",
     "--target-id",
     "oscat_basic_charname",
     "--target-id",
@@ -27,7 +27,7 @@ DEFAULT_ARGS = [
     "--fuzz-time",
     "20",
     "--tools",
-    "semantist,aflplusplus,icsquartz,structuredfuzzer",
+    "semantist,aflplusplus,icsquartz",
     "--container-runtime",
     "auto",
     "--cpus",

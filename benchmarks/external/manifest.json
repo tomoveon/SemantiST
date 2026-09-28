@@ -10,9 +10,9 @@
       "function": "BIT_COUNT",
       "st_file": "benchmarks/oscat_basic/functions/bit_count/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -26,9 +26,9 @@
       "function": "BUFFER_COMP",
       "st_file": "benchmarks/oscat_basic/functions/buffer_comp/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -42,9 +42,9 @@
       "function": "_BUFFER_INSERT",
       "st_file": "benchmarks/oscat_basic/functions/buffer_insert/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -277,22 +277,6 @@
     },
     {
       "suite": "oscat_basic",
-      "id": "oscat_basic_month_to_string",
-      "kind": "FUNCTION",
-      "function": "MONTH_TO_STRING",
-      "st_file": "benchmarks/oscat_basic/functions/month_to_string/target.st",
-      "upstream_repo": "https://github.com/momalab/ICSQuartz",
-      "upstream_commit": "8021bd44f47147776c6394e008bbea23ac993076",
-      "upstream_path": "benchmarks/oscat_basic_month_to_string/src/program.st",
-      "upstream_sha256": "82b70c07cc6444cfec9f04d5d748058ff41e0413f9214afae4e282751fa90457",
-      "lineage": "OSCAT Basic target also present in ICSQuartz; extracted verbatim from SemantiST's normalized full OSCAT Basic source",
-      "transformations": [
-        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
-      ],
-      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
-    },
-    {
-      "suite": "oscat_basic",
       "id": "oscat_basic_real_to_strf",
       "kind": "FUNCTION",
       "function": "REAL_TO_STRF",
@@ -394,9 +378,9 @@
       "function": "UPPERCASE",
       "st_file": "benchmarks/oscat_basic/functions/uppercase/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -421,14 +405,30 @@
     },
     {
       "suite": "oscat_basic",
+      "id": "oscat_basic_inc",
+      "kind": "FUNCTION",
+      "function": "INC",
+      "st_file": "benchmarks/oscat_basic/functions/inc/target.st",
+      "upstream_repo": "SemantiST bundled OSCAT Basic source",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
+      "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
+      "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
+      "transformations": [
+        "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
+      ],
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json"
+    },
+    {
+      "suite": "oscat_basic",
       "id": "oscat_basic_inc2",
       "kind": "FUNCTION",
       "function": "INC2",
       "st_file": "benchmarks/oscat_basic/functions/inc2/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -442,9 +442,9 @@
       "function": "DAYS_IN_MONTH",
       "st_file": "benchmarks/oscat_basic/functions/days_in_month/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -458,9 +458,9 @@
       "function": "LIST_GET",
       "st_file": "benchmarks/oscat_basic/functions/list_get/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -474,9 +474,9 @@
       "function": "MULTI_IN",
       "st_file": "benchmarks/oscat_basic/functions/multi_in/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -490,9 +490,9 @@
       "function": "_STRING_TO_BUFFER",
       "st_file": "benchmarks/oscat_basic/functions/string_to_buffer/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -506,9 +506,9 @@
       "function": "ALARM_2",
       "st_file": "benchmarks/oscat_basic/function_blocks/alarm_2/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -522,9 +522,9 @@
       "function": "BAR_GRAPH",
       "st_file": "benchmarks/oscat_basic/function_blocks/bar_graph/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -538,9 +538,9 @@
       "function": "CALIBRATE",
       "st_file": "benchmarks/oscat_basic/function_blocks/calibrate/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -554,9 +554,9 @@
       "function": "CONTROL_SET1",
       "st_file": "benchmarks/oscat_basic/function_blocks/control_set1/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -570,9 +570,9 @@
       "function": "COUNT_DR",
       "st_file": "benchmarks/oscat_basic/function_blocks/count_dr/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -586,9 +586,9 @@
       "function": "DELAY",
       "st_file": "benchmarks/oscat_basic/function_blocks/delay/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -602,9 +602,9 @@
       "function": "DRIVER_1",
       "st_file": "benchmarks/oscat_basic/function_blocks/driver_1/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -618,9 +618,9 @@
       "function": "FIFO_16",
       "st_file": "benchmarks/oscat_basic/function_blocks/fifo_16/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -634,9 +634,9 @@
       "function": "FILTER_I",
       "st_file": "benchmarks/oscat_basic/function_blocks/filter_i/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -650,9 +650,9 @@
       "function": "FILTER_MAV_DW",
       "st_file": "benchmarks/oscat_basic/function_blocks/filter_mav_dw/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -666,9 +666,9 @@
       "function": "FLOW_CONTROL",
       "st_file": "benchmarks/oscat_basic/function_blocks/flow_control/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -682,9 +682,9 @@
       "function": "FLOW_METER",
       "st_file": "benchmarks/oscat_basic/function_blocks/flow_meter/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -698,9 +698,9 @@
       "function": "GEN_PULSE",
       "st_file": "benchmarks/oscat_basic/function_blocks/gen_pulse/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -714,9 +714,9 @@
       "function": "HYST_1",
       "st_file": "benchmarks/oscat_basic/function_blocks/hyst_1/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -730,9 +730,9 @@
       "function": "INTEGRATE",
       "st_file": "benchmarks/oscat_basic/function_blocks/integrate/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -746,9 +746,9 @@
       "function": "INTERLOCK",
       "st_file": "benchmarks/oscat_basic/function_blocks/interlock/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -762,9 +762,9 @@
       "function": "LIST_NEXT",
       "st_file": "benchmarks/oscat_basic/function_blocks/list_next/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -778,9 +778,9 @@
       "function": "MANUAL_1",
       "st_file": "benchmarks/oscat_basic/function_blocks/manual_1/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -794,9 +794,9 @@
       "function": "METER",
       "st_file": "benchmarks/oscat_basic/function_blocks/meter/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -810,9 +810,9 @@
       "function": "PARSET",
       "st_file": "benchmarks/oscat_basic/function_blocks/parset/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -826,9 +826,9 @@
       "function": "PWM_DC",
       "st_file": "benchmarks/oscat_basic/function_blocks/pwm_dc/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -842,9 +842,9 @@
       "function": "RMP_B",
       "st_file": "benchmarks/oscat_basic/function_blocks/rmp_b/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -858,9 +858,9 @@
       "function": "SCHEDULER_2",
       "st_file": "benchmarks/oscat_basic/function_blocks/scheduler_2/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -874,9 +874,9 @@
       "function": "SIGNAL",
       "st_file": "benchmarks/oscat_basic/function_blocks/signal/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -890,9 +890,9 @@
       "function": "STACK_16",
       "st_file": "benchmarks/oscat_basic/function_blocks/stack_16/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -906,9 +906,9 @@
       "function": "STORE_8",
       "st_file": "benchmarks/oscat_basic/function_blocks/store_8/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -922,9 +922,9 @@
       "function": "TOGGLE",
       "st_file": "benchmarks/oscat_basic/function_blocks/toggle/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -938,9 +938,9 @@
       "function": "TREND",
       "st_file": "benchmarks/oscat_basic/function_blocks/trend/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -954,9 +954,9 @@
       "function": "CTRL_PI",
       "st_file": "benchmarks/oscat_basic/function_blocks/ctrl_pi/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"
@@ -970,9 +970,9 @@
       "function": "CTRL_PID",
       "st_file": "benchmarks/oscat_basic/function_blocks/ctrl_pid/target.st",
       "upstream_repo": "SemantiST bundled OSCAT Basic source",
-      "upstream_commit": "source-sha256:b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_commit": "source-sha256:b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "upstream_path": "benchmarks/oscat_basic/source/oscat.st",
-      "upstream_sha256": "b0dae75deb6947b2c210f15079465690e857c4a822479d788e60d15e1b9f96fe",
+      "upstream_sha256": "b8619427df340342f71967b91815c0bef7cb6036491e1d6f905963488f33ae92",
       "lineage": "Additional OSCAT Basic target extracted verbatim from SemantiST's normalized full OSCAT Basic source",
       "transformations": [
         "extracted target POU verbatim from benchmarks/oscat_basic/source/oscat.st"

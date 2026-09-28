@@ -94,6 +94,7 @@ impl StSeedMetadata {
 #[derive(Clone, Debug, Serialize)]
 struct RuntimeFindingRecord {
     schema_version: &'static str,
+    executions: u64,
     content_hash: String,
     source: String,
     kind: String,

@@ -1,0 +1,7 @@
+in_1,REAL,0.0
+in_2,REAL,0.0
+in_3,REAL,0.0
+default,REAL,0.0
+in_min,REAL,0.0
+in_max,REAL,0.0
+mode,BYTE,0

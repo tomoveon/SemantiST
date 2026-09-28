@@ -7,6 +7,7 @@ import argparse
 import csv
 import json
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -35,8 +36,9 @@ from experiments.comparison.lib.process import (  # noqa: E402
     unavailable_cpus,
 )
 from experiments.comparison.lib.schema import run_result_template, validate_run_result, write_json  # noqa: E402
+from experiments.comparison.lib.metrics import CONTRACT, paper_metrics  # noqa: E402
 
-DEFAULT_EXPERIMENT_ID = "comparison_4tools_90targets_300s_5trials"
+DEFAULT_EXPERIMENT_ID = "comparison_3tools_90targets_300s_5trials"
 DEFAULT_TOOLS = ",".join(DEFAULT_TOOL_ORDER)
 DEFAULT_SEMANTIST_IMAGE = os.environ.get("SEMANTIST_IMAGE", "semantist:0.1.0")
 EXPECTED_SOURCE_REVISIONS = {
@@ -44,7 +46,7 @@ EXPECTED_SOURCE_REVISIONS = {
     "ICSQuartz": "8021bd44f47147776c6394e008bbea23ac993076",
 }
 EXPECTED_INPUT_HASHES = {
-    "SemantiST/benchmarks/external/manifest.json": "d9d12e1b2d2d406e5304745679bae0bf7c08b5a6afaba470607f2ece25976079",
+    "SemantiST/benchmarks/external/manifest.json": "0ab4c3a89c1538fbbda8bb4443b8d72cb336df277850354a4becc8e25d78fce5",
     "ICSQuartz/run_experiment.py": "e8ba6f5683207b4ee6a73e1739fd6adaaeb0f3875bda8c2fc6c64a554e17ae72",
     "ICSQuartz/src/experiments.py": "d78e72690e8dc06c24714a660b264f34be927a58d011b45f3c70e7874cbc5fb4",
     "ICSQuartz/README.md": "60086385313ecf16e2def1590c61a845c4624f4c3f3a5e689554e315f4d4d063",
@@ -52,7 +54,7 @@ EXPECTED_INPUT_HASHES = {
 
 
 def parse_args(argv: list[str] | None = None, *, description: str | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=description or __doc__)
+    parser = argparse.ArgumentParser(description=description or __doc__, allow_abbrev=False)
     parser.add_argument("--experiment-id", default=DEFAULT_EXPERIMENT_ID)
     parser.add_argument("--manifest", type=Path, default=ROOT / "benchmarks" / "external" / "manifest.json")
     parser.add_argument("--artifact-root", type=Path, default=ROOT / "artifacts" / "experiments")
@@ -97,6 +99,7 @@ def parse_args(argv: list[str] | None = None, *, description: str | None = None)
     parser.add_argument("--analysis-timeout", type=float, default=2.0)
     parser.add_argument("--validate-complete", action="store_true")
     parser.add_argument("--skip-aggregate", action="store_true")
+    parser.add_argument("--serial", action="store_true", help="run one trial at a time")
     return parser.parse_args(argv)
 
 
@@ -194,7 +197,7 @@ def main(argv: list[str] | None = None, *, description: str | None = None) -> in
 
     preprocessing = prepare_supported_targets(tools, targets, adapters, support)
     update_support_matrix_preprocessing(experiment_dir, preprocessing)
-    run_online_matrix(experiment_dir, schedule, targets, adapters, support, preprocessing, cpus, args.resume)
+    run_online_matrix(experiment_dir, schedule, targets, adapters, support, preprocessing, cpus, args.resume, serial=args.serial)
     write_raw_runs(experiment_dir, schedule)
     if args.with_replay:
         replay_records = replay_experiment(
@@ -235,7 +238,6 @@ def normalize_tools(text: str) -> list[str]:
         "afl++": "aflplusplus_full",
         "icsfuzz": "icsfuzz_full",
         "icsquartz": "icsquartz_full",
-        "structuredfuzzer": "structuredfuzzer_full",
     }
     result = []
     for item in text.split(","):
@@ -299,6 +301,9 @@ def write_environment(
     environment = {
         "schema_version": "semantist.full-comparison-environment/1.0.0",
         "experiment_id": args.experiment_id,
+        "host": {"hostname": platform.node(), "platform": platform.platform(),
+                 "machine": platform.machine(), "logical_cpus": os.cpu_count()},
+        "serial_trials": args.serial,
         "semantist_root": str(ROOT),
         "workspace_root": str(args.workspace_root.resolve()),
         "artifact_root": str(args.artifact_root.resolve()),
@@ -310,6 +315,10 @@ def write_environment(
         "per_execution_timeout_ms": args.timeout_ms,
         "cpus": args.cpus,
         "cpus_isolated": args.cpus_isolated,
+        "tool_cpu_slots": {
+            tool: int(getattr(ADAPTERS[tool], "cpu_slots", 1))
+            for tool in tools
+        },
         "expected_source_revisions": EXPECTED_SOURCE_REVISIONS,
         "actual_source_revisions": revisions,
         "input_hashes": actual_hashes,
@@ -360,7 +369,6 @@ def _baseline_images_for_tools(tools: list[str]) -> dict[str, str]:
         "aflplusplus_full": "aflplusplus",
         "icsfuzz_full": "icsfuzz",
         "icsquartz_full": "icsquartz",
-        "structuredfuzzer_full": "structuredfuzzer",
     }
     lock_file = ROOT / "experiments" / "baselines" / "baselines.lock.json"
     lock = json.loads(lock_file.read_text(encoding="utf-8"))
@@ -502,6 +510,8 @@ def run_online_matrix(
     preprocessing: dict[tuple[str, str], PreprocessingResult],
     cpus: list[int],
     resume: bool,
+    *,
+    serial: bool = False,
 ) -> None:
     by_target = {target.target_id: target for target in targets}
     immediate = []
@@ -560,15 +570,28 @@ def run_online_matrix(
         write_run_result(run_dir, result)
 
     print(f"[comparison] online rows: {len(online)}; immediate records: {len(immediate)}", flush=True)
-    for offset in range(0, len(online), len(cpus)):
-        batch = online[offset : offset + len(cpus)]
+    max_slots_required = max(
+        int(getattr(adapters[row["tool"]], "cpu_slots", 1))
+        for row in online
+    ) if online else 1
+    if len(cpus) < max_slots_required:
+        raise SystemExit(
+            f"selected tools require at least {max_slots_required} CPU slots; "
+            f"got {len(cpus)} from --cpus"
+        )
+
+    batches = ([[(row, cpus[:int(getattr(adapters[row["tool"]], "cpu_slots", 1))])]
+                for row in online] if serial else _cpu_scheduled_batches(online, adapters, cpus))
+    for batch in batches:
         with ThreadPoolExecutor(max_workers=len(batch)) as executor:
             futures = []
-            for cpu, row in zip(cpus, batch):
+            for row, assigned_cpus in batch:
                 target = by_target[row["target_id"]]
                 adapter = adapters[row["tool"]]
                 prep = preprocessing[(row["tool"], target.target_id)]
-                futures.append(executor.submit(execute_online_row, row, target, adapter, prep, cpu))
+                futures.append(
+                    executor.submit(execute_online_row, row, target, adapter, prep, assigned_cpus)
+                )
             for future in as_completed(futures):
                 row, run_dir, result = future.result()
                 write_run_result(run_dir, result)
@@ -578,13 +601,51 @@ def run_online_matrix(
                 )
 
 
-def execute_online_row(row: dict[str, Any], target: Any, adapter: Any, prep: PreprocessingResult, cpu: int) -> tuple[dict[str, Any], Path, dict[str, Any]]:
+def _cpu_scheduled_batches(
+    online: list[dict[str, Any]],
+    adapters: dict[str, Any],
+    cpus: list[int],
+) -> list[list[tuple[dict[str, Any], list[int]]]]:
+    batches: list[list[tuple[dict[str, Any], list[int]]]] = []
+    index = 0
+    while index < len(online):
+        batch: list[tuple[dict[str, Any], list[int]]] = []
+        cursor = 0
+        while index < len(online):
+            row = online[index]
+            slots = int(getattr(adapters[row["tool"]], "cpu_slots", 1))
+            if slots < 1:
+                slots = 1
+            if slots > len(cpus):
+                raise SystemExit(
+                    f"tool {row['tool']} requires {slots} CPU slots; got {len(cpus)} from --cpus"
+                )
+            if cursor + slots > len(cpus):
+                break
+            batch.append((row, cpus[cursor : cursor + slots]))
+            cursor += slots
+            index += 1
+        if not batch:
+            raise RuntimeError("internal CPU scheduler could not place any online row")
+        batches.append(batch)
+    return batches
+
+
+def execute_online_row(
+    row: dict[str, Any],
+    target: Any,
+    adapter: Any,
+    prep: PreprocessingResult,
+    cpus: list[int],
+) -> tuple[dict[str, Any], Path, dict[str, Any]]:
     run_dir = adapter.run_dir(target, row["trial_id"])
     result = make_base_result(row, target, adapter, "supported")
+    result["assigned_cpus"] = cpus
     result.update(_preprocessing_fields(prep))
     try:
         run_dir = adapter.materialize_trial(target, prep, row["trial_id"])
-        updates = adapter.run(target, run_dir, prep, row["rng_seed"], cpu)
+        cpu_arg: int | list[int] = cpus[0] if len(cpus) == 1 else cpus
+        updates = adapter.run(target, run_dir, prep, row["rng_seed"], cpu_arg)
         result.update(updates)
     except AdapterError as error:
         result.update(
@@ -631,12 +692,19 @@ def make_base_result(row: dict[str, Any], target: Any, adapter: Any, support_sta
             "initial_seed_provider": seeds["initial_seed_provider"],
             "initial_seed_format": seeds["initial_seed_format"],
             "initial_seed_policy": seeds["initial_seed_policy"],
+            "measurement_contract": CONTRACT,
+            "st_file_sha256": target.st_file_sha256,
+            "benchmark_fixture_sha256": target.fixture_hashes,
+            "cpu_slots": int(getattr(adapter, "cpu_slots", 1)),
+            "fuzz_workers": 1,
+            "replay_image": adapter.config.semantist_image,
         }
     )
     return result
 
 
 def write_run_result(run_dir: Path, result: dict[str, Any]) -> None:
+    result["paper_metrics"] = paper_metrics(result)
     result["artifact_paths"] = result.get("artifact_paths") or {}
     result["artifact_paths"]["run_result"] = "run-result.json"
     validate_run_result(result)

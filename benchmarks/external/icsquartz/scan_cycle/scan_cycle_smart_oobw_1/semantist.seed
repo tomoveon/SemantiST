@@ -1,0 +1,4 @@
+ssMethodType,SINT,0
+iter,INT,0
+Input,POINTER,0x00
+ByteNum,DWORD,0

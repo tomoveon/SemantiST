@@ -1,7 +1,7 @@
 use std::fs;
 
-use serde_json::json;
 use semantist_stg::ir::{instrument, InstrumentOptions};
+use serde_json::json;
 
 fn llvm_metadata_string(value: &serde_json::Value) -> String {
     serde_json::to_string(value)

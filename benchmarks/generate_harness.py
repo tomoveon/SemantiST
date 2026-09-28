@@ -5,7 +5,7 @@ The harness layout is derived from the RuSTy LLVM IR so that the C struct ABI
 (size, input field offsets) matches the compiled PLC_PRG exactly.
 
 Usage:
-    python3 benchmarks/generate_harness.py [--suite SUITE] [--id ID] [--runtime podman]
+    python3 benchmarks/generate_harness.py [--suite SUITE] [--id ID] [--runtime docker]
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ def build_oscat_deps(t, sub: Path) -> tuple[str, bool]:
     oscat_pou = extract_pou_text(str(OSCAT_SRC_HOST), t.function)
     equivalent = target_pou.strip() == oscat_pou.strip()
     deps = strip_pou(oscat_source, t.function)
-    (sub / "deps.st").write_text(deps, encoding="utf-8")
+    (sub / "deps.st").write_text(deps, encoding="utf-8", newline="\n")
     return f"/work/SemantiST/artifacts/benchmarks/harness-work/{t.id}/deps.st", equivalent
 
 
@@ -67,7 +67,8 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--suite", action="append", default=[])
     parser.add_argument("--id", action="append", default=[])
-    parser.add_argument("--runtime", default="podman")
+    parser.add_argument("--runtime", default="docker")
+    parser.add_argument("--semantist-image", default="semantist:0.1.0")
     parser.add_argument("--skip-compile", action="store_true", help="reuse existing main.ll files")
     args = parser.parse_args()
 
@@ -99,7 +100,9 @@ def main() -> int:
             "output": "main.ll",
             "libraries": [],
         }
-        (sub / "plc.json").write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+        (sub / "plc.json").write_text(
+            json.dumps(cfg, indent=2) + "\n", encoding="utf-8", newline="\n"
+        )
 
     if not args.skip_compile:
         script_lines = ["set -e"]
@@ -111,14 +114,14 @@ def main() -> int:
                 f"-o /work/SemantiST/artifacts/benchmarks/harness-work/{t.id}/main.ll"
             )
         script = "\n".join(script_lines) + "\n"
-        (work_root / "compile_all.sh").write_text(script, encoding="utf-8")
+        (work_root / "compile_all.sh").write_text(script, encoding="utf-8", newline="\n")
 
         runtime = args.runtime
         cmd = [
             runtime, "run", "--rm",
             "-v", f"{ROOT}:/work/SemantiST",
             "-w", "/work/SemantiST",
-            "localhost/semantist:0.1.0",
+            args.semantist_image,
             "bash", "/work/SemantiST/artifacts/benchmarks/harness-work/compile_all.sh",
         ]
         print("[harness] compiling all targets with RuSTy ...", flush=True)
@@ -152,7 +155,9 @@ def main() -> int:
                 pointer_sizes=pointer_sizes,
                 scan_cycle=(t.suite == "icsquartz_scan_cycle"),
             )
-            (Path(t.st_file).parent / "harness.c").write_text(harness, encoding="utf-8")
+            (Path(t.st_file).parent / "harness.c").write_text(
+                harness, encoding="utf-8", newline="\n"
+            )
             ok += 1
             print(f"[harness] {t.id}: size={instance_size} input={input_size} fields={len(fields)}", flush=True)
         except Exception as exc:  # noqa: BLE001
@@ -163,7 +168,11 @@ def main() -> int:
     if failed:
         print(f"[harness] failed targets: {failed}")
     meta_path = work_root / "generation-meta.json"
-    meta_path.write_text(json.dumps(meta_by_id, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    meta_path.write_text(
+        json.dumps(meta_by_id, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
     return 1 if failed else 0
 
 

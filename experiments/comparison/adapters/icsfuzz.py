@@ -274,22 +274,24 @@ class ICSFuzzAdapter(BaseAdapter):
                 "tool_reported_time_seconds": None,
                 "tool_reported_unix_time_seconds": _line_timestamp(line),
                 "execution_ordinal": None,
+                "execution_count_source": "unavailable",
                 "seed_sha256": None,
-                "artifact_path": self.relative_artifact(wrapper_log),
+                "artifact_path": None,
+                "finding_report_path": self.relative_artifact(wrapper_log),
             }
             events.append(event)
         return events
 
     def collect_metrics(self, target: Target, run_dir: Path, observed_events: list[dict[str, Any]]) -> dict[str, Any]:
         metrics = self.collect_common_metrics(run_dir)
-        all_events = observed_events or self.scan_finding_events(target, run_dir)
+        all_events = observed_events
         metrics["candidate_findings"] = all_events
         metrics["finding_found"] = bool(all_events)
         metrics["common_oracle_finding_found"] = bool(all_events)
         metrics["first_common_finding"] = all_events[0] if all_events else None
         metrics["crash_count_raw"] = len(all_events)
         exec_times = _icsfuzz_exec_times(run_dir / "tool-artifacts" / "icsfuzz.log")
-        metrics["total_executions"] = len(exec_times)
+        metrics["total_executions"] = len(exec_times) if exec_times else None
         if len(exec_times) >= 2:
             elapsed = exec_times[-1] - exec_times[0]
             if elapsed > 0:

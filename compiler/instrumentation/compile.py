@@ -84,6 +84,11 @@ def compile_st_project_main() -> int:
         help="library compatibility manifest shared with native linking",
     )
     parser.add_argument(
+        "--program",
+        default=os.environ.get("SEMANTIST_PROGRAM_FILE"),
+        help="fixed PROGRAM wrapper source owned by the benchmark",
+    )
+    parser.add_argument(
         "--library",
         default=os.environ.get("SEMANTIST_LIBRARY_FILE", os.environ.get("SEMANTIST_OSCAT_FILE", str(DEFAULT_LIBRARY))),
         help="one-time-normalized ST library containing selectable POUs",
@@ -121,6 +126,11 @@ def compile_st_project_main() -> int:
         library = existing_path(args.library, "compatible ST library")
         stubs = existing_path(args.stubs, "library stubs")
         st_sources = [library, stubs]
+
+    if args.program:
+        program = existing_path(args.program, "benchmark PROGRAM source")
+        if program not in st_sources:
+            st_sources.append(program)
 
     out_ll = Path(args.out_ll)
     if not out_ll.is_absolute():
@@ -293,11 +303,14 @@ def strip_global_ctors(text: str) -> str:
     ) + "\n"
 
 
-def public_api_list(source: str, function: str) -> str:
+def public_api_list(source: str, function: str, extra: str = "") -> str:
     symbols = [function]
     ctor = f"{function}__ctor"
     if re.search(rf"(?m)^define\s+.*@{re.escape(ctor)}\(", source):
         symbols.append(ctor)
+    for symbol in (part.strip() for part in extra.split(",")):
+        if symbol and symbol not in symbols:
+            symbols.append(symbol)
     return ",".join(symbols)
 
 
@@ -463,6 +476,11 @@ def prepare_target_ir_main() -> int:
     parser.add_argument("--llvm-bin", default=os.environ.get("SEMANTIST_LLVM_BIN", str(DEFAULT_LLVM_BIN)))
     parser.add_argument("--work-dir", default=None)
     parser.add_argument(
+        "--public-api-extra",
+        default=os.environ.get("SEMANTIST_PUBLIC_API_EXTRA", ""),
+        help="comma-separated functions/globals retained for a fixed benchmark harness",
+    )
+    parser.add_argument(
         "--strip-global-ctors",
         action="store_true",
         default=os.environ.get("SEMANTIST_STRIP_GLOBAL_CTORS", "0") == "1",
@@ -483,7 +501,7 @@ def prepare_target_ir_main() -> int:
     if args.strip_global_ctors:
         source = strip_global_ctors(source)
     compat_ll.write_text(source, encoding="utf-8")
-    api_list = public_api_list(source, args.function)
+    api_list = public_api_list(source, args.function, args.public_api_extra)
 
     opt = ir_tool(bin_dir, "opt")
     command = [

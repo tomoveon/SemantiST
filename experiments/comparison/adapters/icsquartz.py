@@ -12,7 +12,9 @@ from pathlib import Path
 from typing import Any
 
 from experiments.comparison.adapters.base import BaseAdapter, PreprocessingResult, SupportResult
+from experiments.comparison.lib.hashing import sha256_file
 from experiments.comparison.lib.manifest import Target
+from experiments.comparison.lib.metrics import FindingObserver, execution_count, metadata_for, native_inputs
 from experiments.comparison.lib.process import container_cpu_bound_command, container_run_command, run_capture
 
 
@@ -37,25 +39,35 @@ class ICSQuartzAdapter(BaseAdapter):
     initial_seed_provider = "icsquartz_native_initial_generator"
     initial_seed_format = "raw_bytes"
     initial_seed_policy = "tool_internal_default_plus_pattern_inputs"
+    cpu_slots = 2
 
     def detect_support(self, target: Target) -> SupportResult:
+        base = super().detect_support(target)
+        if base.status != "supported":
+            return base
         if self.config.icsquartz_root is None:
             return SupportResult.unsupported(
                 "icsquartz_missing_root", "ICSQuartz root was not found"
             )
-        benchmark_dir = self.config.icsquartz_root / "benchmarks" / target.target_id
         required = [
-            benchmark_dir / "src",
-            benchmark_dir / "icsquartz" / "harness.c",
+            self.config.icsquartz_root / "compiler" / "latest.Dockerfile",
+            self.config.semantist_root
+            / "experiments"
+            / "baselines"
+            / "icsquartz"
+            / "target.Dockerfile",
+            target.fixture("target.st"),
+            target.fixture("program.st"),
+            target.fixture("harness.c"),
         ]
         missing = [str(path) for path in required if not path.exists()]
         if missing:
             return SupportResult.unsupported(
                 "icsquartz_missing_benchmark_layout",
-                "target has no upstream ICSQuartz src/ and icsquartz/harness.c layout",
+                "ICSQuartz infrastructure or fixed local benchmark fixtures are missing",
                 missing=missing,
             )
-        return SupportResult.supported("ICSQuartz benchmark has src/ and icsquartz/harness.c")
+        return SupportResult.supported("ICSQuartz engine with the fixed local benchmark package")
 
     def prepare(self, target: Target) -> PreprocessingResult:
         preprocess_dir = self.preprocessing_dir(target)
@@ -64,6 +76,29 @@ class ICSQuartzAdapter(BaseAdapter):
         if preprocess_dir.exists():
             shutil.rmtree(preprocess_dir)
         (preprocess_dir / "logs").mkdir(parents=True, exist_ok=True)
+        benchmark_dir = preprocess_dir / "benchmark"
+        (benchmark_dir / "src").mkdir(parents=True, exist_ok=True)
+        (benchmark_dir / "icsquartz").mkdir(parents=True, exist_ok=True)
+        shutil.copy2(target.fixture("target.st"), benchmark_dir / "src" / "target.st")
+        shutil.copy2(target.fixture("program.st"), benchmark_dir / "src" / "program.st")
+        shutil.copy2(target.fixture("harness.c"), benchmark_dir / "icsquartz" / "harness.c")
+        fixture_hashes = {
+            name: sha256_file(target.fixture(name))
+            for name in ("target.st", "program.st", "harness.c")
+        }
+        (benchmark_dir / "source-manifest.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": "semantist.fixed-benchmark-context/1.0.0",
+                    "target_id": target.target_id,
+                    "fixture_sha256": fixture_hashes,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         start = time.monotonic_ns()
         runtime = self.config.container_runtime
         if runtime is None:
@@ -81,9 +116,15 @@ class ICSQuartzAdapter(BaseAdapter):
             )
         assert self.config.icsquartz_root is not None
         compiler = _compiler_version(target)
-        benchmark_dir = self.config.icsquartz_root / "benchmarks" / target.target_id
         compiler_image = _image_tag("semantist-exp-plc-compiler", compiler, target.target_id)
         fuzzer_image = _image_tag("semantist-exp-icsquartz", compiler, target.target_id)
+        fuzzer_dockerfile = (
+            self.config.semantist_root
+            / "experiments"
+            / "baselines"
+            / "icsquartz"
+            / "target.Dockerfile"
+        )
         compile_cmd = [
             runtime,
             "build",
@@ -101,15 +142,19 @@ class ICSQuartzAdapter(BaseAdapter):
             "build",
             "-t",
             fuzzer_image,
+            "--file",
+            str(fuzzer_dockerfile),
             "--build-context",
             f"icsbuild=docker-image://{compiler_image}",
             "--build-context",
             f"fuzztarget={benchmark_dir}",
             "--build-arg",
+            f"ICSQUARTZ_BASE_IMAGE={self.baseline_image('icsquartz')}",
+            "--build-arg",
             f"SCAN_CYCLE={scan_cycle}",
             "--build-arg",
             f"ASAN_ALT={1 if target.target_id in ASAN_ALT_TARGETS else 0}",
-            str(self.config.icsquartz_root / "fuzzers" / "icsquartz"),
+            str(fuzzer_dockerfile.parent),
         ]
         if self.config.container_platform:
             compile_cmd[2:2] = ["--platform", self.config.container_platform]
@@ -151,6 +196,8 @@ class ICSQuartzAdapter(BaseAdapter):
             "scan_cycle": scan_cycle == "1",
             "asan_alt": target.target_id in ASAN_ALT_TARGETS,
             "container_runtime": runtime,
+            "benchmark_context": str(benchmark_dir),
+            "benchmark_fixture_sha256": fixture_hashes,
         }
         (preprocess_dir / "metadata.json").write_text(
             json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8"
@@ -164,7 +211,27 @@ class ICSQuartzAdapter(BaseAdapter):
             metrics=metadata,
         )
 
-    def run(self, target: Target, run_dir: Path, preprocessing: PreprocessingResult, rng_seed: int, cpu: int) -> dict[str, Any]:
+    def run(
+        self,
+        target: Target,
+        run_dir: Path,
+        preprocessing: PreprocessingResult,
+        rng_seed: int,
+        cpu: int | list[int],
+    ) -> dict[str, Any]:
+        assigned_cpus = [cpu] if isinstance(cpu, int) else list(cpu)
+        if len(assigned_cpus) < self.cpu_slots:
+            return {
+                "run_status": "online_start_failed",
+                "t0_monotonic_ns": None,
+                "online_elapsed_seconds": 0.0,
+                "failure_reason": {
+                    "code": "icsquartz_insufficient_cpu_slots",
+                    "message": "ICSQuartz needs at least two CPU slots: one LibAFL broker and one client",
+                    "log_tail_path": None,
+                },
+                **self.collect_metrics(target, run_dir, []),
+            }
         metadata = json.loads((preprocessing.preprocess_dir / "metadata.json").read_text(encoding="utf-8"))
         image = str(metadata["fuzzer_image"])
         container_name = _container_name(run_dir)
@@ -196,7 +263,9 @@ class ICSQuartzAdapter(BaseAdapter):
         }
         icsquartz_args = {
             "seed": str(rng_seed),
-            "cores": "none",
+            # LibAFL spawns one client per requested core. Reserve the other
+            # CPU for the broker; do not silently create two fuzzing workers.
+            "cores": str(assigned_cpus[-1]),
             "scan_cycle_max": "10000" if metadata.get("scan_cycle") else "2",
             "mutator_pow": "4",
             "min_input_generation": "128",
@@ -245,13 +314,13 @@ class ICSQuartzAdapter(BaseAdapter):
             cap_add=["SYS_NICE"],
             command=inner_command,
         )
-        command = container_cpu_bound_command(command, runtime, cpu)
+        command = container_cpu_bound_command(command, runtime, assigned_cpus)
         self.write_command(
             run_dir,
             command,
             env_args,
             {
-                "assigned_cpu": cpu,
+                "assigned_cpus": assigned_cpus,
                 "container_runtime": runtime,
                 "icsquartz_args": icsquartz_args,
                 "initial_seed_note": "ICSQuartz constructs its own initial BytesInput corpus at startup.",
@@ -275,21 +344,10 @@ class ICSQuartzAdapter(BaseAdapter):
             }
         deadline = t0 + self.config.online_budget_seconds * 1_000_000_000
         timed_out = True
-        events: list[dict[str, Any]] = []
-        seen: set[str] = set()
+        observer = FindingObserver(t0, run_dir / "measurement-events.jsonl")
 
         def observe_findings() -> None:
-            for event in self.scan_finding_events(target, run_dir):
-                candidate_id = str(event.get("candidate_id"))
-                if candidate_id in seen:
-                    continue
-                seen.add(candidate_id)
-                observed = dict(event)
-                observed["observed_monotonic_ns"] = time.monotonic_ns()
-                observed["observed_elapsed_seconds"] = (
-                    observed["observed_monotonic_ns"] - t0
-                ) / 1_000_000_000
-                events.append(observed)
+            observer.observe(self.scan_finding_events(target, run_dir), after_budget=time.monotonic_ns() > deadline)
 
         while time.monotonic_ns() < deadline:
             observe_findings()
@@ -305,6 +363,7 @@ class ICSQuartzAdapter(BaseAdapter):
                 stderr=subprocess.DEVNULL,
             )
         exit_code = _container_exit_code(runtime, container_name)
+        observe_findings()
         _write_container_logs(runtime, container_name, run_dir / "container.stdout.log", run_dir / "container.stderr.log")
         subprocess.run(
             [runtime, "rm", "--force", container_name],
@@ -312,11 +371,12 @@ class ICSQuartzAdapter(BaseAdapter):
             stderr=subprocess.DEVNULL,
         )
         elapsed = (time.monotonic_ns() - t0) / 1_000_000_000
-        metrics = self.collect_metrics(target, run_dir, events)
+        metrics = self.collect_metrics(target, run_dir, observer.events)
         metrics.update(
             {
                 "t0_monotonic_ns": t0,
-                "online_elapsed_seconds": elapsed,
+                "online_elapsed_seconds": float(self.config.online_budget_seconds) if timed_out else elapsed,
+                "cleanup_inclusive_elapsed_seconds": elapsed,
                 "run_status": "budget_completed" if timed_out else (
                     "early_completed_with_finding" if metrics["finding_found"] else "early_completed_no_finding"
                 ),
@@ -335,30 +395,19 @@ class ICSQuartzAdapter(BaseAdapter):
         trial_id = int(run_dir.name.rsplit("_", 1)[-1])
         events: list[dict[str, Any]] = []
         crash_dir = run_dir / "tool-artifacts" / "crashes"
-        for metadata_path in sorted(crash_dir.glob(".*.metadata")):
-            try:
-                raw = json.loads(metadata_path.read_text(encoding="utf-8"))
-            except json.JSONDecodeError:
-                raw = {}
-            executions = _safe_int(raw.get("executions"))
-            elapsed = None
-            execs_per_sec = self._latest_execs_per_sec(run_dir)
-            if executions is not None and execs_per_sec:
-                elapsed = executions / execs_per_sec
-            seed_path = _input_for_metadata(metadata_path)
-            event_path = seed_path if seed_path is not None else metadata_path
+        for seed_path in native_inputs(crash_dir):
+            raw = metadata_for(seed_path)
+            executions = execution_count(raw.get("executions"))
             event = self.candidate_from_path(
-                path=event_path,
+                path=seed_path,
                 target=target,
                 trial_id=trial_id,
                 oracle="target_signal",
                 execution_ordinal=executions,
-                elapsed_seconds=elapsed,
             )
-            if seed_path is not None:
-                event["metadata_artifact_path"] = self.relative_artifact(metadata_path)
-            else:
-                event["conversion_note"] = "LibAFL metadata was present but the paired crash input was not found"
+            event["execution_count_source"] = "libafl_testcase_metadata" if executions is not None else "unavailable"
+            if raw:
+                event["metadata_artifact_path"] = self.relative_artifact(seed_path.with_name(f".{seed_path.name}.metadata"))
             events.append(
                 event
             )
@@ -381,14 +430,14 @@ class ICSQuartzAdapter(BaseAdapter):
             except (KeyError, IndexError, TypeError, ValueError):
                 pass
             metrics["tool_specific_metrics"]["icsquartz_stats"] = latest
-        events = observed_events or self.scan_finding_events(target, run_dir)
+        events = observed_events
         metrics["candidate_findings"] = events
         metrics["finding_found"] = bool(events)
         metrics["common_oracle_finding_found"] = bool(events)
         metrics["first_common_finding"] = events[0] if events else None
         metrics["crash_count_raw"] = len(events)
         corpus_dir = run_dir / "tool-artifacts" / "corpus"
-        metrics["corpus_count"] = sum(1 for path in corpus_dir.rglob("*") if path.is_file())
+        metrics["corpus_count"] = len(native_inputs(corpus_dir))
         metrics["artifact_paths"] = {
             "fuzzer_stats": self.relative_artifact(run_dir / "tool-artifacts" / "fuzzer_stats.json"),
             "crashes": self.relative_artifact(run_dir / "tool-artifacts" / "crashes"),
@@ -403,7 +452,8 @@ class ICSQuartzAdapter(BaseAdapter):
 
 
 def _compiler_version(target: Target) -> str:
-    return "bug" if target.target_id.startswith("oscat_") else "latest"
+    value = target.raw.get("icsquartz_compiler", "latest")
+    return str(value or "latest")
 
 
 def _image_tag(prefix: str, compiler: str, target_id: str) -> str:

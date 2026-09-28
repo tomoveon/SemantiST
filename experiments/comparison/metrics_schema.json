@@ -22,6 +22,7 @@
     "online_elapsed_seconds",
     "per_execution_timeout_ms",
     "execution_timeout_model",
+    "execution_model",
     "run_status",
     "finding_found",
     "common_oracle_finding_found",
@@ -42,8 +43,7 @@
         "semantist_full",
         "aflplusplus_full",
         "icsfuzz_full",
-        "icsquartz_full",
-        "structuredfuzzer_full"
+        "icsquartz_full"
       ]
     },
     "kind": {
@@ -82,6 +82,13 @@
       "enum": [
         "per_process",
         "codesys_scan_cycle"
+      ]
+    },
+    "execution_model": {
+      "enum": [
+        "single_cycle",
+        "scan_cycle",
+        "stateful_semantic_sequence"
       ]
     },
     "candidate_findings": {

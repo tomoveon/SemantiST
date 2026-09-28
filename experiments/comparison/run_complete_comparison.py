@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the complete four-tool, 90-target comparison profile."""
+"""Run the complete three-tool comparison profile."""
 
 from __future__ import annotations
 
@@ -15,19 +15,18 @@ from experiments.comparison.run_full_comparison import main  # noqa: E402
 
 DEFAULT_ARGS = [
     "--experiment-id",
-    "comparison_4tools_90targets_300s_5trials",
+    "comparison_3tools_90targets_300s_5trials",
     "--trials",
     "5",
     "--fuzz-time",
     "300",
     "--tools",
-    "semantist,aflplusplus,icsquartz,structuredfuzzer",
+    "semantist,aflplusplus,icsquartz",
     "--container-runtime",
     "auto",
     "--cpus",
     "1-8",
-    "--with-replay",
-    "--with-coverage",
+    "--serial",
     "--validate-complete",
 ]
 

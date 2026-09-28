@@ -1,0 +1,4 @@
+In,ARRAY,0x00
+size,DWORD,0
+ssMethodType,SINT,0
+Out1,LREAL,0.0

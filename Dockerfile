@@ -2,6 +2,10 @@ FROM ubuntu:24.04
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG RUST_TOOLCHAIN=1.90.0
+ARG SEMANTIST_SOURCE_REVISION=unknown
+
+LABEL org.opencontainers.image.title="SemantiST" \
+      org.opencontainers.image.revision="${SEMANTIST_SOURCE_REVISION}"
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 

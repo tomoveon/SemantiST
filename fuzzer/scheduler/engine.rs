@@ -467,4 +467,4 @@ where
 }
 
 // 结构化 ST mutator：保持输入为 `NAME,TYPE,VALUE` 的文本语法。
-// 这对应 StructuredFuzzer 的 `%IX0.0,BOOL,1` 思路，只是这里的 NAME 是 ST 函数参数名。
+// NAME 对应 ST 函数参数名。

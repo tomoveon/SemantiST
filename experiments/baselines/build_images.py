@@ -20,7 +20,7 @@ from experiments.comparison.lib.process import resolve_container_runtime  # noqa
 
 
 LOCK_FILE = ROOT / "baselines.lock.json"
-TOOL_ORDER = ("aflplusplus", "icsquartz", "icsfuzz", "structuredfuzzer")
+TOOL_ORDER = ("aflplusplus", "icsquartz", "icsfuzz")
 SMOKE_COMMANDS = {
     "aflplusplus": (
         "command -v afl-fuzz && command -v afl-clang-fast && "
@@ -37,15 +37,6 @@ SMOKE_COMMANDS = {
         "test -x /opt/codesys/bin/codesyscontrol.bin && "
         "test -x /usr/sbin/CodeMeterLin && "
         "test -r /etc/CODESYSControl.cfg"
-    ),
-    "structuredfuzzer": (
-        "command -v stfuzz && command -v stcode && "
-        "command -v afl-fuzz && command -v afl-clang-fast && "
-        "command -v iec2c && "
-        "test -r /opt/structuredfuzzer/README.md && "
-        "test -r /usr/local/bin/stfuzz/matiec/COPYING && "
-        "python3 -c 'import analyzer, tree_sitter, z3' && "
-        "stfuzz --help >/dev/null && stcode --help >/dev/null"
     ),
 }
 
