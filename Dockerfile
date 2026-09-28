@@ -2,10 +2,6 @@ FROM ubuntu:24.04
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG RUST_TOOLCHAIN=1.90.0
-ARG SEMANTIST_SOURCE_REVISION=unknown
-
-LABEL org.opencontainers.image.title="SemantiST" \
-      org.opencontainers.image.revision="${SEMANTIST_SOURCE_REVISION}"
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -90,5 +86,11 @@ RUN cargo build --workspace --release --locked \
     && test -x "${CARGO_TARGET_DIR}/release/semantist" \
     && test -x "${CARGO_TARGET_DIR}/release/semantist-stg" \
     && test -x "${CARGO_TARGET_DIR}/release/stg-ir-instrument"
+
+# Keep the source revision label after expensive build layers so changing only
+# the revision metadata does not invalidate toolchain caches.
+ARG SEMANTIST_SOURCE_REVISION=unknown
+LABEL org.opencontainers.image.title="SemantiST" \
+      org.opencontainers.image.revision="${SEMANTIST_SOURCE_REVISION}"
 
 CMD ["/bin/bash"]
