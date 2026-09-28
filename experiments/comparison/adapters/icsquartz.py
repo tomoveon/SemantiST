@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from benchmarks.lib.st_extract import extract_pou_text, strip_pou
 from experiments.comparison.adapters.base import BaseAdapter, PreprocessingResult, SupportResult
 from experiments.comparison.lib.hashing import sha256_file
 from experiments.comparison.lib.manifest import Target
@@ -82,16 +83,46 @@ class ICSQuartzAdapter(BaseAdapter):
         shutil.copy2(target.fixture("target.st"), benchmark_dir / "src" / "target.st")
         shutil.copy2(target.fixture("program.st"), benchmark_dir / "src" / "program.st")
         shutil.copy2(target.fixture("harness.c"), benchmark_dir / "icsquartz" / "harness.c")
-        fixture_hashes = {
+        benchmark_sources = {
             name: sha256_file(target.fixture(name))
             for name in ("target.st", "program.st", "harness.c")
         }
+        if target.suite == "oscat_basic":
+            oscat_source = (
+                self.config.semantist_root / "benchmarks" / "oscat_basic" / "source" / "oscat.st"
+            )
+            target_pou = extract_pou_text(str(target.st_file), target.function)
+            library_pou = extract_pou_text(str(oscat_source), target.function)
+            if target_pou.strip() != library_pou.strip():
+                now = time.monotonic_ns()
+                return PreprocessingResult(
+                    "failed",
+                    preprocess_dir,
+                    now,
+                    now,
+                    failure_reason={
+                        "code": "icsquartz_oscat_target_mismatch",
+                        "message": "fixed target POU differs from the pinned OSCAT dependency source",
+                        "log_tail_path": None,
+                    },
+                )
+            deps_path = benchmark_dir / "src" / "oscat-deps.st"
+            deps_path.write_text(
+                strip_pou(oscat_source.read_text(encoding="utf-8"), target.function),
+                encoding="utf-8",
+                newline="\n",
+            )
+            stubs_source = oscat_source.with_name("stubs.st")
+            stubs_path = benchmark_dir / "src" / "oscat-stubs.st"
+            shutil.copy2(stubs_source, stubs_path)
+            benchmark_sources["oscat-deps.st"] = sha256_file(deps_path)
+            benchmark_sources["oscat-stubs.st"] = sha256_file(stubs_path)
         (benchmark_dir / "source-manifest.json").write_text(
             json.dumps(
                 {
                     "schema_version": "semantist.fixed-benchmark-context/1.0.0",
                     "target_id": target.target_id,
-                    "fixture_sha256": fixture_hashes,
+                    "fixture_sha256": benchmark_sources,
                 },
                 indent=2,
                 sort_keys=True,
@@ -197,7 +228,7 @@ class ICSQuartzAdapter(BaseAdapter):
             "asan_alt": target.target_id in ASAN_ALT_TARGETS,
             "container_runtime": runtime,
             "benchmark_context": str(benchmark_dir),
-            "benchmark_fixture_sha256": fixture_hashes,
+            "benchmark_fixture_sha256": benchmark_sources,
         }
         (preprocess_dir / "metadata.json").write_text(
             json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8"

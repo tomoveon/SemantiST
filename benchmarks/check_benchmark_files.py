@@ -39,13 +39,33 @@ def sha256(path: Path) -> str:
 
 
 def git_head_sha(path: Path) -> str | None:
-    rel = path.relative_to(ROOT)
+    rel = path.relative_to(ROOT).as_posix()
     result = subprocess.run(
         ["git", "show", f"HEAD:{rel}"], cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
     )
     if result.returncode != 0:
         return None
     return hashlib.sha256(result.stdout).hexdigest()
+
+
+def git_blob_oid(path: Path, revision: str | None = None) -> str | None:
+    rel = path.relative_to(ROOT).as_posix()
+    command = ["git", "rev-parse", f"{revision}:{rel}"] if revision else [
+        "git",
+        "hash-object",
+        f"--path={rel}",
+        str(path),
+    ]
+    result = subprocess.run(
+        command,
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip()
 
 
 def load_generation_meta() -> dict:
@@ -63,19 +83,32 @@ def check_files(targets) -> dict:
         files = {name: (d / name).exists() for name in BENCHMARK_FIXTURE_FILES}
         current = sha256(Path(t.st_file))
         head = git_head_sha(Path(t.st_file))
+        current_oid = git_blob_oid(Path(t.st_file))
+        head_oid = git_blob_oid(Path(t.st_file), "HEAD")
         results[t.id] = {
             "all_files": all(files.values()),
             "files": files,
             "target_head_sha256": head,
             "target_current_sha256": current,
-            "target_matches_head": head is not None and current == head,
+            "target_head_git_oid": head_oid,
+            "target_current_git_oid": current_oid,
+            "target_matches_head": head_oid is not None and current_oid == head_oid,
             "oscat_pou_equivalent": meta.get(t.id, {}).get("oscat_pou_equivalent"),
         }
     return results
 
 
 def write_rusty_build_script(targets, out: Path) -> None:
-    lines = ["set -e", "LLVM=/usr/lib/llvm-21/bin"]
+    lines = [
+        "set -e",
+        "LLVM=/usr/lib/llvm-21/bin",
+        "B=/work/SemantiST/artifacts/benchmarks/baseline-build",
+        "mkdir -p $B",
+        f"cp {STDLIB_LIB} $B/libiec61131std.a",
+        "$LLVM/clang -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer -c "
+        "/work/SemantiST/benchmarks/external/compatibility/codesys-memory/runtime.c "
+        "-o $B/runtime.o",
+    ]
     for t in targets:
         tid = t.id
         w = f"/work/SemantiST/artifacts/benchmarks/harness-work/{tid}"
@@ -84,7 +117,7 @@ def write_rusty_build_script(targets, out: Path) -> None:
         out_bin = f"/work/SemantiST/artifacts/benchmarks/rusty-build/{tid}/fuzz_target"
         lines += [
             f"mkdir -p /work/SemantiST/artifacts/benchmarks/rusty-build/{tid}",
-            f"$LLVM/clang -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer -c {w}/main.ll -o /tmp/{tid}.o",
+            f"$LLVM/clang -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer -c {w}/main.ll -o $B/{tid}.o",
             f"$LLVM/clang -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer -c {harness} -o /tmp/{tid}_h.o",
         ]
         extra = ""
@@ -96,7 +129,7 @@ def write_rusty_build_script(targets, out: Path) -> None:
             extra = f"/tmp/{tid}_rt.o"
         lines.append(
             f"$LLVM/clang -fsanitize=address,undefined -Wl,--allow-multiple-definition "
-            f"/tmp/{tid}_h.o /tmp/{tid}.o {extra} {STDLIB_LIB} -ldl -lpthread -lm -o {out_bin}"
+            f"/tmp/{tid}_h.o $B/{tid}.o {extra} {STDLIB_LIB} -ldl -lpthread -lm -o {out_bin}"
         )
         lines += [
             f"printf '\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00' > /tmp/{tid}_seed0",
@@ -107,7 +140,7 @@ def write_rusty_build_script(targets, out: Path) -> None:
             f"set -e",
             f"cat /tmp/{tid}_out1 /tmp/{tid}_out0 > /tmp/{tid}_both 2>/dev/null || true",
             f"if grep -qE '#[12][^#]*harness\\.c' /tmp/{tid}_both; then echo 'HARNESS_CRASH {tid}'; exit 1; fi",
-            f"echo 'RUSTY_OK {tid} normal_rc=$rc1 zero_rc=$rc0'",
+            f'echo "RUSTY_OK {tid} normal_rc=$rc1 zero_rc=$rc0"',
         ]
     out.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
@@ -188,8 +221,12 @@ def main() -> int:
     if args.check_files:
         results = check_files(targets)
         report["files"] = results
-        ok = sum(1 for r in results.values() if r["all_files"])
-        print(f"[check] fixed fixture files ok={ok}/{len(targets)}")
+        ok = sum(
+            1
+            for result in results.values()
+            if result["all_files"] and result["target_matches_head"]
+        )
+        print(f"[check] fixed fixture bundles unchanged={ok}/{len(targets)}")
         if ok != len(targets):
             overall_fail = 1
 

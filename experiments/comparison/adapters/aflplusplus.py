@@ -63,9 +63,11 @@ class AFLPlusPlusAdapter(BaseAdapter):
             "SEMANTIST_BUILD_ARTIFACT_DIR": self.container_path(preprocess_dir / "build"),
             "SEMANTIST_SEMANTIC_INSTRUMENTATION": "off",
             "OUT_LL": self.container_path(preprocess_dir / "target.ll"),
+            "PREPARED_LL": self.container_path(preprocess_dir / "target.prepared.ll"),
             "OUT_OBJ": self.container_path(preprocess_dir / "target.o"),
             "OUT_BIN": self.container_path(preprocess_dir / "fuzz_target"),
             "HARNESS_OUT": self.container_path(preprocess_dir / "harness.c"),
+            "RUSTY_STDLIB_OUT": self.container_path(preprocess_dir / "libiec61131std.a"),
             "SEMANTIST_HARNESS_SOURCE": self.container_path(target.fixture("harness.c")),
             "SEMANTIST_PROGRAM_FILE": self.container_path(target.fixture("program.st")),
             "SEMANTIST_PUBLIC_API_EXTRA": "PLC_PRG,PLC_PRG__ctor,PLC_PRG_instance",
@@ -74,11 +76,17 @@ class AFLPlusPlusAdapter(BaseAdapter):
         if target.compatibility_manifest is not None:
             env["SEMANTIST_COMPATIBILITY_MANIFEST"] = self.container_path(target.compatibility_manifest)
         target_path = self.container_path(target.st_file)
-        inner_commands = [
+        semantist_commands = [
             ["./compiler/scripts/compile_st.sh", target_path, target.function],
-            ["./compiler/scripts/build_target.sh", target_path, target.function],
+            ["bash", "./compiler/scripts/prepare_baseline_target.sh", target.function],
         ]
-        commands = [self._semantist_container_command(env, command) for command in inner_commands]
+        commands = [
+            *(self._semantist_container_command(env, command) for command in semantist_commands),
+            self._aflplusplus_container_command(
+                env,
+                ["bash", "./experiments/baselines/aflplusplus/build_target.sh"],
+            ),
+        ]
         self.write_preprocessing_command(
             preprocess_dir,
             [{"command": command, "environment": _filtered_env(env)} for command in commands],
@@ -135,7 +143,7 @@ class AFLPlusPlusAdapter(BaseAdapter):
                     "code": "aflplusplus_preprocessing_artifact_missing",
                     "message": "missing preprocessing artifacts: "
                     + ", ".join(str(path) for path in missing),
-                    "log_tail_path": self.relative_artifact(preprocess_dir / "logs" / "02.stderr.log"),
+                    "log_tail_path": self.relative_artifact(preprocess_dir / "logs" / "03.stderr.log"),
                 },
             )
         return PreprocessingResult(
@@ -320,6 +328,23 @@ class AFLPlusPlusAdapter(BaseAdapter):
             command=command,
         )
 
+    def _aflplusplus_container_command(self, env: dict[str, str], command: list[str]) -> list[str]:
+        runtime = self.config.container_runtime
+        if runtime is None:
+            raise RuntimeError(self.config.container_runtime_status)
+        return container_run_command(
+            runtime,
+            self.baseline_image("aflplusplus"),
+            mounts=[
+                (self.config.semantist_root, "/repo", True),
+                (self.config.artifact_root, "/artifacts", False),
+            ],
+            env=env,
+            workdir="/repo",
+            platform=self.config.container_platform,
+            command=command,
+        )
+
 
 def _copy_dir(source: Path, destination: Path) -> None:
     if destination.exists():
@@ -335,9 +360,11 @@ def _filtered_env(env: dict[str, str]) -> dict[str, str]:
         "PYTHONDONTWRITEBYTECODE",
         "PYTHONPATH",
         "OUT_LL",
+        "PREPARED_LL",
         "OUT_OBJ",
         "OUT_BIN",
         "HARNESS_OUT",
+        "RUSTY_STDLIB_OUT",
         "SEMANTIST_HARNESS_SOURCE",
         "SEMANTIST_PROGRAM_FILE",
         "SEMANTIST_PUBLIC_API_EXTRA",

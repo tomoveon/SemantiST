@@ -29,6 +29,16 @@ construction. Semantic initial-seed generation starts after online time zero,
 matching the measurement contract used by the comparison runner. Record static
 preprocessing time separately from online time.
 
+Baseline preprocessing preserves each tool's runtime ABI. AFL++ uses the
+SemantiST image only to produce normalized, LLVM-16-compatible IR and the
+pinned RuSTy standard library; the final object, compatibility layer, harness,
+and executable are compiled and linked by `afl-clang-fast` inside the pinned
+AFL++ 4.21c image. This prevents newer host-image glibc requirements from
+leaking into the AFL++ target. ICSQuartz target contexts contain the fixed POU
+plus its required dependencies; OSCAT contexts deterministically include the
+pinned OSCAT source with the target POU removed and the checked-in compatibility
+stubs.
+
 ## Initialization Policy
 
 Evaluate each fuzzer with its native initialization strategy, following the

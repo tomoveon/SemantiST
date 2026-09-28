@@ -534,6 +534,13 @@ def prepare_target_ir_main() -> int:
         if instrument_memory_primitive_bounds(output_ll, checked_ll):
             shutil.move(checked_ll, output_ll)
             print("[prepare_target_ir] instrumented CODESYS memory primitive bounds")
+    # LLVM 21 optimization passes can reintroduce attributes that LLVM 16
+    # cannot parse. Baseline toolchains consume this prepared IR, so normalize
+    # the final output as well as the input to opt.
+    final_source = output_ll.read_text(encoding="utf-8", errors="replace")
+    compatible_source = make_llvm16_compatible(final_source)
+    if compatible_source != final_source:
+        output_ll.write_text(compatible_source, encoding="utf-8")
     print(f"[prepare_target_ir] wrote {output_ll}")
     return 0
 
