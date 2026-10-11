@@ -331,6 +331,64 @@ def run_llvm_bounds_sanitizer(opt: str, input_ll: Path, output_ll: Path) -> None
         raise SystemExit(f"[prepare_target_ir] LLVM bounds sanitizer did not produce {output_ll}")
 
 
+def address_sanitizer_enabled(flags: str) -> bool:
+    """Follow the ordered sanitizer flags passed to the target's clang command."""
+    enabled = False
+    for flag in flags.split():
+        if flag.startswith("-fsanitize="):
+            if "address" in flag.partition("=")[2].split(","):
+                enabled = True
+        elif flag.startswith("-fno-sanitize="):
+            if {"address", "all"}.intersection(flag.partition("=")[2].split(",")):
+                enabled = False
+    return enabled
+
+
+def validate_address_sanitizer_attributes(source: str) -> int:
+    """Check opt's canonical text output; ASan runtime symbols are not evidence."""
+    groups = dict(re.findall(r"(?m)^attributes #(\d+) = \{([^\n]*)\}", source))
+    definitions = re.findall(r"(?m)^define\s+[^\n]+", source)
+    missing = []
+    for header in definitions:
+        # opt prints function attributes in numbered groups on individual lines.
+        # Quoted string attributes (and nosanitize_address metadata) must not be
+        # mistaken for the enum attribute required by the ASan function pass.
+        unquoted_header = re.sub(r'"(?:\\.|[^"\\])*"', "", header)
+        attributes = " ".join(
+            groups.get(group, "") for group in re.findall(r"#(\d+)\b", unquoted_header)
+        )
+        attributes = re.sub(r'"(?:\\.|[^"\\])*"', "", attributes)
+        tokens = set(re.findall(r"\b[A-Za-z_][A-Za-z_0-9]*\b", attributes))
+        if "sanitize_address" not in tokens or "disable_sanitizer_instrumentation" in tokens:
+            missing.append(header)
+    if not definitions or missing:
+        detail = "; ".join(missing[:3]) if missing else "no function definitions"
+        raise SystemExit(f"[prepare_target_ir] incomplete ASan function attributes: {detail}")
+    return len(definitions)
+
+
+def prepare_address_sanitizer(opt: str, input_ll: Path, output_ll: Path) -> None:
+    """Mark every retained ST function before the downstream ASan compilation.
+
+    clang -fsanitize=address does not add this attribute to existing LLVM IR.
+    Only add attributes here: each baseline's clang must run its own ASan pass
+    so shared IR does not acquire LLVM-version-specific sanitizer runtime calls.
+    """
+    command = [
+        opt,
+        "-S",
+        "-passes=forceattrs",
+        "-force-attribute=sanitize_address",
+        str(input_ll),
+        "-o",
+        str(output_ll),
+    ]
+    print("+", " ".join(command))
+    subprocess.run(command, check=True)
+    count = validate_address_sanitizer_attributes(output_ll.read_text(encoding="utf-8"))
+    print(f"[prepare_target_ir] ASan enabled for {count} retained function definitions")
+
+
 INTEGER_TYPE_RE = re.compile(r"^i([1-9][0-9]*)$")
 ARRAY_TYPE_RE = re.compile(r"^\[([0-9]+) x (.+)\]$")
 ALLOCA_RE = re.compile(r"^\s*(%[-A-Za-z0-9_.$]+)\s*=\s*alloca\s+(.+?)(?:,\s|$)")
@@ -534,6 +592,16 @@ def prepare_target_ir_main() -> int:
         if instrument_memory_primitive_bounds(output_ll, checked_ll):
             shutil.move(checked_ll, output_ll)
             print("[prepare_target_ir] instrumented CODESYS memory primitive bounds")
+    # Match build_target.sh's default (including an explicitly empty variable).
+    # The baseline builders also enable ASan by default. This is independent of
+    # semantic instrumentation: their semantic-off targets need the same oracle.
+    sanitizer_flags = os.environ.get("SEMANTIST_TARGET_SANITIZERS") or (
+        "-fsanitize=address,undefined -fno-omit-frame-pointer"
+    )
+    if address_sanitizer_enabled(sanitizer_flags):
+        asan_ll = work_dir / f"{output_ll.stem}.asan.ll"
+        prepare_address_sanitizer(opt, output_ll, asan_ll)
+        shutil.move(asan_ll, output_ll)
     # LLVM 21 optimization passes can reintroduce attributes that LLVM 16
     # cannot parse. Baseline toolchains consume this prepared IR, so normalize
     # the final output as well as the input to opt.

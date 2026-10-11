@@ -113,6 +113,27 @@ podman run --rm "$SEMANTIST_IMAGE" bash tests/e2e/semantic_ir_e2e.sh \
 
 默认三工具无需外部 ICSQuartz checkout；使用本仓库 fixture 和固定基线镜像。可选 ICSFuzz 的 CODESYS 工件与校准另见基线文档，不属于这里的默认流程。环境镜像只需构建一次；逐目标编译由运行入口完成。实验期间保持源码和镜像不变，避免同时进行重型构建。
 
+### 已有环境镜像：更新 ASan 插桩修复
+
+公共 IR 准备步骤会根据 `SEMANTIST_TARGET_SANITIZERS`，为保留的 ST 函数添加并验证 `sanitize_address` 属性，随后由各工具的 Clang 完成 ASan 插桩。仅向已有 LLVM IR 传入 `-fsanitize=address` 或链接 ASan runtime，不能保证 ST 函数内的读写受保护。该步骤同时用于 SemantiST、AFL++ 和 ICSQuartz，独立于语义插桩开关。
+
+这次修复只更新 Python 编译流程，无须重建已有 LLVM 21 / RuSTy 环境镜像。服务器在没有实验运行、工作树干净时更新到修复提交；若之前使用 detached HEAD，也可以继续固定提交：
+
+```bash
+git fetch origin
+REV='REPLACE_WITH_THE_FIX_COMMIT'
+git checkout --detach "$REV"
+
+# 保留原来的 SEMANTIST_IMAGE 和 CONTAINER_RUNTIME，验证挂载的新源码。
+"$CONTAINER_RUNTIME" run --rm \
+  -v "$PWD:/repo:ro,z" \
+  -w /repo -e PYTHONPATH=/repo -e PYTHONDONTWRITEBYTECODE=1 \
+  "$SEMANTIST_IMAGE" python3 -m pytest -q -p no:cacheprovider \
+  tests/unit/test_asan_preparation.py tests/integration/test_asan_instrumentation.py
+```
+
+测试必须实际通过，不能把缺少 LLVM 等依赖造成的 skip 当作验收通过。之后用新的 `--run-id` 运行实验，入口会重新生成目标 IR、对象和可执行文件，并构建 ICSQuartz 每目标镜像；不要复用修复前的目标准备目录或已运行的 trial。记录新源码提交及原环境镜像 ID，不把原镜像的 revision 标签当成此次源码版本。若以后修改 Rust fuzzer、STG 工具、RuSTy 补丁或依赖，则还需更新镜像中的预编译程序。
+
 ## 3. 选 CPU，短测，然后正式运行
 
 先检查允许使用的 CPU 和内存：
