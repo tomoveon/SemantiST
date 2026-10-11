@@ -1,3 +1,63 @@
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SemantiSTAblation {
+    Full,
+    NoSemanticInit,
+    NoTargetedMutation,
+    QueueHavoc,
+    NoTransitionGuidance,
+    NoPrefixGrowth,
+    NoMulticycleGuidance,
+}
+
+impl SemantiSTAblation {
+    fn parse(value: &str) -> Result<Self, Error> {
+        match value {
+            "full" => Ok(Self::Full),
+            "no_semantic_init" => Ok(Self::NoSemanticInit),
+            "no_targeted_mutation" => Ok(Self::NoTargetedMutation),
+            "queue_havoc" => Ok(Self::QueueHavoc),
+            "no_transition_guidance" => Ok(Self::NoTransitionGuidance),
+            "no_prefix_growth" => Ok(Self::NoPrefixGrowth),
+            "no_multicycle_guidance" => Ok(Self::NoMulticycleGuidance),
+            _ => Err(Error::illegal_argument(format!(
+                "unknown SemantiST ablation {value:?}"
+            ))),
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Full => "full",
+            Self::NoSemanticInit => "no_semantic_init",
+            Self::NoTargetedMutation => "no_targeted_mutation",
+            Self::QueueHavoc => "queue_havoc",
+            Self::NoTransitionGuidance => "no_transition_guidance",
+            Self::NoPrefixGrowth => "no_prefix_growth",
+            Self::NoMulticycleGuidance => "no_multicycle_guidance",
+        }
+    }
+
+    fn semantic_initial_generation(self) -> bool {
+        self != Self::NoSemanticInit && self != Self::QueueHavoc
+    }
+
+    fn semantic_scheduling(self) -> bool {
+        self != Self::QueueHavoc
+    }
+
+    fn targeted_mutation(self) -> bool {
+        self != Self::NoTargetedMutation && self != Self::QueueHavoc
+    }
+
+    fn transition_guidance(self) -> bool {
+        self != Self::NoTransitionGuidance && self != Self::NoMulticycleGuidance
+    }
+
+    fn prefix_growth(self) -> bool {
+        self != Self::NoPrefixGrowth && self != Self::NoMulticycleGuidance
+    }
+}
+
 #[derive(Debug)]
 struct Config {
     target: PathBuf,
@@ -18,6 +78,7 @@ struct Config {
     fuzz_iterations: Option<u64>,
     rng_seed: Option<u64>,
     debug_child: bool,
+    ablation: SemantiSTAblation,
 }
 
 impl Config {
@@ -51,6 +112,9 @@ impl Config {
             .ok()
             .and_then(|value| value.parse::<u64>().ok());
         let mut debug_child = false;
+        let mut ablation = SemantiSTAblation::parse(
+            &env::var("SEMANTIST_ABLATION").unwrap_or_else(|_| "full".to_string()),
+        )?;
 
         // 支持显式命令行覆盖默认值。
         let mut args = env::args().skip(1);
@@ -107,6 +171,9 @@ impl Config {
                 }
                 "--debug-child" | "-d" => {
                     debug_child = true;
+                }
+                "--ablation" => {
+                    ablation = SemantiSTAblation::parse(&next_arg(&mut args, &arg)?)?;
                 }
                 "--help" | "-h" => {
                     print_usage();
@@ -184,6 +251,7 @@ impl Config {
             fuzz_iterations,
             rng_seed,
             debug_child,
+            ablation,
         })
     }
 }

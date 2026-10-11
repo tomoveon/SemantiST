@@ -2,11 +2,13 @@
 
 > 文档性质：面向后续论文撰写的工具事实底稿，而非论文本身
 >
-> 对应实现：SemantiST 0.1.0，STG schema `semantist.stg/1.2.0`
+> 对应实现：SemantiST 0.1.0，STG schema `semantist.stg/1.2.0`；源码核对日期：2026-10-09
 >
 > 事实依据：以当前仓库源码、构建脚本和测试为准；仓库内其他设计文档仅用于定位问题，不作为高于源码的依据
 >
-> 不含内容：本文不汇报 benchmark 数量、覆盖率、漏洞数、运行时间或显著性检验等实验结果
+> 不含内容：本文不汇报覆盖率、漏洞数、测得运行时间或显著性检验等实验结果；文中的目标数量与预算是当前实验配置
+
+> 在线行为以 Rust 实现为准；证据隔离、周期遥测、预算归因和类型边界见 [算法说明](stg_semantic_ranking_zh.md)。[2026-10-08 算法验收记录](algorithm_validation_20261008_zh.md) 是带源码和样本范围的历史验证证据，不代表此后所有工作区改动或正式实验均已验证。
 
 ## 1. 工具定位
 
@@ -45,7 +47,7 @@ ST 源程序与项目配置
 - RuSTy：ST 解析、索引、类型语义、lowering 和 LLVM 代码生成。STG crate 在源码中固定记录 RuSTy 版本 `0.5.0` 和提交 `be1de6f175ec1bed7928904dfb694208a24043fb`；
 - LLVM/Clang 21：IR 规范化、内部化、边界检查、目标编译和链接；
 - AFL++：目标端的 `trace-pc-guard` 覆盖运行时；
-- ASan 与 UBSan：默认目标构建中的内存安全和未定义行为检测器。
+- ASan 与 UBSan：通用单目标构建默认的内存安全和未定义行为检测器；当前比较实验的 SemantiST 适配器明确选择 ASan，详见第 11 节。
 
 Python 包版本为 0.1.0。主要命令入口为：
 
@@ -58,8 +60,9 @@ Python 包版本为 0.1.0。主要命令入口为：
 | `semantist-report` | 从一次运行目录回放证据并生成报告 |
 | `semantist-minimize` | 对结构化复现输入做确定性最小化 |
 | `semantist-check-llm` | 检查可选的报告 LLM 服务配置 |
+| `python run_experiment.py` | 在仓库根目录运行 `main`/`smoke` 实验预设，支持工具、目标、预算和 CPU 覆盖 |
 
-推荐复现环境由 Dockerfile 固定为 Ubuntu 24.04、Rust 1.90、LLVM 21、AFL++、打补丁的 RuSTy 以及预编译 IEC 标准库。主仓库使用 MIT 许可证；外部 benchmark 或库仍需分别遵守其许可证。
+Dockerfile 指定 Ubuntu 24.04、默认 Rust 1.90.0、LLVM 21、打补丁且固定 revision 的 RuSTy，并预编译 IEC 标准库和 release binaries。AFL++ 等系统包由 apt 安装；Ubuntu 基础镜像和所有 apt 包并未锁定到 digest/精确包版本，所以重新构建不等于位级相同的环境，正式实验还应保存实际镜像 ID 和环境记录。主仓库使用 MIT 许可证；外部 benchmark 或库仍需分别遵守其许可证。
 
 ## 3. 端到端工作流
 
@@ -98,21 +101,23 @@ Python 流水线以 release 模式启动 Rust engine，同时传入：
 - 目标二进制和目标名；
 - 运行目录与 metadata bootstrap；
 - 语义任务计划、STG 模型和 runtime ID 表；
-- 每个语义 GuideTarget 的执行预算；
+- 每个 task + path + guide_index + target 的执行预算；
 - 可选的 LibAFL 迭代数。
 
-`--fuzz-timeout` 是包裹 Rust 进程的外层墙钟超时；到时后流水线捕获超时并继续生成报告。`--timeout-ms` 则属于 engine 单次 target 执行超时，两者含义不同。
+`--fuzz-timeout` 是包裹 `cargo run` 子进程的外层墙钟超时，可能包含尚未完成的 engine 构建时间；到时后流水线捕获超时并继续生成报告。`--timeout-ms` 属于 Rust engine 和实验入口的单次 target 执行超时，不是 Python `semantist` 主流水线的参数；后者可通过 `SEMANTIST_TIMEOUT_MS` 传给 engine。比较实验的 `--fuzz-time` 则由 runner 单独计时，不使用这条开发流水线计量正式预算。
 
 ### 3.4 报告阶段
 
 除非指定 `--skip-report`，流水线在 fuzz 正常结束或达到外层超时后调用报告生成器。报告失败会写入事件日志并输出错误，但不会掩盖已经产生的 fuzzing 结果。报告可选择：
 
-- 是否重放目标语料；
-- 重放数量和单次超时；
+- 是否批量重放 `target-corpus` 中的目标语料，以及该批量重放的数量；
+- 单次重放超时；结构化 finding 的去重代表输入仍另行重放；
 - 是否对已确认 reproducer 做确定性最小化；
 - 离线 `mock` 文本生成器或 OpenAI-compatible 摘要生成器。
 
 LLM 只接收已有证据并组织文字，不参与种子生成、语义目标判定、漏洞确认或去重键计算。
+
+`--report-no-replay`（独立报告入口的 `--no-replay`）只跳过 `target-corpus` 批量重放，当前 `collect_finding_records()` 仍会尝试重放结构化 finding 的代表输入，不能将该选项描述为完全禁止目标执行。
 
 主 `semantist` 流水线未显式指定 provider 时使用 `mock`；直接运行 `semantist-report` 时 argparse 默认是 `SEMANTIST_LLM_PROVIDER`，未设置该变量则为 `openai-compatible`。因此离线重建报告时应显式写 `--llm-provider mock`，避免两个入口默认值差异造成意外网络配置错误。
 
@@ -128,7 +133,9 @@ intake 的基本顺序是：
 2. 根据单一规则表识别方言结构，记录规则、位置、上下文和安全等级；
 3. 仅应用满足安全条件的确定性文本替换；
 4. 生成 transformation manifest、兼容性 manifest、空或显式的 stubs 文件、依赖报告占位和验证报告占位；
-5. 在验证阶段执行解析/类型检查、IR 生成、Harness 构建、IR 准备、最终原生链接和外部符号审计。
+5. 另行运行 `validate_library.py`，对指定 `--pou` 执行解析/类型检查、IR 生成、Harness 构建、IR 准备、最终原生链接和外部符号检查。
+
+`prepare_library.py` 写出的 `verification.json` 和依赖 gate 初始为 pending；完成准备不等于通过验证。validator 虽生成名为 `smoke-executable` 的文件，但当前不会执行它；所选 POU 之外的运行行为及语义等价性仍需使用者另行检查。
 
 ### 4.2 转换规则的安全分层
 
@@ -169,7 +176,9 @@ intake 的基本顺序是：
 
 stubs 被区分为声明、语义 adapter 和环境模型。工具会检查冲突和最终链接是否存在 provider：只有声明而没有可链接实现的符号仍是 unresolved。它不会为了让链接通过而自动给未知函数生成“返回零”的可执行默认实现，这避免了把缺失依赖伪装成正常库行为。
 
-验证报告只有在解析/类型检查、IR、Harness、IR 准备、最终链接、可达外部符号和审计完整性都通过时才算 intake 成功。因此“RuSTy 能产生 IR”但“最终 native link 失败”仍是阻断结果。
+验证报告只有在已选 POU 的各项编译/链接检查、外部声明清单检查和转换审计检查通过，且依赖 gate 未 blocked 时才写为 passed。因此“RuSTy 能产生 IR”但“最终 native link 失败”仍是失败结果。其中名为 `reachable_externals` 的检查实际基于 IR 外部声明清单，不是完整调用图可达性证明；`audit_complete` 也不证明获批转换与真实 PLC 语义等价。
+
+在实验前审核并保留验证记录是操作要求。生产 `load_project()` 当前检查 compatibility schema 和引用路径，不读取 `verification.json` 强制验收 gate；生产编译/链接错误仍会阻断，但不能声称所有未验收 intake 都被工具自动拒绝。
 
 ### 4.5 CODESYS memory compatibility profile
 
@@ -276,22 +285,22 @@ FB Harness 生成包含 vtable 指针及声明顺序字段的 C struct，调用�
 
 ### 6.3 FB 状态摘要与停止条件
 
-满足以下任一条件时，Harness 会进行状态观察：
+抽象状态观察默认启用；满足以下任一条件时，Harness 另外计算精确快照：
 
 - `SEMANTIST_FB_STATE_TRACE` 开启；
 - `SEMANTIST_FB_STALE_THRESHOLD` 大于零；
-- 设置了语义 trace 文件。
+- 设置了 FB 状态 trace 文件。
 
-每个周期在调用前后对快照字段做 FNV-1a 摘要，并记录 changed/stale 信息。连续无变化周期数达到 stale threshold 时可提前停止；`SEMANTIST_FB_MAX_CYCLES` 可以限制最多执行周期数。状态 trace 可写入指定文件，也可在只打开 trace 开关时写标准错误。只有设置 `SEMANTIST_FB_STATE_TRACE_FILE` 后，Rust semantic observer 才会按文件 offset 读取新窗口并把状态摘要用于 corpus novelty；仅写标准错误不会形成 `state_signatures` feedback。
+默认每个周期通过共享内存记录前后抽象状态。投影检查快照字段列表的前 32 项（output、persistent 和 inout），跳过指针与非标量 inout，对其余数值分桶，对数组/字符串仅区分前 16 字节是否包含非零字节，避免连续计数器每次变化都无限扩充语料。精确字段快照保留给显式 trace/stale 诊断；连续无变化达到 stale threshold 时可提前停止。状态 trace 文件或标准错误均是调试输出，默认状态反馈不依赖它们。engine 统一生成、变异和 harness 的 `SEMANTIST_FB_MAX_CYCLES`：默认 256，最高 10000。
 
-需要准确理解快照边界：
+需要准确理解可选精确快照的边界（默认抽象投影另见算法说明）：
 
 - 标量、数组等字段按其 Harness 存储字节参与摘要；
 - 普通指针字段摘要的是指针值，而不是任意长度的 pointee 内容；
 - inout 指针路径从 `inst->field` 指向的位置读取 `sizeof(void *)` 个字节参与摘要；这既不是完整 pointee 状态，也要求该地址在该范围内可读；
 - 摘要变化反映所观察字节变化，不等价于完整 PLC 状态等价判定。
 
-Harness 提供弱符号 `__semantist_semantic_cycle`；语义 runtime 链接后用强实现覆盖它，以便把后续命中的语义目标关联到当前周期。
+Harness 提供弱符号 `__semantist_semantic_cycle` 和 `__semantist_semantic_state`；语义 runtime 链接后用强实现记录实际扫描序号、有序目标事件和抽象状态。固定 benchmark harness 在构建副本中补充同一反馈，原始 fixture 不变，无法识别的 FB 布局显式报错。
 
 ## 7. Semantic Target Graph（STG）
 
@@ -379,7 +388,7 @@ mappings 还分别保存 semantic node 和 expression 到 source/lowered AST ID 
 
 几乎所有关键语义对象都携带以下状态之一：
 
-- `Exact`：工具有足够的编译器语义和 IR 对应关系来表达该事实；
+- `Exact`：该对象在当前静态模型中具有明确语义；这不自动保证存在 IR 探针映射，也不是形式化等价证明；
 - `Conservative`：信息可用于引导，但不能作为已精确证明的违反条件；
 - `Opaque`：工具无法在当前模型中解释。
 
@@ -389,22 +398,24 @@ mappings 还分别保存 semantic node 和 expression 到 source/lowered AST ID 
 
 STG 生成后执行结构和语义一致性检查，主要包括：
 
-- node、edge、expression 和 target ID 唯一，边端点存在；
+- 每个 POU 内 node、edge 和 target ID 唯一，边端点存在；当前没有额外的全项目 expression ID 唯一性证明；
 - evaluation edge 具有 guard，control-transfer edge 具有 transfer summary；
-- predicate 的 outcome partition 完整并确有 evaluation edge；
+- predicate 具有预期 outcome role 和对应 evaluation edge；不对 guard 的互斥性、逻辑完备性做求解证明；
 - 循环具备 exit/back 语义和相应目标；
-- cycle relation 存在，状态分类互斥，temporal edge 精确携带 persistent symbol 集；
+- cycle relation 存在，模型中的 persistent 集不与 cycle-input/inout/configuration 集相交，且等于 temporal edge 保存的 persistent 集；不据此证明完整 PLC 状态分类正确；
 - expression operand 和 type 引用存在；
-- assignment conversion 类型关系有效；
-- target 指向存在的 node/edge，源码映射和 edge ID 一致。
+- assignment 引用存在，改变类型时有显式 conversion 记录；不证明所有转换语义正确；
+- target 的 node 引用及 source-AST mapping 条目存在，target edge 列表非空且引用有效；不证明这些映射与真实 IR 语义等价。
 
 诊断带 error/warning/info、code、POU、semantic ID 和源码位置，统计中分别记录 error/warning、conservative/opaque summary 等计数。当前 `generate()` 会把诊断写进模型并继续生成主 artifacts；它不因模型中出现 validation error 就自动抛出构建失败。因此评估 STG 质量时必须检查 `diagnostics`/`error_count`，不能仅以 `stg-model.json` 文件存在作为模型完全有效的证明。开启 debug sidecars 后还会单独输出 diagnostics、statistics；DOT 同样是显式调试开关。
+
+校验能力的逐项边界见 [STG 模型说明第 13 节](stg_semantic_model_zh.md#13-模型验证约束)。
 
 ## 8. 控制流语义建模
 
 ### 8.1 IF/ELSIF/ELSE
 
-每个 `IF`/`ELSIF` 条件形成 predicate 及互斥结果。true 结果进入对应 body；false 结果连接到下一个 `ELSIF` 或 `ELSE`；没有显式 `ELSE` 时仍形成结构性剩余路径。完整 outcome partition 是模型校验项。
+每个 `IF`/`ELSIF` 条件按 ST 语义构造 predicate 及 true/false 结果。true 结果进入对应 body；false 结果连接到下一个 `ELSIF` 或 `ELSE`；没有显式 `ELSE` 时仍形成结构性剩余路径。校验器检查预期 outcome role 和 evaluation edge 是否存在，不额外证明 guard 的逻辑互斥与完备。
 
 ### 8.2 CASE
 
@@ -519,7 +530,7 @@ Rust IR instrumenter 读取带元数据的 LLVM IR 和 runtime ID 表。对于 C
 
 即便两条语义边落到同一目标基本块，也各自拥有探针，因此不会因 destination 相同而丢失 outcome 区别。终结型事件可在指令前插 hit；hazard reach 和 external output 调用普通 hit；exact violation 在能够构造条件时调用 `__semantist_semantic_hazard(runtime_id, condition)`。
 
-插桩后模块会重新验证。mapping artifact 记录函数、基本块、指令 ordinal、successor、destination、probe 和目标类型；未映射或无法构造违反条件会写入诊断，而不是悄悄算作成功。
+插桩后模块会重新验证。mapping artifact 记录函数、基本块、指令 ordinal、successor、destination、probe 和目标类型；未映射或无法构造违反条件会写入诊断。存在 unmapped 诊断本身不一定使整个命令退出失败，所以构建成功不能等同于每个语义目标均有可用探针。
 
 ### 10.5 动态 violation 条件
 
@@ -537,7 +548,7 @@ Rust IR instrumenter 读取带元数据的 LLVM IR 和 runtime ID 表。对于 C
 
 ### 10.6 语义 runtime
 
-C runtime 从环境读取独立的 System V shared-memory ID 和 map size。普通 hit 对对应 `u8` counter 做饱和加一；hazard 只有在传入 condition 为真时才 hit。runtime 还维护当前 cycle ID，并可选把每次命中以 JSONL 写到 trace 文件。调试 trace 的实现是逐 hit 打开、追加并关闭文件，因此信息细但开销大，不适合作为正常 benchmark 的默认配置。
+C runtime 从环境读取独立的 System V shared-memory ID 和 map size。普通 hit 对对应 `u8` counter 做饱和加一；hazard 只有在传入 condition 为真时才 hit。独立 40,976 字节遥测区默认记录真实扫描次数、最多 4096 个有序目标事件和 512 对前后抽象状态，父进程逐输入清零；容量溢出显式标记，不能把截断尾部当完整路径证据。可选逐 hit JSONL trace 仍会打开、追加并关闭文件，仅用于调试。
 
 ## 11. 目标 IR 准备与最终构建
 
@@ -550,6 +561,8 @@ RuSTy 编译先在 `artifacts/build/st-projects/<target>/` 形成 `target.compil
 - 默认把能够识别对象大小的 SysMemMove/Cpy/Set 调用改写到 checked shim。
 
 最终使用 LLVM 21 Clang 以 `-g -O1` 构建，保留 frame pointer，默认启用 ASan、UBSan 与 AFL `trace-pc-guard`。链接对象包括 Harness、目标 IR 对象、AFL runtime、RuSTy stdlib/runtime、compatibility 原生输入、语义 runtime，以及 `dl`、`pthread`、`m` 等系统库。
+
+这里描述 `build_target.sh` 的通用默认值。当前比较实验的 SemantiST adapter 显式把 `SEMANTIST_TARGET_SANITIZERS` 设为 `-fsanitize=address -fno-omit-frame-pointer`，因此该实验构建不能被写成默认同时开启 UBSan；应以每次保存的编译命令和配置为准。
 
 编译项目时，工具创建临时 `plc.json`，组合标准库 glob、compatibility ST 源、library、stubs 与目标文件。如果选定 POU 已经位于 library 中，目标 ST 文件只用于 Harness 声明，不重复作为 library 编译单元加入，避免重复定义。
 
@@ -575,6 +588,7 @@ planner 对每个 POU 使用确定性的 Tarjan 算法划分 strongly connected 
 - exploration 任务最多保存 4 条；
 - 单条路径不重复节点；
 - 路径不允许离开一个 SCC 后再次进入该 SCC。
+- 每次搜索默认最多展开 4096 条边，拒绝的循环边也计数；`path_search` 保存实际展开数、队列峰值和截断原因。
 
 这种表示保留循环“需要到达/回边”的语义，但不会把循环无限展开或固定成某个迭代次数。路径目标还会按 STG edge correspondence 过滤；terminal 必须位于末尾，violation task 会确保成对 reach 在 violation 前。
 
@@ -598,17 +612,17 @@ planner 对每个 POU 使用确定性的 Tarjan 算法划分 strongly connected 
 
 ### 12.4 effort、gain 与优先级
 
-实现把任务剩余难度分成四个归一化维度：
+实现把任务剩余难度分成五个归一化维度：
 
 ```text
-ec = 未覆盖 control obligation 数
+ec = 当前 seed 有序前缀之后的 control obligation 数
 ed = dependency 数 × (1 - seed affinity)
 es = transfer 数 × (1 - state progress)
 et = 尚未满足的 temporal cycles
-eh = 未覆盖 hazard prerequisite + terminal
+eh = 当前 seed 有序前缀中尚未出现的 hazard prerequisite + terminal
 ```
 
-各维度按当前 POU 的最大值归一化后求和，得到候选 seed/路径的 effort。Rust runtime 中 temporal progress 以 seed 中不同 cycle ID 的数量减一，与每项 `min_cycles - 1` 比较。
+各维度按当前 POU 的最大值归一化后求和，得到候选 seed/路径的 effort。Rust runtime 使用实际扫描次数减一作为 temporal progress，与各并行要求 `min_cycles - 1` 的最大值比较。affinity 是 seed 与任务 waypoint 集合重叠的启发式量；只有该 seed 存在状态签名时 `state_progress` 才取 affinity，否则为零。这些量不能替代有序前缀，也不是数值距离或 transfer 已满足的证明。gain 中的未发现目标使用全局集合，与这里的单 seed 前缀成本分开。
 
 gain 由 exact、尚未覆盖的 violation，加上尚未覆盖的 unlocked targets，再加 control kind 多样性组成；多样性按七类归一并上限为 1。基础优先级为：
 
@@ -626,9 +640,11 @@ P_dynamic = P_base × exp(-0.25 × failed_attempts)
 
 ### 12.5 任务状态机
 
-任务状态包括 blocked、ready、active、covered、deferred 和 unmapped。active candidate path 以“剩余 waypoint 最少、路径最短、稳定 ID 字典序”确定。
+任务状态包括 blocked、ready、active、covered、deferred 和 unmapped。active candidate path 以“当前 seed 的有序前缀之后剩余 waypoint 最少、路径最短、稳定 ID 字典序”确定。事件按 waypoint 子序列匹配，重复目标按路径位置计数，不合并不同输入证据。更换 seed 后重算路径和 guide；一个变异阶段内 guide 位置固定，下一阶段才从实际保存的 seed 重算。
 
-每个 GuideTarget 默认有 1000 次执行预算，可由 `--semantic-task-budget` 修改。预算跨概率调度切换累计；达到阈值记为一次 failed attempt。连续三次失败后任务 deferred，直到语义 target coverage epoch 增长才重新激活。covered 和 unmapped 分别表示已完成或没有动态探针映射。
+匹配可跨同一输入的多个扫描，目前未把候选 temporal edge 与实际扫描边界逐项绑定。因此该前缀是引导启发式，不能证明同一扫描控制路径或完整状态转移链可行；违规终点仍要求真实探针命中。
+
+每个 task + path + guide_index + target 默认有 1000 次实际执行预算，可由 `--semantic-task-budget` 修改，以变异阶段为结算窗口。同一目标的不同路径位置分别计费；预算归属真正执行的上一阶段，成功窗口先清该键预算，普通 queue 工作不消耗旧语义任务预算。连续三次失败后任务 deferred；新语义覆盖、新 corpus 或 128 次调度的冷却到期可重新激活，每 32 次调度检查冷却。covered 和 unmapped 分别表示终点已观察到或缺少动态探针映射。
 
 ## 13. 初始语料生成
 
@@ -648,7 +664,7 @@ Rust semantic generator 要求 seed 目录中至少有一个 Harness 可接受�
 
 ### 13.2 周期 seed
 
-普通 cycle input 按周期写入；configuration input 和 inout 保持共享。周期数取基础 seed 周期、语义 minimum 和 2 的最大值，再限制到 8。生成器构造全局 profile、单字段 upper/constant 以及跨周期交替/pattern 等候选。
+先写共享 configuration/inout，再逐周期写该周期全部输入字段。周期数取基础 seed 周期、语义 minimum 和 2 的最大值，再限制到统一 `SEMANTIST_FB_MAX_CYCLES`；不再硬编码为 8。生成器构造全局 profile、单字段 upper/constant 以及跨周期交替/pattern 等有限候选。
 
 FUNCTION 最多保留 16 个生成候选，FB 最多 24 个；最后用 SHA-256 内容哈希去重。候选仍需交给 LibAFL 执行和 feedback 决定是否 admitted，生成数量不等于最终 corpus 数量。
 
@@ -662,12 +678,13 @@ FUNCTION 最多保留 16 个生成候选，FB 最多 24 个；最后用 SHA-256 
 
 - 命中的稳定 target ID；
 - target 按 cycle 的命中；
-- seed 中的周期数/ID；
-- 状态摘要和状态序列摘要；
+- 实际执行的扫描次数/序号；
+- 有序目标事件及轨迹完整性标记；
+- 当前输入的有界抽象状态/转换摘要；
 - 对各 task 的 affinity；
 - parent/source 等元数据。
 
-runtime trace 可提供目标命中的周期；FB state trace 提供每周期摘要，并额外形成整个状态序列的摘要。没有打开高开销的逐 hit runtime trace 时，bitmap 仍提供目标覆盖，只是缺少精细 cycle attribution。
+默认共享内存提供周期、有序事件和抽象状态，不依赖逐 hit trace。当前状态画像与全局新增状态分开保留：重复已见状态仍属于当前 seed。本次最多保留 256 个状态/转换签名，全局最多记忆 4096 个；到达上限后其他覆盖 admission 继续有效。抽象状态不包含扫描序号，重复相同状态不会单靠序列变长持续产生新颖性。
 
 ### 14.2 每任务候选缓存
 
@@ -685,29 +702,30 @@ planner/runtime 为每个任务维护按 ranking 排列的 seed 缓存，最多 
 
 这些比例描述实现策略，并不自动说明它们是全局最优超参数，论文中应通过消融或敏感性实验验证。
 
-engine 使用 `ContentHashInputFilter`，同一进程内完全相同的 testcase 字节只执行一次。该去重边界是进程级；重新启动运行不等于拥有跨所有历史运行的全局执行缓存。
+engine 使用有界 `ContentHashInputFilter`，以最多 65,536 个 u64 指纹进行 FIFO 去重，淘汰后允许再次执行。它是有碰撞可能的轻量过滤，不是永久精确执行缓存；持久 seed 身份仍为 SHA-256。
 
 ## 15. Feedback、objective 与 coverage epoch
 
-### 15.1 两张共享内存图
+### 15.1 两张覆盖图与独立遥测
 
 target 进程同时连接：
 
 - 固定 65536 字节的 AFL edge map；
 - 大小为 `max(runtime_id)+1` 的 semantic map。
+- 独立 40,976 字节周期/事件/抽象状态遥测区。
 
-二者由不同 observer 读取，不把语义目标哈希进 AFL map。因此源码边覆盖与语义目标覆盖可以独立统计。
+两张覆盖图和遥测区由各自 observer 读取，不把语义目标哈希进 AFL map。因此 AFL 边覆盖反馈与语义目标覆盖可以分别观察；这些内部覆盖口径不能直接替代跨工具的公共覆盖重放结果。
 
 ### 15.2 corpus interesting feedback
 
 普通 corpus admission 使用 OR 组合：
 
 - coverage epoch observer：记录 AFL 覆盖进展，但自身返回 false；
-- semantic feedback：新稳定 target 或新状态摘要；
+- semantic feedback：新稳定 target、新状态摘要，或活动路径首次更长的连贯有序前缀；
 - LibAFL MaxMap edge feedback；
 - TimeFeedback。
 
-因此一次输入即使没有新语义 target，也可能因新 edge map 最大值或执行时间特征进入 corpus。语义 feedback 会把 runtime ID 反查为稳定 ID，并无论本次是否构成 corpus novelty 都更新全局语义覆盖状态。cycle target 计入 state 类覆盖，其余目标计入 branch 类覆盖。
+因此一次输入即使没有新语义 target，也可能因新 edge map 最大值、状态、前缀或执行时间特征进入 corpus。语义证据采集位于 objective 分类之前，正常 corpus 和 solution 两种执行都更新全局覆盖及本次画像；普通 feedback 只消费已计算的新颖性。cycle target 计入 state 类覆盖，其余目标计入 branch 类覆盖。默认汇总日志只追加新增目标和状态，不为每次重复命中写 JSON。
 
 ### 15.3 objective feedback
 
@@ -719,13 +737,13 @@ solution/objective 使用 OR 组合：
 - timeout；
 - sanitizer finding。
 
-conservative violation 不会单独成为 objective。这一边界防止静态近似被报告成已确认漏洞。运行时故障则不要求先命中某个语义 violation。
+conservative violation 不会单独成为 objective。这一边界防止静态近似被报告成已确认漏洞。语义 objective 按稳定目标及诊断类别去重，不能据此直接报告根因级 unique bugs。运行时故障则不要求先命中某个语义 violation。
 
 语义 objective 会进入 LibAFL 的 on-disk target corpus；结构化 finding recorder 主要针对 crash/OOM/timeout/新增 sanitizer 日志。因此只以正常退出命中的 exact semantic objective 可能先存在于 target corpus，报告器在缺少结构化 finding 时通过回放补证据。
 
 ### 15.4 coverage epoch 与失败恢复
 
-实现维护两个不同概念：`CoverageProgressMetadata.epoch` 记录 AFL map 相对历史值是否推进；`SemanticRuntimeMetadata.coverage_epoch` 只在发现新的稳定语义 target ID 时增加。任务 deferred/reactivation 使用的是后者，当前源码没有用 AFL-only 进展唤醒 deferred 语义任务。该机制体现“当前 seed/路径尝试失败”与“目标永久不可达”的区分，但其恢复条件是新的语义覆盖。
+实现维护 AFL 覆盖 epoch、语义目标 coverage epoch、corpus epoch 和调度选择 epoch。语义目标的新发现、新 corpus 或有界冷却都可唤醒 deferred 任务，避免没有新静态边时永久沉睡。状态/前缀新颖性不冒充新静态目标，因此不会增加语义目标 coverage epoch。
 
 任务 state 只在 semantic coverage/corpus epoch、active task、ranking 或 attempt history 等签名发生变化时用临时文件加原子 rename 重写。默认 compact JSON 只保存 ranking 前 32 项及总数，不展开全部 target、task state 和 attempt history；开启 `SEMANTIST_SEMANTIC_STATE_DETAIL` 后才保留这些完整细节，适合调试而非高吞吐 benchmark。
 
@@ -745,7 +763,7 @@ conservative violation 不会单独成为 objective。这一边界防止静态�
 - 整数/数值常量求值；
 - 对局部 `+`、`-`、`*` 定义做有限反向传播。
 
-它不是通用 SMT solver，也不宣称解任意 ST 表达式。无法精确反推时会退回 typed boundary 或通用结构化变异。
+它不是通用 SMT solver，也不宣称解任意 ST 表达式。整数比较使用 i128 和 IEC 类型边界，严格关系使用离散邻值；REAL/LREAL 使用对应类型的相邻可表示值和可往返文本。AND/OR 的有限尝试及分母反推会验证最终局部表达式；无解、不支持或未改变输入时回退。变量接受明确 variable 节点，以及成员名、完整 reads 和类型一致的单变量 member_access 包装；不将 call、cast、array 或复杂成员访问当作普通变量。定义按限定符号及已选路径解析，已写入的 seed 字段或歧义定义停用精确求值/反推。
 
 ### 16.3 危险定向变异
 
@@ -762,7 +780,9 @@ controllable fields 来自任务计划，而非仅凭变量名猜测；字段名
 
 ### 16.4 周期和状态变异
 
-变异器把记录分成 shared 部分与按 cycle ID 排序的周期 map，并在输出时规范化 ID。semantic cycle hint 上限 64；hazard/goal 定向值通常施加到最后周期，以允许前置周期先准备状态。
+变异器把记录分成 shared 部分与按 cycle ID 排序的周期 map，并在输出时规范化 ID。生成、hint 和增长操作使用统一周期上限，默认 256、最高 10000。hazard/goal 定向值通常施加到最后周期，以允许前置周期准备状态。
+
+完整配置在有多周期 hint 或可控 transfer 输入时，以 15% 的条件概率先尝试增长前缀：复制一个非末周期并插在其后，每次只增加一个周期，保持原末周期输入。未在该分支返回时，有 transfer 字段的上下文以 50% 的条件概率尝试修改某个非末周期中、由选定路径 transfer 的读取集关联到的输入；末周期 goal 变异失败后还会再次尝试此前缀变异。这些是分支内概率，不是所有实际执行中固定的操作占比。它不会直接写内部状态、求解完整跨周期 transfer 链，或保证其他前置条件保持。
 
 周期操作包括：
 
@@ -774,7 +794,22 @@ controllable fields 来自任务计划，而非仅凭变量名猜测；字段名
 - 读写交替的四周期 pattern；
 - 重新规范化。
 
-操作会尊重任务的最低周期要求。通用类型变异中字符串、数组和指针随机内容通常限制为最多 64 字节，以控制输入和执行开销。
+语义分支会先补足受上限约束的 cycle hint，且其删除操作检查最低周期要求；通用 cycle havoc 仍可缩短序列，因此不是所有变异都保证维持任务最低周期数。通用类型变异中字符串、数组和指针随机内容通常限制为最多 64 字节，以控制输入和执行开销。
+
+### 16.5 当前运行时消融
+
+消融配置在同一个 engine 中切换，目标 ABI、公共预算和反馈采集保持一致：
+
+| 配置 | 相对 `full` 关闭的机制 |
+| --- | --- |
+| `no_semantic_init` | STG 语义初始候选生成 |
+| `no_targeted_mutation` | 语义定向变异入口，保留语义任务调度 |
+| `queue_havoc` | 语义初始生成、语义任务调度和定向变异 |
+| `no_transition_guidance` | 由 transfer 读取集引导非末周期输入变异 |
+| `no_prefix_growth` | 上述 15% 专用前缀增长分支 |
+| `no_multicycle_guidance` | 上述 transfer 引导与专用前缀增长两项 |
+
+这些配置都保留状态/语义反馈和通用结构化周期操作。尤其 `queue_havoc` 不是 AFL++ 替代实现，`no_prefix_growth` 不禁止通用复制/插入周期，`no_multicycle_guidance` 也不是单周期 Harness。运行方式与比较解释见 [消融实验说明](../experiments/ablations/README.md)。
 
 ## 17. Corpus、事件与发现记录
 
@@ -795,7 +830,9 @@ Python corpus store 对记录名和类型做规范化，校验预期字段、数
 
 它要求 testcase 仍是有效结构化 seed，并在单进程内按 seed hash 去重。默认 sanitizer 配置使错误中止、关闭 leak 检查并写日志到 findings；日志指纹综合路径、大小和 mtime，同时忽略 ptrace 环境造成的 leak-sanitizer 噪声。
 
-每个 finding 保存 reproducer `.seed`、JSON metadata 和事件，按来源区分 initial、semantic generation 或 fuzzing。记录包括退出类型、sanitizer 证据、稳定 target、hazard、周期 ID/数量和可用状态摘要。需要注意，FB state trace 是附加文件流；finding 收集到的是读取时可见的 trace 摘要，不能无条件视为与单个 testcase 完全隔离的事务日志。
+每个 finding 保存 reproducer `.seed`、JSON metadata 和事件，按来源区分 initial、semantic generation 或 fuzzing。原生 `RuntimeFindingRecord` 当前保存执行计数、退出/日志类别、sanitizer 证据、输入哈希、复现路径，以及由输入文本推断的周期 ID/数量；该周期数不是实际已执行扫描数。默认记录不自动填入稳定 target、hazard 或 source location，不能因为报告 schema 能容纳这些字段就声称每条 finding 都有它们。
+
+可选 FB state trace 提供附加摘要，但它是追加式文件流；finding 读取时可见的摘要不具备严格的每 testcase 隔离。默认共享内存画像具有逐执行清零的边界，它和 finding 中可选的文件 trace 摘要是两个来源，不应混为一谈。
 
 confidence 主要由 sanitizer 或 forkserver exit 形成；severity 对 crash/OOM/sanitizer 为 high，对 timeout 为 medium。这是工具内报告分级规则，不是行业通用 CVSS 评分。
 
@@ -803,9 +840,11 @@ confidence 主要由 sanitizer 或 forkserver exit 形成；severity 对 crash/O
 
 ### 18.1 确定性证据优先
 
-报告器读取运行目录、事件、语义 task state、结构化 findings 和 target corpus。可用时使用带 ASan/UBSan symbolization 的目标进行回放，状态包括 ok、crash、nonzero、timeout、replay_error。confirmed fault 基于回放状态和已记录的确定性运行时证据；ok/replay_error 等会标为不稳定或未确认。
+报告器读取运行目录、事件、语义 task state、结构化 findings 和 target corpus，使用能定位到的目标与可用 symbolizer 重放。结构化记录的最终 `replay_status` 由重放结果决定：crash、timeout、nonzero、oom 映射为 confirmed，ok/replay_error 映射为 unstable；缺少目标或代表输入时保持 unchecked/candidate。原生 finding 的 `confirmed_by_forkserver_exit`/`confirmed_by_sanitizer_log` 是发现来源，不能代替这层重放确认。重放确认也不自动证明两个输入属于不同根因，或故障具有现实 PLC 安全影响。
 
 如果存在结构化 finding records，报告器优先使用它们，不再把 legacy target replay 证据混入同一主集合。只有没有结构化 records 时，才从 target corpus 回放形成 fallback 证据。
+
+报告中的 `raw_objective_count` 当前相加 target-corpus 文件数和原生 finding record 数，同一输入可能出现在两处；它是原始制品计数，不能直接当独立漏洞数。去重组数量也仍受可用签名字段限制，需要根因分析才能形成论文中的 unique bug 统计。
 
 ### 18.2 分层去重
 
@@ -815,7 +854,7 @@ confidence 主要由 sanitizer 或 forkserver exit 形成；severity 对 crash/O
 2. runtime：function + exit/signal + stack/source；
 3. fallback：function + exit + target kind + cycle count。
 
-fallback 记录 seed hash 供追踪，但故意不把 seed hash 放入去重键，避免同一故障仅因输入字节不同重复计数。每组最多选择三个代表 seed，并保留最佳 replay status。
+fallback 记录 seed hash 供追踪，但故意不把 seed hash 放入去重键，避免同一故障仅因输入字节不同重复计数。每组最多保存三个代表 seed；当前报告器通常重放首个代表 seed 后写入该组的状态，不能声称已重放全部代表输入。
 
 ### 18.3 确定性最小化
 
@@ -887,7 +926,7 @@ artifacts/
 | `semantic-task-plan.json` | `semantist.semantic-task-plan/1.0.0` |
 | `semantic-task-state.json` | `semantist.semantic-task-state/1.0.0` |
 | `compatibility.json` | `semantist.compatibility/1.0.0` |
-| finding JSON | `finding-record-1.0` |
+| 原生 finding JSON / 去重 finding JSON | `1.0` / `finding-record-1.0`，原生记录与报告层去重记录不同 |
 | vulnerability report | report schema `1.0` |
 
 ## 20. 配置接口
@@ -896,14 +935,14 @@ artifacts/
 
 除必需输入外，重要参数包括：
 
-- `--semantic-task-budget`：每个 GuideTarget 在失败衰减前的执行预算，默认 1000；
+- `--semantic-task-budget`：每个 task + path + guide_index + target 在失败衰减前的执行预算，默认 1000；
 - `--fuzz-iterations`：LibAFL 主循环迭代上限；
 - `--fuzz-timeout`：整个 fuzzer 进程墙钟秒数；
 - `--semantic-runtime-trace`：逐 hit 语义 trace；
 - `--semantic-debug-artifacts`：详细 STG sidecar、DOT 和 task state；
 - `--fb-max-cycles`、`--fb-stale-threshold`、`--fb-state-trace`、`--fb-state-trace-file`；
 - `--build-only`、`--report-only`、`--skip-report`；
-- 报告 provider、输出目录、回放限制/超时、禁用回放和最小化选项。
+- 报告 provider、输出目录、批量 target-corpus 回放限制/超时、跳过该批量回放和最小化选项。
 
 `semantist-harness` 是一个简单位置参数入口，调用形式为 `semantist-harness <st-file> <pou-name>`，输出路径和 generated seed 目录分别由 `HARNESS_OUT`、`GENERATED_SEED_DIR` 控制。该入口没有 argparse 帮助处理，直接执行 `semantist-harness --help` 会因缺少第二个位置参数而失败；正常使用通常由 `build_target.sh` 代为设置环境并调用。
 
@@ -922,21 +961,49 @@ artifacts/
 | `SEMANTIST_SEMANTIC_TRACE_FILE` | semantic coverage 事件文件 |
 | `SEMANTIST_SEMANTIC_RUNTIME_TRACE_FILE` | 逐 hit trace 文件 |
 | `SEMANTIST_SEMANTIC_TRACE_RUNTIME` | 开启逐 hit runtime trace |
-| `SEMANTIST_FB_MAX_CYCLES` | FB 最大执行周期，0/未设表示不按此限制 |
+| `SEMANTIST_FB_MAX_CYCLES` | engine 统一的 FB 周期上限，默认 256、最高 10000；0 或非法值回到默认 |
 | `SEMANTIST_FB_STALE_THRESHOLD` | 连续不变周期停止阈值，0 禁用 |
 | `SEMANTIST_FB_STATE_TRACE[_FILE]` | FB 状态 trace 开关/路径 |
 | `SEMANTIST_SEMANTIC_STATE_DETAIL` | 输出详细任务状态 |
+| `SEMANTIST_TIMEOUT_MS` | Rust engine 单次目标执行超时，默认 1000 毫秒 |
+| `SEMANTIST_RNG_SEED` | Rust engine RNG 种子；省略时使用当前时间来源，实验 runner 显式注入配对种子 |
+| `SEMANTIST_ABLATION` | Rust engine 消融配置，默认 `full`；engine `--ablation` 可覆盖 |
 | `LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL` | OpenAI-compatible 报告调用的直接配置；三者均须有效 |
 | `SEMANTIST_LLM_BASE_URL/MODEL` | base URL/model 的默认值来源，可被对应 `LLM_*` 变量覆盖 |
 | `SEMANTIST_LLM_RETRY_DELAYS` | 可选报告 LLM 重试间隔，默认 `5,15` 秒 |
 
 内部构建还使用 `SEMANTIST_STG_DIR`、`SEMANTIST_STG_CODEGEN_MAP`、`SEMANTIST_SEMANTIC_RUNTIME_IDS`、library/stubs/manifest 路径等变量；通常应由主流水线设置，而不是 benchmark 脚本手工拼接。
 
+### 20.3 批量实验入口与计量边界
+
+比较实验推荐在仓库根目录使用 `python run_experiment.py`。它只把预设参数交给现有 runner，不负责 Git 提交、远程部署或自动解释结果。当前默认 manifest 有 90 个目标；`main` 会读取 manifest 的全部目标，而不是在程序中写死 90。
+
+| 预设 | 默认工具 | 目标 | 每工具每目标的预算与重复 | 默认 CPU ID |
+| --- | --- | --- | --- | --- |
+| `main` | SemantiST、AFL++、ICSQuartz | 当前 manifest 全部目标 | 300 秒 × 5 次 | `1-8` |
+| `smoke` | 同上 | `oscat_basic_charname`、`icsfuzz_bf_mcpy_1`、`scan_cycle_aircraft_oobw_4` | 20 秒 × 1 次 | `1-2` |
+
+常用覆盖参数为 `--run-id`、`--tools`、可重复的 `--target-id`、`--fuzz-time`、`--fuzz-trials` 和 `--cpus`。显式目标列表替换预设目标；`--run-id`/`--experiment-id`、`--fuzz-trials`/`--trials` 是别名。`--help` 展示常用接口，`--help-all` 展示高级参数。CPU ID 必须改为宿主机实际可用的编号；runner 将并发 trial 绑定到不同 CPU，`--serial` 可改为串行。
+
+实验默认关闭文件级 FB state trace，最大周期 256、stale threshold 0、单次执行超时 1000 毫秒；共享内存周期/状态反馈仍启用。非 `full` 消融必须是独立的 SemantiST 单工具实验。原有 comparison、single-tool 和 ablation 脚本继续兼容，常用步骤见 [服务器操作手册](server_experiment_runbook_zh.md)。
+
+每次使用新 run ID，现有实验目录即使为空也不复用；旧的 `--resume`、`--overwrite` 和 `--reuse-preprocessing` 已移除。`--preflight-only` 只产生环境、目标、支持矩阵和调度记录，不构建、不在线 fuzz，也不导出 `metrics.csv`。正常运行先预处理，再按独立 trial 执行在线预算；严格校验通过后导出逐 trial 的 `metrics.csv`/`metrics.jsonl`。失败保留原始制品并返回非零，不把结果目录存在视为验收成功。预设和最终解析出的目标/预算分别保存在环境及实验清单中。
+
+共同计量合同为 `semantist.independent-tool-metrics/1`：
+
+- 在线预算从宿主机启动在线命令计时，含工具启动、初始输入执行和 SemantiST 语义初始候选生成；离线编译不在该预算内。
+- `total_executions` 是工具原生报告的 testcase 执行次数，不是 PLC 扫描周期数，也不从吞吐率反推；末次报告可能不是精确停止计数，需保留 `total_executions_window` 的来源边界。
+- 有效 run 必须受支持、完成预算、没有失败原因、实际墙钟达到预算，且原生执行计数为正整数；离线重放不能修复原生无效 run。
+- 公共 crash oracle 为 ASan、UBSan 或目标信号；timeout、OOM、语义 objective 与公共 crash 分开。首次 crash 的时间来自 runner 首次观察到制品，执行序号来自原生计数；预算后才观测到的发现不能混入预算内结果。
+- CSV 是逐 trial 数据导出，不是漏洞根因去重、显著性检验或结论。默认不做公共 replay、coverage 和聚合；结束后可手动运行这些分析，高级显式开关仍保留。
+
+计量细节及三工具的执行模型差异以 [实验规范](experiment_standard.md) 为准。
+
 ## 21. 可复现性与确定性边界
 
 工具为可复现性提供：
 
-- 固定 RuSTy revision、Rust/LLVM/Docker 构建环境；
+- 固定 RuSTy revision、声明 Rust/LLVM 版本，并记录实际镜像和环境；
 - 输入相对路径和 SHA-256；
 - stable semantic target ID；
 - 确定性排序、Tarjan SCC 和 bounded path enumeration；
@@ -953,7 +1020,7 @@ artifacts/
 1. **端到端目标范围。** STG 可表示多类 POU，但自动 Harness 只支持 FUNCTION 与 FUNCTION_BLOCK。
 2. **轻量 Harness 类型模型不是 ABI 模型。** 数组被扁平化，未知命名类型退化为 byte pointer；FB 的 C struct 也由 vtable 指针加 ST 声明顺序字段手工生成，而非读取编译器输出的布局描述。复杂 struct/alias/padding 或 RuSTy ABI 变化需要额外验证、支持或显式兼容层。
 3. **configuration/constant input 不由 Harness 强制不可写。** 它们在 planner 和 seed 作用域中被区别对待，但名称匹配的 testcase 仍可赋值。
-4. **FB 状态是有限观察。** 指针主要观察地址或有限 backing bytes，不是任意 pointee heap graph；state hash 相同不证明完整状态相同。
+4. **FB 状态是有限观察。** 默认抽象反馈不纳入指针；可选精确快照也只观察地址或有限 backing bytes，不是任意 pointee heap graph。state hash 相同不证明完整状态相同。
 5. **周期语义依赖记录顺序。** 手工 seed 应保证相同 cycle ID 连续；工具生成/变异路径会规范化。
 6. **调用语义有限。** 调用 effects 可按签名保守建模，但当前不是完整跨过程函数体求解。
 7. **bounded path 不是可达性证明。** SCC + BFS 给出有限候选引导路径，不展开无限循环，也不证明路径可满足。
@@ -963,7 +1030,7 @@ artifacts/
 11. **conservative 目标不是漏洞证据。** 只有 exact semantic violation/property 或确定性运行时故障进入 objective。
 12. **semantic hit 不等于安全影响。** reach、branch、cycle 等只是覆盖/引导信号；报告还需运行时证据与回放。
 13. **TimeFeedback 也可收种子。** corpus 增长不能全部归因于语义或边覆盖 novelty。
-14. **同字节只执行一次是单进程性质。** 不应把它描述为跨运行全局缓存。
+14. **输入去重是有界单进程过滤。** 最多 65,536 个 u64 指纹，FIFO 淘汰后可重新执行，且存在碰撞可能；不能描述为永久或跨运行的精确缓存。
 15. **property violation 目前是模型预留能力。** 当前没有通用用户属性语言前端。
 16. **报告 trace 归属有边界。** 附加式 state/runtime trace 未提供严格的每-testcase 事务隔离时，不应过度解释某条 trace 与某个 finding 的唯一对应。
 17. **LLM 不参与发现判定。** 不能把报告语言模型描述为 fuzzing oracle 或漏洞检测器。
@@ -1004,7 +1071,7 @@ mutation 既保持文本 schema 合法，又利用 type bounds、guard expressio
 
 ### 23.6 intake 的语义保守原则
 
-非破坏转换、review-required/unsupported 分层、显式 provider、最终 native link 和“绝不自动生成未知默认实现”共同降低了测试错误程序替身的风险。对于真实工业库，这部分决定 benchmark 是否仍代表原库语义。
+非破坏转换、review-required/unsupported 分层、显式 provider、所选 POU 的 native link 检查和“不自动生成未知默认实现”提供了可审计的 intake 过程。使用者仍需审核转换、确认环境模型并执行代表输入；当前生产入口不会自动强制检查 intake verification，也没有工具层面的完整语义等价证明。对于真实工业库，这些审核决定 benchmark 能在什么假设下代表原库语义。
 
 可报告自动转换率、人工审核项、依赖闭包、链接成功率和兼容 shim 覆盖，但需要把转换工程能力与 fuzzing 核心算法贡献分开讨论。
 
@@ -1015,6 +1082,9 @@ mutation 既保持文本 schema 合法，又利用 type bounds、guard expressio
 | 主题 | 源码位置 |
 | --- | --- |
 | 主流水线与 CLI | `fuzzer/pipeline/core.py` |
+| 实验预设、运行与严格校验 | `run_experiment.py`、`experiments/comparison/run_full_comparison.py`、`experiments/comparison/analysis/validate_complete.py` |
+| 运行时消融开关 | `fuzzer/engine/src/config.rs`、`experiments/comparison/ablations.py` |
+| 公共实验计量与逐 trial 导出 | `experiments/comparison/lib/metrics.py`、`experiments/comparison/analysis/compare_tools.py` |
 | artifact 路径 | `fuzzer/runtime/paths.py` |
 | ST 声明和类型模型 | `compiler/parser/st.py` |
 | Harness/seed/FB 状态 | `compiler/harness/generator.py` |
@@ -1038,7 +1108,7 @@ mutation 既保持文本 schema 合法，又利用 type bounds、guard expressio
 | 预算与任务状态输出 | `fuzzer/stages/semantic_budget.rs` |
 | 结构化/语义/周期变异 | `fuzzer/engine/src/mutations.rs` |
 | engine 组装、feedback/objective | `fuzzer/engine/src/main.rs` |
-| finding recorder | `fuzzer/reporting/findings.py` |
+| 原生 finding recorder / 报告层去重 | `fuzzer/engine/src/mutations.rs`、`fuzzer/semantic/metadata.rs` / `fuzzer/reporting/findings.py` |
 | 回放、去重和报告 | `fuzzer/reporting/report.py` |
 | 确定性最小化 | `fuzzer/reporting/minimize.py` |
 | LLM 摘要边界 | `fuzzer/reporting/llm.py` |

@@ -10,12 +10,30 @@ static unsigned char *semantist_semantic_map;
 static size_t semantist_semantic_map_size;
 static int semantist_semantic_initialized;
 static uint32_t semantist_semantic_cycle_id;
+static struct semantist_telemetry *semantist_telemetry;
+static const char *semantist_runtime_trace_path;
+
+static void *semantist_attach(const char *name) {
+    const char *text = getenv(name);
+    if (!text || !*text) return NULL;
+    char *end = NULL;
+    errno = 0;
+    long id = strtol(text, &end, 10);
+    if (errno || end == text || *end != '\0') return NULL;
+    void *memory = shmat((int)id, NULL, 0);
+    return memory == (void *)-1 ? NULL : memory;
+}
 
 static void semantist_semantic_initialize(void) {
     if (semantist_semantic_initialized) {
         return;
     }
     semantist_semantic_initialized = 1;
+    semantist_telemetry = semantist_attach("SEMANTIST_TELEMETRY_SHM_ID");
+    const char *trace_enabled = getenv("SEMANTIST_SEMANTIC_TRACE_RUNTIME");
+    if (trace_enabled && strcmp(trace_enabled, "1") == 0) {
+        semantist_runtime_trace_path = getenv("SEMANTIST_SEMANTIC_RUNTIME_TRACE_FILE");
+    }
 
     const char *size_text = getenv("SEMANTIST_SEMANTIC_MAP_SIZE");
     semantist_semantic_map_size =
@@ -38,9 +56,8 @@ static void semantist_semantic_initialize(void) {
 }
 
 static void semantist_semantic_trace(uint32_t runtime_id) {
-    const char *enabled = getenv("SEMANTIST_SEMANTIC_TRACE_RUNTIME");
-    const char *path = getenv("SEMANTIST_SEMANTIC_RUNTIME_TRACE_FILE");
-    if (!enabled || strcmp(enabled, "1") != 0 || !path || !*path) {
+    const char *path = semantist_runtime_trace_path;
+    if (!path || !*path) {
         return;
     }
     FILE *stream = fopen(path, "a");
@@ -62,6 +79,18 @@ void __semantist_semantic_hit(uint32_t runtime_id) {
         unsigned char value = semantist_semantic_map[runtime_id];
         semantist_semantic_map[runtime_id] = value == 255 ? 255 : (unsigned char)(value + 1);
     }
+    if (semantist_telemetry) {
+        semantist_telemetry->flags |= 4; /* telemetry ABI is active */
+        uint32_t index = semantist_telemetry->event_count;
+        if (index < SEMANTIST_TELEMETRY_EVENTS) {
+            semantist_telemetry->events[index].runtime_id = runtime_id;
+            semantist_telemetry->events[index].cycle =
+                semantist_telemetry->scan_count ? semantist_telemetry->scan_count - 1 : 0;
+            semantist_telemetry->event_count = index + 1;
+        } else {
+            semantist_telemetry->flags |= 1;
+        }
+    }
     semantist_semantic_trace(runtime_id);
 }
 
@@ -72,5 +101,24 @@ void __semantist_semantic_hazard(uint32_t runtime_id, uint8_t violation) {
 }
 
 void __semantist_semantic_cycle(uint32_t cycle) {
+    semantist_semantic_initialize();
     semantist_semantic_cycle_id = cycle;
+    if (semantist_telemetry && semantist_telemetry->scan_count < UINT32_MAX) {
+        semantist_telemetry->flags |= 4;
+        semantist_telemetry->scan_count++;
+    }
+}
+
+void __semantist_semantic_state(uint64_t before, uint64_t after) {
+    semantist_semantic_initialize();
+    if (!semantist_telemetry) return;
+    semantist_telemetry->flags |= 4;
+    uint32_t index = semantist_telemetry->state_count;
+    if (index < SEMANTIST_TELEMETRY_STATES) {
+        semantist_telemetry->states[index].before = before;
+        semantist_telemetry->states[index].after = after;
+        semantist_telemetry->state_count = index + 1;
+    } else {
+        semantist_telemetry->flags |= 2;
+    }
 }

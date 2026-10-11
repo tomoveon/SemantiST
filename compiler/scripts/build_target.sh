@@ -64,6 +64,12 @@ if [[ -n "${SEMANTIST_HARNESS_SOURCE:-}" ]]; then
   fi
   mkdir -p "$(dirname "$HARNESS_OUT")"
   cp "$SEMANTIST_HARNESS_SOURCE" "$HARNESS_OUT"
+  # Keep the checked-in harness execution contract, adding only bounded
+  # semantic telemetry to its prepared build copy.
+  if [[ "${SEMANTIC_MODE}" == "ir" ]]; then
+    python3 -m compiler.harness.generator --upgrade-fixed-telemetry \
+      "$HARNESS_OUT" "$ST_FILE" "$ST_FUNCTION"
+  fi
   echo "[build_target] using fixed benchmark harness: $SEMANTIST_HARNESS_SOURCE"
 else
   python3 -m compiler.scripts.generate_harness "$ST_FILE" "$ST_FUNCTION"

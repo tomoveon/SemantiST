@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from experiments.comparison.adapters.base import BaseAdapter, PreprocessingResult, SupportResult
+from experiments.comparison.adapters.base import AdapterError, BaseAdapter, PreprocessingResult, SupportResult
 from experiments.comparison.lib.manifest import Target
 from experiments.comparison.lib.process import (
     container_cpu_bound_command,
@@ -24,7 +24,7 @@ class AFLPlusPlusAdapter(BaseAdapter):
     supports_rng_seed = True
     initial_seed_provider = "aflplusplus_adapter"
     initial_seed_format = "raw_bytes"
-    initial_seed_policy = "single_zero_byte_seed"
+    initial_seed_policy = "icsquartz_aflplusplus_echo_1_seed"
 
     def detect_support(self, target: Target) -> SupportResult:
         base = super().detect_support(target)
@@ -34,10 +34,11 @@ class AFLPlusPlusAdapter(BaseAdapter):
 
     def prepare(self, target: Target) -> PreprocessingResult:
         preprocess_dir = self.preprocessing_dir(target)
-        if preprocess_dir.exists() and self.config.reuse_preprocessing:
-            return PreprocessingResult("completed", preprocess_dir, 0, 0)
         if preprocess_dir.exists():
-            shutil.rmtree(preprocess_dir)
+            raise AdapterError(
+                "preprocessing_directory_exists",
+                f"preprocessing directory already exists: {preprocess_dir}; use a new experiment ID",
+            )
         for child in ("base-seeds", "logs"):
             (preprocess_dir / child).mkdir(parents=True, exist_ok=True)
 
@@ -62,6 +63,7 @@ class AFLPlusPlusAdapter(BaseAdapter):
             "SEMANTIST_ARTIFACT_DIR": self.container_path(preprocess_dir),
             "SEMANTIST_BUILD_ARTIFACT_DIR": self.container_path(preprocess_dir / "build"),
             "SEMANTIST_SEMANTIC_INSTRUMENTATION": "off",
+            "SEMANTIST_TARGET_SANITIZERS": "-fsanitize=address -fno-omit-frame-pointer",
             "OUT_LL": self.container_path(preprocess_dir / "target.ll"),
             "PREPARED_LL": self.container_path(preprocess_dir / "target.prepared.ll"),
             "OUT_OBJ": self.container_path(preprocess_dir / "target.o"),
@@ -117,12 +119,13 @@ class AFLPlusPlusAdapter(BaseAdapter):
                         ),
                     },
                 )
-        (preprocess_dir / "base-seeds" / "seed").write_bytes(b"\x00")
+        # Match the AFL++ baseline used by ICSQuartz (`echo 1 > input/seed`).
+        (preprocess_dir / "base-seeds" / "seed").write_bytes(b"1\n")
         base_seeds = sorted(path for path in (preprocess_dir / "base-seeds").iterdir() if path.is_file())
         self.write_seed_manifest(
             preprocess_dir,
             base_seeds,
-            note="AFL++ native one-byte corpus; the target uses the checked-in benchmark raw harness.",
+            note="AFL++ baseline seed is ASCII '1' plus newline (ICSQuartz echo 1); the target uses the checked-in raw harness.",
         )
         missing = [
             path
@@ -266,6 +269,21 @@ class AFLPlusPlusAdapter(BaseAdapter):
                 "message": f"AFL++ exited with return code {result['returncode']}",
                 "log_tail_path": self.relative_artifact(run_dir / "stderr.log"),
             }
+        elif result["timed_out"]:
+            stats = metrics.get("tool_specific_metrics", {}).get("afl_fuzzer_stats", {})
+            saved_crashes = _safe_int(stats.get("saved_crashes")) or 0
+            saved_hangs = _safe_int(stats.get("saved_hangs")) or 0
+            if saved_crashes != metrics["crash_count_raw"] or saved_hangs != metrics["timeout_count_raw"]:
+                metrics["run_status"] = "runner_error"
+                metrics["failure_reason"] = {
+                    "code": "aflplusplus_artifact_count_mismatch",
+                    "message": (
+                        "AFL++ stats and collected artifacts disagree: "
+                        f"saved_crashes={saved_crashes}, collected_crashes={metrics['crash_count_raw']}, "
+                        f"saved_hangs={saved_hangs}, collected_hangs={metrics['timeout_count_raw']}"
+                    ),
+                    "log_tail_path": self.relative_artifact(run_dir / "stderr.log"),
+                }
         return metrics
 
     def scan_finding_events(self, target: Target, run_dir: Path) -> list[dict[str, Any]]:
@@ -273,9 +291,7 @@ class AFLPlusPlusAdapter(BaseAdapter):
         events: list[dict[str, Any]] = []
         base = run_dir / "tool-artifacts" / "afl" / "default"
         for directory, oracle in ((base / "crashes", "target_signal"), (base / "hangs", "testcase_timeout")):
-            for path in sorted(directory.glob("id:*")):
-                if path.name.startswith("README"):
-                    continue
+            for path in _afl_artifact_files(directory):
                 elapsed, executions = _parse_afl_name(path.name)
                 events.append(
                     self.candidate_from_path(
@@ -303,7 +319,7 @@ class AFLPlusPlusAdapter(BaseAdapter):
         metrics["crash_count_raw"] = len(common_events)
         metrics["timeout_count_raw"] = len(all_events) - len(common_events)
         queue_dir = run_dir / "tool-artifacts" / "afl" / "default" / "queue"
-        metrics["corpus_count"] = sum(1 for path in queue_dir.glob("id:*") if path.is_file())
+        metrics["corpus_count"] = len(_afl_artifact_files(queue_dir))
         metrics["artifact_paths"] = {
             "afl_output": self.relative_artifact(run_dir / "tool-artifacts" / "afl"),
             "inputs": self.relative_artifact(run_dir / "inputs"),
@@ -369,17 +385,41 @@ def _filtered_env(env: dict[str, str]) -> dict[str, str]:
         "SEMANTIST_PROGRAM_FILE",
         "SEMANTIST_PUBLIC_API_EXTRA",
         "SEMANTIST_SEMANTIC_INSTRUMENTATION",
+        "SEMANTIST_TARGET_SANITIZERS",
         "SEMANTIST_COMPATIBILITY_MANIFEST",
     }
     return {key: value for key, value in env.items() if key in keep}
 
 
 def _parse_afl_name(name: str) -> tuple[float | None, int | None]:
-    time_match = re.search(r"(?:^|,)time:(\d+)", name)
-    execs_match = re.search(r"(?:^|,)execs:(\d+)", name)
+    # Docker Desktop encodes ':' in Linux filenames as U+F03A on Windows
+    # bind mounts. Normalize only for parsing; retain the original path.
+    normalized = name.replace("\uf03a", ":")
+    time_match = re.search(r"(?:^|,)time:(\d+)", normalized)
+    execs_match = re.search(r"(?:^|,)execs:(\d+)", normalized)
     elapsed = int(time_match.group(1)) / 1000 if time_match else None
     executions = int(execs_match.group(1)) if execs_match else None
     return elapsed, executions
+
+
+def _afl_artifact_files(directory: Path) -> list[Path]:
+    """Enumerate AFL artifacts without assuming ':' is host-portable."""
+    if not directory.is_dir():
+        return []
+    return [
+        path
+        for path in sorted(directory.iterdir())
+        if path.is_file()
+        and path.name != "README.txt"
+        and path.name.startswith(("id:", "id\uf03a"))
+    ]
+
+
+def _safe_int(value: object) -> int | None:
+    try:
+        return int(str(value))
+    except (TypeError, ValueError):
+        return None
 
 
 def _status_from_process(result: dict[str, Any], finding_found: bool) -> str:

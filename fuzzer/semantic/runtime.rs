@@ -180,6 +180,10 @@ fn one() -> f64 {
 pub struct SeedProfile {
     pub content_hash: String,
     #[serde(default)]
+    pub ordered_target_ids: Vec<String>,
+    #[serde(default)]
+    pub ordered_trace_complete: bool,
+    #[serde(default)]
     pub covered_target_ids: Vec<String>,
     #[serde(default)]
     pub covered_targets_by_cycle: BTreeMap<String, Vec<String>>,
@@ -217,8 +221,18 @@ pub struct TaskRuntimeState {
     pub failed_attempts: u64,
     #[serde(default)]
     pub attempts: u64,
+    /// Successful assigned windows, keyed by path, occurrence index and target.
+    #[serde(default)]
+    pub guide_successes: BTreeMap<String, u64>,
+    /// At most one bounded prefix counter per candidate path.
+    #[serde(default)]
+    pub best_prefix_by_path: BTreeMap<String, usize>,
     #[serde(default)]
     pub deferred_at_coverage_epoch: Option<u64>,
+    #[serde(default)]
+    pub retry_after_selection: u64,
+    #[serde(default)]
+    pub deferred_at_corpus_epoch: u64,
     #[serde(default)]
     pub last_guide_target_id: Option<String>,
     #[serde(default)]
@@ -247,6 +261,10 @@ pub struct TaskRuntimeState {
 pub struct AttemptHistory {
     pub task_id: String,
     pub guide_target_id: Option<String>,
+    #[serde(default)]
+    pub path_key: Option<String>,
+    #[serde(default)]
+    pub guide_index: Option<usize>,
     pub seed_id: Option<String>,
     pub covered: bool,
     pub coverage_epoch: u64,
@@ -276,9 +294,17 @@ pub struct SemanticRuntimeMetadata {
     pub active_task_id: Option<String>,
     pub guide_target_id: Option<String>,
     pub active_path: Vec<String>,
+    #[serde(default)]
+    pub active_path_key: Option<String>,
+    #[serde(default)]
+    pub active_guide_index: Option<usize>,
+    #[serde(default)]
+    pub active_selection_succeeded: bool,
     pub best_seed_id: Option<String>,
     pub covered_target_ids: BTreeSet<String>,
     pub coverage_epoch: u64,
+    #[serde(default)]
+    pub selection_epoch: u64,
     pub attempt_history: Vec<AttemptHistory>,
     pub ranking: Vec<String>,
     #[serde(default)]
@@ -306,6 +332,8 @@ pub struct ActiveSelection {
     pub task_id: String,
     pub terminal_target_id: String,
     pub guide_target_id: String,
+    #[serde(default)]
+    pub guide_index: usize,
     pub active_path: Vec<String>,
     pub remaining_obligations: Vec<String>,
     pub best_seed_id: Option<String>,
@@ -369,9 +397,11 @@ impl SemanticRuntimeMetadata {
 
     pub fn cache_seed_profile(&mut self, profile: SeedProfile) -> bool {
         let hash = profile.content_hash.clone();
-        let previous = self.seed_profiles.get(&hash).cloned();
-        if previous.as_ref().is_some_and(|stored| {
+        let previous = self.seed_profiles.get(&hash);
+        if previous.is_some_and(|stored| {
             stored.covered_target_ids == profile.covered_target_ids
+                && stored.ordered_target_ids == profile.ordered_target_ids
+                && stored.ordered_trace_complete == profile.ordered_trace_complete
                 && stored.covered_targets_by_cycle == profile.covered_targets_by_cycle
                 && stored.cycle_ids == profile.cycle_ids
                 && stored.state_signatures == profile.state_signatures
@@ -389,16 +419,23 @@ impl SemanticRuntimeMetadata {
             .ranking_statistics
             .seed_profile_build_count
             .saturating_add(1);
-        self.seed_profiles.insert(hash.clone(), profile.clone());
+        let previous = self.seed_profiles.insert(hash.clone(), profile.clone());
+        // Every task checks the same seed coverage. Build these sets once per
+        // profile update, including old evidence when a profile is replaced.
+        let covered = profile.covered_target_ids.iter()
+            .map(String::as_str).collect::<HashSet<_>>();
+        let previous_covered = previous.as_ref().map(|old| {
+            old.covered_target_ids.iter().map(String::as_str).collect::<HashSet<_>>()
+        });
 
         let mut top_changed = false;
-        let tasks = self.plan.tasks.clone();
-        for task in &tasks {
+        for task in &self.plan.tasks {
             let affected = first_seed
-                || task_affected_by_seed(task, &profile)
+                || task_affected_by_seed(task, &profile, &covered)
                 || previous
                     .as_ref()
-                    .is_some_and(|old| task_affected_by_seed(task, old));
+                    .zip(previous_covered.as_ref())
+                    .is_some_and(|(old, old_covered)| task_affected_by_seed(task, old, old_covered));
             if !affected {
                 continue;
             }
@@ -459,9 +496,15 @@ impl SemanticRuntimeMetadata {
         }
     }
 
+    #[cfg(test)]
     pub fn record_coverage(&mut self, target_ids: impl IntoIterator<Item = String>) -> bool {
-        let active_task_id = self.active_task_id.clone();
-        let active_guide = self.guide_target_id.clone();
+        let targets = target_ids.into_iter().collect::<Vec<_>>();
+        self.record_execution(targets.clone(), targets, true)
+    }
+
+    pub fn record_execution(&mut self, target_ids: impl IntoIterator<Item = String>,
+        ordered_target_ids: Vec<String>, _ordered_trace_complete: bool) -> bool
+    {
         let mut advanced = false;
         for target_id in target_ids {
             advanced |= self.covered_target_ids.insert(target_id);
@@ -469,33 +512,77 @@ impl SemanticRuntimeMetadata {
         if advanced {
             self.coverage_epoch = self.coverage_epoch.saturating_add(1);
         }
-        self.refresh_states();
-        let mut guide_covered = false;
-        if let Some(active_task_id) = active_task_id {
-            guide_covered = active_guide
-                .as_ref()
-                .is_some_and(|guide| self.covered_target_ids.contains(guide));
-            if guide_covered {
-                self.attempt_history.push(AttemptHistory {
-                    task_id: active_task_id.clone(),
-                    guide_target_id: active_guide,
-                    seed_id: None,
-                    covered: true,
-                    coverage_epoch: self.coverage_epoch,
-                });
-                if let Some(runtime) = self.task_states.get_mut(&active_task_id) {
-                    runtime.attempts = runtime.attempts.saturating_add(1);
-                    runtime.failed_attempts = 0;
+        if advanced {
+            self.refresh_states();
+        }
+        let mut prefix_improved = false;
+        if let Some(task_id) = self.active_task_id.as_ref() {
+            // Only this execution's observed order can prove a prefix. Missing
+            // tail events cannot invalidate the positive prefix already seen.
+            let prefix = ordered_prefix_len(&self.active_path, &ordered_target_ids);
+            if let (Some(runtime), Some(path_key)) = (
+                self.task_states.get_mut(task_id), self.active_path_key.as_ref(),
+            ) {
+                match runtime.best_prefix_by_path.get_mut(path_key) {
+                    Some(best) if prefix > *best => {
+                        *best = prefix;
+                        prefix_improved = true;
+                    }
+                    None if prefix > 0 => {
+                        runtime.best_prefix_by_path.insert(path_key.clone(), prefix);
+                        prefix_improved = true;
+                    }
+                    _ => {}
                 }
             }
-            self.advance_active_guide(&active_task_id);
+            // Tail truncation cannot erase a positively observed prefix. We
+            // never infer an unobserved occurrence from the flat bitmap.
+            let guide_covered = !self.active_selection_succeeded
+                && self.active_guide_index.is_some_and(|index| prefix > index);
+            if guide_covered {
+                self.record_attempt(true, self.best_seed_id.clone());
+            }
         }
         if advanced {
             self.mark_ranking_dirty("semantic_coverage");
-        } else if guide_covered {
-            self.mark_ranking_dirty("guide_target_covered");
         }
-        advanced
+        // The collector uses this to retain a first coherent prefix even when
+        // every static target was previously seen in unrelated executions.
+        advanced || prefix_improved
+    }
+
+    pub fn suspend_selection(&mut self) {
+        if let Some(task_id) = self.active_task_id.take() {
+            if let Some(runtime) = self.task_states.get_mut(&task_id) {
+                if runtime.status == TaskStatus::Active {
+                    runtime.status = TaskStatus::Ready;
+                }
+            }
+        }
+        self.guide_target_id = None;
+        self.best_seed_id = None;
+        self.active_path.clear();
+        self.active_path_key = None;
+        self.active_guide_index = None;
+        self.active_selection_succeeded = false;
+        self.active_selection = None;
+    }
+
+    pub fn tick_selection(&mut self) {
+        self.selection_epoch = self.selection_epoch.saturating_add(1);
+        // Revisit deferred work periodically, even without new static edges.
+        // Refresh at most once per 32 queue decisions, not on every execution.
+        if self.selection_epoch % 32 == 0 {
+            self.refresh_states();
+        }
+    }
+
+    fn push_attempt(&mut self, attempt: AttemptHistory) {
+        // Diagnostic history is bounded; cumulative counters remain in tasks.
+        if self.attempt_history.len() >= 1024 {
+            self.attempt_history.drain(..512);
+        }
+        self.attempt_history.push(attempt);
     }
 
     pub fn refresh_states(&mut self) {
@@ -520,9 +607,12 @@ impl SemanticRuntimeMetadata {
                     > runtime
                         .deferred_at_coverage_epoch
                         .unwrap_or(self.coverage_epoch)
+                    || self.corpus_epoch > runtime.deferred_at_corpus_epoch
+                    || self.selection_epoch >= runtime.retry_after_selection
                 {
                     runtime.status = TaskStatus::Ready;
                     runtime.deferred_at_coverage_epoch = None;
+                    runtime.failed_attempts = runtime.failed_attempts.min(DEFER_AFTER_FAILURES - 1);
                     reactivated = true;
                 }
                 continue;
@@ -599,11 +689,8 @@ impl SemanticRuntimeMetadata {
             let gain = task_gain(task, &self.covered_target_ids);
             let base_priority = gain / (1.0 + minimum_effort);
             let priority = base_priority * (-FAILURE_DECAY_RHO * failed_attempts as f64).exp();
-            let covered = seed
-                .map(|seed| seed.covered_target_ids.iter().cloned().collect())
-                .unwrap_or_default();
-            let active_path = choose_active_path(task, &covered);
-            let Some(guide_target_id) = first_uncovered(&active_path, &covered) else {
+            let (active_path, prefix) = seed_path(task, seed);
+            let Some(guide_target_id) = active_path.get(prefix).cloned() else {
                 continue;
             };
             if let Some(runtime) = self.task_states.get_mut(&task.task_id) {
@@ -614,7 +701,7 @@ impl SemanticRuntimeMetadata {
                 runtime.best_seed_id = seed.map(|seed| seed.content_hash.clone());
                 runtime.active_path = active_path.clone();
                 runtime.guide_target_id = Some(guide_target_id.clone());
-                runtime.remaining_obligations = remaining_path(&active_path, &covered);
+                runtime.remaining_obligations = active_path[prefix..].to_vec();
                 runtime.prerequisites = task.hazard_prerequisites.clone();
                 runtime.unlocked_targets = task.unlocked_targets.clone();
             }
@@ -662,8 +749,8 @@ impl SemanticRuntimeMetadata {
             .then_with(|| left.cmp(right))
         });
         self.ranking.extend(inactive);
-        let (_, task_id, _, _, _) = ranked.into_iter().next()?;
         self.ranking_dirty = false;
+        let (_, task_id, _, _, _) = ranked.into_iter().next()?;
         self.activate_task(&task_id, 0)
     }
 
@@ -712,8 +799,6 @@ impl SemanticRuntimeMetadata {
             return None;
         }
         let priority = runtime.priority;
-        let active_path = runtime.active_path.clone();
-        let guide_target_id = runtime.guide_target_id.clone()?;
         let task = self
             .plan
             .tasks
@@ -723,6 +808,9 @@ impl SemanticRuntimeMetadata {
         let best_seed_id = self
             .select_seed_for_task(&task, seed_rank, broaden_seed)
             .or_else(|| runtime.best_seed_id.clone());
+        let (active_path, prefix) = seed_path(&task,
+            best_seed_id.as_ref().and_then(|id| self.seed_profiles.get(id)));
+        let guide_target_id = active_path.get(prefix)?.clone();
         if let Some(previous) = self.active_task_id.take() {
             if previous != task_id {
                 if let Some(runtime) = self.task_states.get_mut(&previous) {
@@ -736,17 +824,42 @@ impl SemanticRuntimeMetadata {
             runtime.status = TaskStatus::Active;
             runtime.last_guide_target_id = Some(guide_target_id.clone());
             runtime.best_seed_id = best_seed_id.clone();
+            runtime.active_path = active_path.clone();
+            runtime.guide_target_id = Some(guide_target_id.clone());
+            runtime.remaining_obligations = active_path[prefix..].to_vec();
         }
         self.active_task_id = Some(task_id.to_string());
         self.guide_target_id = Some(guide_target_id.clone());
         self.active_path = active_path.clone();
+        self.active_guide_index = Some(prefix);
+        self.active_path_key = Some(task.candidate_paths.iter()
+            .position(|path| path.target_ids == active_path)
+            .map(|index| format!("candidate:{index}"))
+            .unwrap_or_else(|| "ordered_waypoints".to_string()));
+        self.active_selection_succeeded = false;
         self.best_seed_id = best_seed_id.clone();
-        let remaining_obligations = remaining_path(&active_path, &self.active_covered_targets());
+        let remaining_obligations = active_path[prefix..].to_vec();
         let control_obligation = task
             .control_obligations
             .iter()
             .find(|obligation| obligation.target_id == guide_target_id)
             .cloned();
+        // Definitions come only from the selected path, in execution order.
+        // Do not let assignments after the current branch influence its goal.
+        let mut matching_paths = task.candidate_paths.iter()
+            .filter(|path| path.target_ids == active_path);
+        let selected_path = matching_paths.next();
+        // Equal waypoint sequences do not identify which branch definitions
+        // reached the guide. Keep mutation conservative for ambiguous paths.
+        let selected_edges = if matching_paths.next().is_none() {
+            selected_path.map(|path| path.edge_ids.as_slice()).unwrap_or_default()
+        } else { &[] };
+        let transfer_end = control_obligation.as_ref().map_or(selected_edges.len(), |control| {
+            selected_edges.iter().position(|edge| *edge == control.evaluation_edge_id).unwrap_or(0)
+        });
+        let state_transfer_chains = selected_edges[..transfer_end].iter()
+            .filter_map(|edge| task.state_transfer_chains.iter().find(|transfer| transfer.edge_id == *edge))
+            .cloned().collect();
         let goal_expression_id = control_obligation
             .as_ref()
             .and_then(|obligation| obligation.goal_expression_id.clone())
@@ -772,6 +885,7 @@ impl SemanticRuntimeMetadata {
             task_id: task_id.to_string(),
             terminal_target_id: task.terminal_target_id,
             guide_target_id,
+            guide_index: prefix,
             active_path,
             remaining_obligations,
             best_seed_id,
@@ -795,7 +909,7 @@ impl SemanticRuntimeMetadata {
                 .iter()
                 .map(|requirement| requirement.minimum_cycles as u64)
                 .max(),
-            state_transfer_chains: task.state_transfer_chains,
+            state_transfer_chains,
             temporal_requirements: task.temporal_requirements,
         };
         self.active_selection = Some(selection.clone());
@@ -809,27 +923,10 @@ impl SemanticRuntimeMetadata {
         broaden_seed: bool,
     ) -> Option<String> {
         if broaden_seed {
-            let normalization = self
-                .plan
-                .normalization_by_pou
-                .get(&task.pou)
-                .cloned()
-                .unwrap_or_default();
-            let mut candidates = self
-                .seed_profiles
-                .values()
-                .map(|seed| RankedSeed {
-                    content_hash: seed.content_hash.clone(),
-                    effort: effort(seed, task, &normalization),
-                })
-                .collect::<Vec<_>>();
-            candidates.sort_by(|left, right| {
-                left.effort
-                    .total_cmp(&right.effort)
-                    .then_with(|| left.content_hash.cmp(&right.content_hash))
-            });
-            if let Some(seed) = candidates.get(seed_rank.min(candidates.len().saturating_sub(1))) {
-                return Some(seed.content_hash.clone());
+            // seed_rank is uniform in exploration mode; sorting all seeds by
+            // effort cannot change that distribution and only adds work.
+            if let Some(id) = self.seed_profiles.keys().nth(seed_rank) {
+                return Some(id.clone());
             }
         }
         self.top_seeds_by_task
@@ -842,32 +939,76 @@ impl SemanticRuntimeMetadata {
         let Some(task_id) = self.active_task_id.clone() else {
             return;
         };
-        let guide_target_id = self.guide_target_id.clone();
-        self.attempt_history.push(AttemptHistory {
-            task_id: task_id.clone(),
-            guide_target_id,
+        let Some(guide_target_id) = self.guide_target_id.clone() else { return; };
+        if covered && self.active_selection_succeeded { return; }
+        if covered { self.active_selection_succeeded = true; }
+        let identity = guide_identity(
+            self.active_path_key.as_deref().unwrap_or("unassigned"),
+            self.active_guide_index.unwrap_or(0), &guide_target_id,
+        );
+        self.record_assigned_attempt(&task_id, &identity, covered, seed_id);
+    }
+
+    pub fn active_guide_budget_key(&self) -> Option<String> {
+        Some(format!("{}\0{}", self.active_task_id.as_ref()?, guide_identity(
+            self.active_path_key.as_deref()?, self.active_guide_index?,
+            self.guide_target_id.as_deref()?,
+        )))
+    }
+
+    pub fn guide_success_count(&self, task_id: &str, identity: &str) -> u64 {
+        self.task_states.get(task_id)
+            .and_then(|task| task.guide_successes.get(identity)).copied().unwrap_or(0)
+    }
+
+    pub fn record_budget_failure(&mut self, task_id: &str, identity: &str) {
+        if self.task_states.get(task_id).is_some_and(|runtime| {
+            matches!(runtime.status, TaskStatus::Ready | TaskStatus::Active)
+        }) {
+            self.record_assigned_attempt(task_id, identity, false, None);
+        }
+    }
+
+    fn record_assigned_attempt(&mut self, task_id: &str, identity: &str,
+        covered: bool, seed_id: Option<String>) {
+        let mut identity_fields = identity.splitn(3, '\0');
+        let (Some(path_key), Some(index), Some(guide)) = (
+            identity_fields.next(), identity_fields.next(), identity_fields.next(),
+        ) else { return; };
+        let Ok(guide_index) = index.parse::<usize>() else { return; };
+        self.push_attempt(AttemptHistory {
+            task_id: task_id.to_string(),
+            guide_target_id: Some(guide.to_string()),
+            path_key: Some(path_key.to_string()),
+            guide_index: Some(guide_index),
             seed_id,
             covered,
             coverage_epoch: self.coverage_epoch,
         });
-        let Some(runtime) = self.task_states.get_mut(&task_id) else {
+        let Some(runtime) = self.task_states.get_mut(task_id) else {
             return;
         };
         let mut deferred = false;
         runtime.attempts = runtime.attempts.saturating_add(1);
         if covered {
+            let had_failures = runtime.failed_attempts != 0;
             runtime.failed_attempts = 0;
-            self.advance_active_guide(&task_id);
+            let successes = runtime.guide_successes.entry(identity.to_string()).or_default();
+            *successes = successes.saturating_add(1);
+            // Do not advance this stage's assigned guide. The scheduler will
+            // recompute it from the actual selected seed on its next decision.
+            if had_failures { self.mark_ranking_dirty("guide_success"); }
         } else {
             runtime.failed_attempts = runtime.failed_attempts.saturating_add(1);
             if runtime.failed_attempts >= DEFER_AFTER_FAILURES {
                 runtime.status = TaskStatus::Deferred;
                 runtime.deferred_at_coverage_epoch = Some(self.coverage_epoch);
-                self.active_task_id = None;
-                self.guide_target_id = None;
-                self.active_path.clear();
-                self.active_selection = None;
+                runtime.deferred_at_corpus_epoch = self.corpus_epoch;
+                runtime.retry_after_selection = self.selection_epoch.saturating_add(128);
                 deferred = true;
+            }
+            if deferred && self.active_task_id.as_deref() == Some(task_id) {
+                self.suspend_selection();
             }
             self.mark_ranking_dirty("budget_failed");
             if deferred {
@@ -876,43 +1017,10 @@ impl SemanticRuntimeMetadata {
         }
     }
 
-    fn advance_active_guide(&mut self, task_id: &str) {
-        let Some(task) = self.plan.tasks.iter().find(|task| task.task_id == task_id) else {
-            return;
-        };
-        if self.covered_target_ids.contains(&task.terminal_target_id) {
-            if let Some(runtime) = self.task_states.get_mut(task_id) {
-                runtime.status = TaskStatus::Covered;
-            }
-            self.active_task_id = None;
-            self.guide_target_id = None;
-            self.active_path.clear();
-            self.active_selection = None;
-            return;
-        }
-        let path = if self.active_path.is_empty() {
-            choose_active_path(task, &self.active_covered_targets())
-        } else {
-            self.active_path.clone()
-        };
-        let covered = self.active_covered_targets();
-        self.guide_target_id = first_uncovered(&path, &covered);
-        if let Some(runtime) = self.task_states.get_mut(task_id) {
-            runtime.last_guide_target_id = self.guide_target_id.clone();
-        }
-    }
+}
 
-    fn active_covered_targets(&self) -> BTreeSet<String> {
-        let mut covered = self.covered_target_ids.clone();
-        if let Some(seed) = self
-            .best_seed_id
-            .as_ref()
-            .and_then(|seed_id| self.seed_profiles.get(seed_id))
-        {
-            covered.extend(seed.covered_target_ids.iter().cloned());
-        }
-        covered
-    }
+fn guide_identity(path_key: &str, guide_index: usize, target_id: &str) -> String {
+    format!("{path_key}\0{guide_index}\0{target_id}")
 }
 
 pub fn load_plan(path: &std::path::Path) -> Result<SemanticTaskPlan, String> {
@@ -932,6 +1040,7 @@ pub fn load_plan(path: &std::path::Path) -> Result<SemanticTaskPlan, String> {
     Ok(plan)
 }
 
+#[cfg(test)]
 fn first_uncovered(path: &[String], covered: &BTreeSet<String>) -> Option<String> {
     path.iter()
         .find(|target_id| !covered.contains(*target_id))
@@ -981,15 +1090,35 @@ fn choose_active_path(task: &SemanticTask, covered: &BTreeSet<String>) -> Vec<St
         .unwrap_or_else(|| task.ordered_waypoints.clone())
 }
 
+fn ordered_prefix_len(path: &[String], observed: &[String]) -> usize {
+    let mut matched = 0;
+    for target in observed {
+        if path.get(matched) == Some(target) {
+            matched += 1;
+            if matched == path.len() { break; }
+        }
+    }
+    matched
+}
+
+fn seed_path(task: &SemanticTask, seed: Option<&SeedProfile>) -> (Vec<String>, usize) {
+    let Some(seed) = seed else { return (choose_active_path(task, &BTreeSet::new()), 0); };
+    // Legacy flat sets never prove a coherent prefix. An incomplete trace may
+    // prove only the ordered positive prefix that was actually retained.
+    let path = task.candidate_paths.iter().map(|candidate| candidate.target_ids.as_slice())
+        .filter(|path| !path.is_empty())
+        .min_by_key(|path| (path.len() - ordered_prefix_len(path, &seed.ordered_target_ids), path.len(), *path))
+        .unwrap_or(&task.ordered_waypoints).to_vec();
+    let prefix = ordered_prefix_len(&path, &seed.ordered_target_ids);
+    (path, prefix)
+}
+
 fn effort(seed: &SeedProfile, task: &SemanticTask, norm: &EffortNormalization) -> f64 {
-    let covered = seed
-        .covered_target_ids
-        .iter()
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    let active_path = choose_active_path(task, &covered);
-    let remaining = remaining_path(&active_path, &covered)
-        .into_iter()
+    let (active_path, prefix) = seed_path(task, Some(seed));
+    // Sets remain useful for static cost estimates, never for deciding which
+    // occurrence of a repeated waypoint is the next executable obligation.
+    let covered = active_path[..prefix].iter().collect::<BTreeSet<_>>();
+    let remaining = active_path[prefix..].iter().cloned()
         .collect::<HashSet<_>>();
     let ec = task
         .control_obligations
@@ -1015,7 +1144,8 @@ fn effort(seed: &SeedProfile, task: &SemanticTask, norm: &EffortNormalization) -
         .temporal_requirements
         .iter()
         .map(|requirement| requirement.minimum_cycles.saturating_sub(1))
-        .sum::<usize>();
+        .max()
+        .unwrap_or(0);
     let et = required_temporal.saturating_sub(completed_temporal) as f64 / norm.et.max(1.0);
     let eh = (task
         .hazard_prerequisites
@@ -1060,12 +1190,11 @@ fn seed_has_semantic_information(seed: &SeedProfile) -> bool {
         || seed.cycle_ids.len() > 1
 }
 
-fn task_affected_by_seed(task: &SemanticTask, seed: &SeedProfile) -> bool {
-    let covered = seed
-        .covered_target_ids
-        .iter()
-        .map(String::as_str)
-        .collect::<HashSet<_>>();
+fn task_affected_by_seed(
+    task: &SemanticTask,
+    seed: &SeedProfile,
+    covered: &HashSet<&str>,
+) -> bool {
     task.ordered_waypoints
         .iter()
         .chain(

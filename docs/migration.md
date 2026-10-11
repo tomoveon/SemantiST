@@ -1,8 +1,18 @@
-# Layout Migration
+# Layout and Interface Migration
 
-The repository now uses package and workspace entry points. Install the Python
-package with `pip install -e '.[dev]'`; commands no longer require an implicit
-`PYTHONPATH` or a particular working directory.
+Updated against the current source on **2026-10-09**. The path table describes
+the earlier layout migration; the experiment section below covers the current
+interface. For normal use, start with the
+[server runbook](server_experiment_runbook_zh.md) or
+[architecture](architecture.md), rather than reproducing the old migration.
+
+## Package and source paths
+
+Install the Python package with `python -m pip install -e '.[dev]'` to obtain
+the `semantist` console commands. Imports no longer require an implicit
+`PYTHONPATH`. Relative CLI input paths still depend on the working directory,
+and repository examples should be run from the repository root. Installing the
+Python package alone does not install the compiler, LLVM or fuzzing toolchain.
 
 | Legacy path | Current path |
 | --- | --- |
@@ -27,15 +37,42 @@ package with `pip install -e '.[dev]'`; commands no longer require an implicit
 | root `build/`, `target/`, run dirs | `artifacts/build`, `artifacts/cargo-target`, `artifacts/runs` |
 
 The source/LLM targeting prototype has been removed. The following interfaces
-have no replacement because compiler-semantic STG now owns target identity and
+have no replacement because compiler-semantic STG owns target identity and
 scheduling:
 
-- `--targeting-mode`, `--legacy-targeting`, and `--rank-only`
-- `--branch-rank` and all branch-rank provider/batch options
-- `--semantic-instrumentation source`
-- `branch-targets.json`, `branch-rank.json`, and source-rewritten ST files
+- `--targeting-mode`, `--legacy-targeting`, and `--rank-only`;
+- `--branch-rank` and all branch-rank provider/batch options;
+- `--semantic-instrumentation source`;
+- `branch-targets.json`, `branch-rank.json`, and source-rewritten ST files.
 
 LLM initial-seed and function-block-sequence generation have also been removed.
-Initial corpus expansion is now deterministic and consumes compiler-semantic STG
-facts through LibAFL's Generator interface. Optional LLM report summarization
-remains presentation-only and cannot define targets or promote findings.
+Initial corpus expansion consumes compiler-semantic STG facts through LibAFL's
+Generator interface. Optional LLM report summarization remains presentation-only
+and cannot define targets or promote findings.
+
+## Current experiment interface
+
+Use the root entry for new scripts:
+
+```bash
+python run_experiment.py --experiment smoke --run-id smoke_01 --cpus 2-9
+python run_experiment.py --experiment main --run-id main_01 --cpus 2-9
+```
+
+Replace `2-9` with available CPUs on the machine. The `main` preset defaults to
+three tools, 90 targets, 300 seconds and five trials; `smoke` defaults to the
+same tools, three representative targets, 20 seconds and one trial. The common
+overrides are `--tools`, `--target-id`, `--fuzz-time`, `--fuzz-trials` and
+`--cpus`. `--help` shows everyday options and `--help-all` includes advanced ones.
+
+`--experiment-id` and `--trials` remain aliases of `--run-id` and
+`--fuzz-trials`. Existing scripts under `experiments/comparison/` remain
+compatible entry points; they are not required steps before the root runner.
+Ablations keep their dedicated entry points under `experiments/ablations/`.
+
+`--resume`, `--overwrite` and `--reuse-preprocessing` are no longer supported.
+Choose a fresh run ID for every attempt. Successful runs export raw metrics;
+replay, coverage and comparative analysis remain explicit operations. Historical
+experiment outputs should be retained as historical evidence, not silently
+merged with new runs. See [reproducibility](reproducibility.md) for the required
+source, image and result provenance.

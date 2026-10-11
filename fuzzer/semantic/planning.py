@@ -18,6 +18,7 @@ from typing import Any, Iterable
 
 
 PLAN_SCHEMA = "semantist.semantic-task-plan/1.0.0"
+PATH_EXPANSION_BUDGET = 4096
 SEED_PROFILE_SCHEMA = "semantist.seed-profile/1.0.0"
 TERMINAL_KINDS = {"hazard_violation", "property_violation"}
 GUIDE_KINDS = {
@@ -176,14 +177,34 @@ def bounded_paths(
     *,
     max_paths: int = 8,
     max_nodes: int | None = None,
+    max_expansions: int = PATH_EXPANSION_BUDGET,
+    diagnostics: dict[str, Any] | None = None,
 ) -> list[dict[str, list[str]]]:
     """Enumerate paths without unfolding an SCC more than once.
 
     Nodes inside one SCC may be traversed once each, but a path cannot leave an
     SCC and later re-enter it.  This preserves a finite representation of loop
     obligations without pretending that a loop has a fixed iteration count.
+    Each examined outgoing edge consumes one expansion, including rejected
+    loop edges. This bounds queued path prefixes independently of max_paths.
+    Diagnostics distinguish an incomplete search from proven unreachability;
+    the list return type is retained for callers using older plans/helpers.
     """
 
+    if max_paths < 1 or max_expansions < 1 or (max_nodes is not None and max_nodes < 1):
+        raise ValueError("path search limits must be positive")
+    search = {
+        "max_expansions": max_expansions,
+        "max_paths": max_paths,
+        "expansion_count": 0,
+        "queue_peak": 0,
+        "truncated": False,
+        "truncation_reasons": [],
+    }
+    if diagnostics is not None:
+        diagnostics.clear()
+        diagnostics.update(search)
+        search = diagnostics
     nodes = [node["id"] for node in graph.get("nodes", []) if isinstance(node.get("id"), str)]
     edges = [
         edge
@@ -204,18 +225,27 @@ def bounded_paths(
     for outgoing in adjacency.values():
         outgoing.sort(key=lambda edge: (edge.get("to", ""), edge.get("id", "")))
 
-    limit = max_nodes or max(2, len(nodes) + len(components))
+    limit = max_nodes if max_nodes is not None else max(2, len(nodes) + len(components))
+    search["max_nodes"] = limit
     queue = deque([(start, [start], [], {component_of[start]}, {start})])
+    search["queue_peak"] = 1
     results: list[dict[str, list[str]]] = []
+    reasons: set[str] = set()
     while queue and len(results) < max_paths:
         node, path_nodes, path_edges, entered_components, visited_nodes = queue.popleft()
         if node == destination:
             results.append({"node_ids": path_nodes, "edge_ids": path_edges})
             continue
         if len(path_nodes) >= limit:
+            if any(edge["to"] not in visited_nodes for edge in adjacency.get(node, [])):
+                reasons.add("node_limit")
             continue
         current_component = component_of[node]
         for edge in adjacency.get(node, []):
+            if search["expansion_count"] >= max_expansions:
+                reasons.add("expansion_budget")
+                break
+            search["expansion_count"] += 1
             successor = edge["to"]
             successor_component = component_of[successor]
             if successor in visited_nodes:
@@ -234,6 +264,13 @@ def bounded_paths(
                     visited_nodes | {successor},
                 )
             )
+            search["queue_peak"] = max(search["queue_peak"], len(queue))
+        if "expansion_budget" in reasons:
+            break
+    if queue and len(results) >= max_paths:
+        reasons.add("path_limit")
+    search["truncated"] = bool(reasons)
+    search["truncation_reasons"] = sorted(reasons)
     return results
 
 
@@ -335,6 +372,10 @@ def effort_components(
     covered_dependencies = set(profile.get("satisfied_dependencies", []))
     covered_transfers = set(profile.get("satisfied_transfers", []))
     completed_temporal = int(profile.get("completed_temporal_steps", 0))
+    required_temporal = max(
+        (max(0, int(item.get("minimum_cycles", 0)) - 1) for item in temporal),
+        default=0,
+    )
     affinity = max(
         0.0,
         min(
@@ -352,7 +393,7 @@ def effort_components(
         "ec": float(len(control & remaining)),
         "ed": dependency_work,
         "es": transfer_work,
-        "et": float(max(0, len(temporal) - completed_temporal)),
+        "et": float(max(0, required_temporal - completed_temporal)),
         "eh": float(
             sum(target_id not in covered for target_id in prerequisites)
             + int(task.get("terminal_target_id") not in covered)
@@ -526,9 +567,14 @@ class SemanticTaskPlanner:
         model: dict[str, Any],
         runtime_ids: dict[str, Any],
         mapped_target_ids: Iterable[str] | None = None,
+        *,
+        path_expansion_budget: int = PATH_EXPANSION_BUDGET,
     ):
         self.model = model
         self.runtime_ids = runtime_ids
+        if path_expansion_budget < 1:
+            raise ValueError("path_expansion_budget must be positive")
+        self.path_expansion_budget = path_expansion_budget
         if not str(model.get("schema_version", "")).startswith("semantist.stg/"):
             raise ValueError("unsupported or missing STG schema")
         if runtime_ids.get("schema_version") != "semantist.runtime-ids/1.0.0":
@@ -626,7 +672,11 @@ class SemanticTaskPlanner:
         tasks = []
         claimed_waypoints: set[str] = set()
         for terminal in terminal_targets:
-            paths = bounded_paths(graph, start, terminal["node_id"])
+            path_search: dict[str, Any] = {}
+            paths = bounded_paths(
+                graph, start, terminal["node_id"],
+                max_expansions=self.path_expansion_budget, diagnostics=path_search,
+            )
             candidate_paths = []
             for index, path in enumerate(paths):
                 target_ids = self._path_targets(
@@ -660,6 +710,7 @@ class SemanticTaskPlanner:
                     candidate_paths,
                     task_kind="violation",
                     target_by_id=target_by_id,
+                    path_search=path_search,
                 )
             )
 
@@ -677,7 +728,11 @@ class SemanticTaskPlanner:
             )
             if target["id"] in claimed_waypoints and not paired_unmapped_violation:
                 continue
-            paths = bounded_paths(graph, start, target["node_id"], max_paths=4)
+            path_search = {}
+            paths = bounded_paths(
+                graph, start, target["node_id"], max_paths=4,
+                max_expansions=self.path_expansion_budget, diagnostics=path_search,
+            )
             candidate_paths = [
                 {
                     "path_id": _stable_digest(
@@ -704,6 +759,7 @@ class SemanticTaskPlanner:
                     candidate_paths,
                     task_kind="exploration",
                     target_by_id=target_by_id,
+                    path_search=path_search,
                 )
             )
         return tasks, components
@@ -754,6 +810,7 @@ class SemanticTaskPlanner:
         *,
         task_kind: str,
         target_by_id: dict[str, dict[str, Any]],
+        path_search: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         environment = pou.get("environment", {})
         graph = pou.get("graph", {})
@@ -782,6 +839,9 @@ class SemanticTaskPlanner:
             {
                 "path_id": candidate["path_id"],
                 "target_ids": candidate.get("target_ids", []),
+                # Keep program order; runtime selects/reorders transfer facts
+                # through this path rather than combining branch definitions.
+                "edge_ids": list(candidate.get("_edge_ids", candidate.get("edge_ids", []))),
             }
             for candidate in candidate_paths
         ]
@@ -945,6 +1005,7 @@ class SemanticTaskPlanner:
             "pou": pou["pou"]["qualified_name"],
             "terminal_target_id": terminal["id"],
             "candidate_paths": runtime_candidate_paths,
+            "path_search": path_search or {},
             "ordered_waypoints": ordered_waypoints,
             "control_obligations": control_obligations,
             "data_dependencies": data_dependencies,
@@ -981,7 +1042,15 @@ class SemanticTaskPlanner:
                 "ec": float(len(task.get("control_obligations", []))),
                 "ed": float(len(task.get("data_dependencies", []))),
                 "es": float(len(task.get("state_transfer_chains", []))),
-                "et": float(len(task.get("temporal_requirements", []))),
+                "et": float(
+                    max(
+                        (
+                            max(0, int(item.get("minimum_cycles", 0)) - 1)
+                            for item in task.get("temporal_requirements", [])
+                        ),
+                        default=0,
+                    )
+                ),
                 "eh": float(
                     len(task.get("hazard_prerequisites", []))
                     + int(task.get("task_kind") == "violation")

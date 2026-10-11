@@ -5,12 +5,11 @@ from __future__ import annotations
 import os
 import re
 import shutil
-import subprocess
 import time
 from pathlib import Path
 from typing import Any
 
-from experiments.comparison.adapters.base import BaseAdapter, PreprocessingResult, SupportResult
+from experiments.comparison.adapters.base import AdapterError, BaseAdapter, PreprocessingResult, SupportResult
 from experiments.comparison.lib.hashing import sha256_text
 from experiments.comparison.lib.manifest import Target
 from experiments.comparison.lib.process import (
@@ -53,7 +52,10 @@ class ICSFuzzAdapter(BaseAdapter):
     def prepare(self, target: Target) -> PreprocessingResult:
         preprocess_dir = self.preprocessing_dir(target)
         if preprocess_dir.exists():
-            shutil.rmtree(preprocess_dir)
+            raise AdapterError(
+                "preprocessing_directory_exists",
+                f"preprocessing directory already exists: {preprocess_dir}; use a new experiment ID",
+            )
         for child in ("logs", "target"):
             (preprocess_dir / child).mkdir(parents=True, exist_ok=True)
         start = time.monotonic_ns()
@@ -233,12 +235,6 @@ class ICSFuzzAdapter(BaseAdapter):
                 "run_status": _status_from_process(result, metrics["finding_found"]),
             }
         )
-        if result["started"]:
-            subprocess.run(
-                [runtime, "rm", "--force", container_name],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
         if not result["started"]:
             metrics["failure_reason"] = {
                 "code": "icsfuzz_online_start_failed",

@@ -575,7 +575,7 @@ fn seed_generation_cycle_count(
         .iter()
         .filter_map(|record| record.cycle)
         .max()
-        .map(|cycle| cycle + 1)
+        .map(|cycle| cycle.saturating_add(1))
         .unwrap_or(2);
     let semantic = plan
         .tasks
@@ -585,7 +585,7 @@ fn seed_generation_cycle_count(
         .map(|requirement| requirement.minimum_cycles)
         .max()
         .unwrap_or(2);
-    existing.max(semantic).max(2).min(8)
+    existing.max(semantic).max(2).min(fb_max_cycles())
 }
 
 fn field_profile_value(field: &SeedGenerationField, profile: SeedGenerationProfile) -> String {
@@ -620,9 +620,19 @@ fn serialize_semantic_seed(
     cycle_pattern: Option<(&str, &[String])>,
 ) -> Vec<u8> {
     let mut output = String::new();
-    for field in fields {
-        if stateful && field.cycle_scoped {
-            for cycle in 0..cycle_count {
+    // Shared configuration precedes a sequence of complete scan inputs. The
+    // harness executes when the cycle id changes, so field-major output would
+    // accidentally execute 0,1,0,1 for a two-field, two-cycle seed.
+    for field in fields.iter().filter(|field| !stateful || !field.cycle_scoped) {
+        let value = field_override
+            .filter(|(name, _)| field.name.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.to_string())
+            .unwrap_or_else(|| field_profile_value(field, profile));
+        output.push_str(&format!("{},{},{}\n", field.name, field.ty, value));
+    }
+    if stateful {
+        for cycle in 0..cycle_count {
+            for field in fields.iter().filter(|field| field.cycle_scoped) {
                 let value = cycle_pattern
                     .filter(|(name, _)| field.name.eq_ignore_ascii_case(name))
                     .and_then(|(_, values)| values.get(cycle))
@@ -635,12 +645,6 @@ fn serialize_semantic_seed(
                     .unwrap_or_else(|| field_profile_value(field, profile));
                 output.push_str(&format!("{cycle}.{},{},{}\n", field.name, field.ty, value));
             }
-        } else {
-            let value = field_override
-                .filter(|(name, _)| field.name.eq_ignore_ascii_case(name))
-                .map(|(_, value)| value.to_string())
-                .unwrap_or_else(|| field_profile_value(field, profile));
-            output.push_str(&format!("{},{},{}\n", field.name, field.ty, value));
         }
     }
     output.into_bytes()
@@ -738,6 +742,79 @@ fn build_semantic_seed_candidates(
 #[cfg(test)]
 mod semantic_generation_tests {
     use super::*;
+
+    fn scan_field(name: &str, value: &str, cycle_scoped: bool) -> SeedGenerationField {
+        seed_generation_field(&SeedGenerationRecord {
+            cycle: None, name: name.into(), ty: "INT".into(), value: value.into(),
+        }, None, None, cycle_scoped, Vec::new(), false)
+    }
+
+    #[test]
+    fn shared_configuration_precedes_complete_scan_inputs() {
+        let fields = [scan_field("X", "2", true), scan_field("LIMIT", "9", false), scan_field("Y", "3", true)];
+        let pattern = ["3".into(), "5".into()];
+        let seed = serialize_semantic_seed(&fields, true, 2, SeedGenerationProfile::Initial, None, Some(("Y", &pattern)));
+        assert_eq!(String::from_utf8(seed).unwrap(), "LIMIT,INT,9\n0.X,INT,2\n0.Y,INT,3\n1.X,INT,2\n1.Y,INT,5\n");
+    }
+
+    #[test]
+    fn initial_cycle_count_uses_the_same_bound_as_mutation() {
+        let records = parse_seed_generation_records(b"0.X,INT,0\n99.X,INT,0\n");
+        let count = seed_generation_cycle_count(true, &records, &semantic::SemanticTaskPlan::default(), "P");
+        assert_eq!(count, 100.min(fb_max_cycles()));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn generated_seeds_execute_complete_scans_in_the_real_harness() {
+        use std::process::Command;
+        let root = env::temp_dir().join(format!("semantist-real-scan-order-{}", current_nanos()));
+        fs::create_dir_all(&root).unwrap();
+        let repository = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        fs::write(root.join("target.st"), "FUNCTION_BLOCK SCAN\nVAR_INPUT\n X : INT;\n Y : INT;\nEND_VAR\nVAR\n ACC : DINT;\nEND_VAR\nACC := ACC + X * Y;\nEND_FUNCTION_BLOCK\n").unwrap();
+        let script = r#"
+import sys
+from pathlib import Path
+from compiler.parser.st import parse_target
+from compiler.harness.generator import generate_function_block_harness
+root = Path(sys.argv[1])
+target = parse_target(str(root / 'target.st'), 'SCAN')
+source = generate_function_block_harness(target.name, target.params, target.outputs, target.state_fields, target.snapshot_fields)
+source += '\nvoid SCAN__ctor(semantist_fb_state_t *p) { p->f2 = 0; }\n'
+source += 'void SCAN(semantist_fb_state_t *p) { printf("%d,%d,%d\\n", p->f0, p->f1, p->f2); p->f2 += p->f0 * p->f1; }\n'
+(root / 'harness.c').write_text(source)
+"#;
+        let generated = Command::new("python3").args(["-c", script]).arg(&root)
+            .current_dir(&repository).env("PYTHONDONTWRITEBYTECODE", "1").output().unwrap();
+        assert!(generated.status.success(), "{}", String::from_utf8_lossy(&generated.stderr));
+        let compiled = Command::new("cc").arg(root.join("harness.c")).arg("-o").arg(root.join("scan"))
+            .output().unwrap();
+        assert!(compiled.status.success(), "{}", String::from_utf8_lossy(&compiled.stderr));
+        let fields = [scan_field("X", "2", true), scan_field("Y", "3", true)];
+        let pattern = ["3".into(), "5".into()];
+        let seed = serialize_semantic_seed(&fields, true, 2, SeedGenerationProfile::Initial, None, Some(("Y", &pattern)));
+        fs::write(root.join("input.seed"), seed).unwrap();
+        let run = Command::new(root.join("scan")).arg(root.join("input.seed"))
+            .env("SEMANTIST_FB_MAX_CYCLES", "256").env("SEMANTIST_FB_STALE_THRESHOLD", "0").output().unwrap();
+        assert!(run.status.success());
+        assert_eq!(String::from_utf8(run.stdout).unwrap(), "2,3,0\n2,5,6\n");
+
+        // The counter is private persistent state, not a mutable input. A
+        // sequence grown from two scans must really reach scan 100 (>64).
+        if fb_max_cycles() >= 100 {
+            let mut seed = parse_cycle_aware_seed("0.X,INT,1\n0.Y,INT,1\n1.X,INT,1\n1.Y,INT,1\n");
+            let mut rand = StdRand::with_seed(41);
+            while seed.cycles.len() < 100 { assert!(expand_state_prefix(&mut rand, &mut seed)); }
+            fs::write(root.join("input.seed"), serialize_cycle_aware_seed(&seed)).unwrap();
+            let run = Command::new(root.join("scan")).arg(root.join("input.seed"))
+                .env("SEMANTIST_FB_MAX_CYCLES", "256").env("SEMANTIST_FB_STALE_THRESHOLD", "0").output().unwrap();
+            assert!(run.status.success());
+            let output = String::from_utf8(run.stdout).unwrap();
+            assert_eq!(output.lines().count(), 100);
+            assert_eq!(output.lines().last(), Some("1,1,99"));
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
 
     fn test_model(stateful: bool) -> serde_json::Value {
         serde_json::json!({

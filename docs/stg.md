@@ -1,5 +1,7 @@
 # Compiler-Semantic STG
 
+Source cross-check: 2026-10-09 (`compiler/stg`, compilation pipeline, and semantic runtime).
+
 `semantist-stg` generates a versioned static semantic model for each RuSTy POU:
 
 ```text
@@ -36,8 +38,9 @@ Repeat `--pou` to extract several POUs from one compiler run.
 The normal SemantiST pipeline always uses semantic IR instrumentation and
 generates these artifacts under `RUN_DIR/stg/` before RuSTy code generation.
 The resulting codegen sidecar is consumed by the pinned RuSTy extension.
-`SEMANTIST_SEMANTIC_INSTRUMENTATION=off` remains available only for the
-semantic-off equivalence test.
+The low-level build scripts also accept `SEMANTIST_SEMANTIC_INSTRUMENTATION=off`
+for baseline/equivalence builds. The normal `semantist` pipeline selects `ir`
+explicitly; changing that environment variable does not disable its STG path.
 
 LLVM 21 is required by the pinned RuSTy revision. The wrapper defaults
 `LLVM_SYS_211_PREFIX` to `/usr/lib/llvm-21`.
@@ -65,9 +68,9 @@ are retained only as mapping facts and never participate in an ID.
 - `stg-runtime-ids.json`: deterministic dense runtime IDs and their stable STG
   target reverse mapping.
 
-Debug sidecars (`--debug-sidecars` or the pipeline's
-`--semantic-debug-artifacts`) additionally write `stg-diagnostics.json`,
-`stg-statistics.json`, and optional `dot/*.dot` graph visualizations. The main
+Standalone `--debug-sidecars true` additionally writes `stg-diagnostics.json`
+and `stg-statistics.json`; `--dot true` independently enables `dot/*.dot` graph
+visualizations. The pipeline's `--semantic-debug-artifacts` enables both. The main
 model already embeds diagnostics and statistics, so normal semantic-guided
 fuzzing runs do not need the duplicate JSON files.
 
@@ -107,7 +110,8 @@ the operation. `Conservative` is used when effects are bounded but a complete
 callee or arithmetic proof is unavailable. `Opaque` is used for unresolved or
 external operations whose semantics cannot be stated safely.
 
-Currently exact:
+The following static facts can be exact when the compiler exposes the required
+information; the actual `modeling` field is authoritative for each object:
 
 - IEC scalar/array/string/struct/pointer type facts exposed by RuSTy.
 - Resolved symbols and variable roles.
@@ -119,7 +123,8 @@ Currently exact:
 Currently conservative or opaque:
 
 - Internal call bodies are represented with conservative signature effects;
-  interprocedural body inlining is not performed.
+  interprocedural body inlining is not performed. Signature-derived effects
+  are not a complete proof of callee global or aliased memory effects.
 - External and unsupported library calls are opaque, with argument reads and
   known output/by-reference effects where RuSTy exposes them.
 - Integer-literal implicit narrowing is exact even when RuSTy folds the
@@ -133,6 +138,9 @@ Currently conservative or opaque:
   STG predicate.
 - User safety properties have model types reserved, but no property-language
   frontend is defined yet.
+- Exponentiation and conversions without a supported exact predicate can also
+  be conservative. An exact pointer-dereference target currently checks nullness
+  at runtime, not arbitrary non-null pointer lifetime or object bounds.
 - Target ABI field offsets and future LLVM instruction locations are left
   unset rather than guessed. RuSTy's Index provides semantic field order and
   type size, but this extractor does not manufacture padding-free ABI offsets.
@@ -141,14 +149,28 @@ Expression precision propagates into enclosing expressions and control-edge
 transfer summaries. An assignment containing a conservative or opaque call is
 therefore not reported as an exact transfer.
 
+The schema's POU and expression kinds describe what STG can represent. They do
+not imply that the harness or task planner can execute and guide every such
+kind. Likewise, an exact static target is not necessarily mapped into LLVM:
+check `stg-ir-mapping.json` for the final mapping and diagnostics. Static STG
+does not contain the bounded runtime event order, scan count, or abstract
+state-transition feedback; those are maintained separately in shared memory.
+
 ## Validation
 
-The validator checks unique and non-dangling IDs, complete predicate outcome
-partitions, CASE Default, loop back/exit edges, stateful temporal relations,
-typed guard references, transfer summaries, expression DAG operands,
-assignment conversions, and target-to-source mappings. A generated model may
-contain warnings, but validation errors are counted in the statistics and
-written to both the model and diagnostics artifact.
+The validator checks per-POU node/edge/target ID uniqueness, edge endpoints,
+required predicate outcome roles and evaluation edges, CASE Default,
+loop back/exit edges, stateful temporal relations, typed guard references,
+presence of transfer summaries, expression DAG operands, assignment conversion
+records, and target-to-source mappings. It does not prove guard disjointness,
+whole-project expression ID uniqueness, version consistency, or callee effects.
+A generated model may
+contain warnings. Validation errors are counted in the model statistics and
+embedded diagnostics, with a separate diagnostics file only when requested.
+The generator currently still writes artifacts when this validator records an
+error; exit success alone is not evidence of a valid model. Inspect
+`statistics.error_count` and diagnostics, then inspect the IR mapping when using
+the model for coverage. `Exact` is a modeling label, not a vulnerability verdict.
 
 See [semantic_ir_instrumentation.md](semantic_ir_instrumentation.md) for the
 cross-layer mapping, LLVM pass, runtime bitmap, and end-to-end commands.

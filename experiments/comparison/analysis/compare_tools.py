@@ -48,6 +48,9 @@ def load_runs(directories: list[Path]) -> list[dict[str, Any]]:
                 raise ValueError(f"measurement contract absent or incompatible: {path}")
             if any(run.get(k) != row[k] for k in ("run_key", "tool", "suite", "target_id", "trial_id")):
                 raise ValueError(f"run identity differs from schedule: {path}")
+            if (run["tool"] == "semantist_full" and "configuration_id" in manifest
+                    and run.get("configuration_id") != manifest["configuration_id"]):
+                raise ValueError(f"run configuration_id differs from manifest: {path}")
             if run["run_status"] == "missing":
                 raise ValueError(f"unfinished run: {path}")
             run["result_path"] = str(path)
@@ -58,7 +61,7 @@ def load_runs(directories: list[Path]) -> list[dict[str, Any]]:
 
 def export_metrics(runs: list[dict[str, Any]], out: Path) -> list[dict[str, Any]]:
     rows = [{**{k: run.get(k) for k in (
-        "experiment_id", "run_key", "tool", "suite", "target_id", "trial_id",
+        "experiment_id", "run_key", "tool", "configuration_id", "suite", "target_id", "trial_id",
         "run_status", "support_status", "online_budget_seconds", "online_elapsed_seconds",
         "per_execution_timeout_ms", "execution_timeout_model", "cpu_slots", "fuzz_workers",
         "initial_seed_provider", "rng_seed_applied", "result_path")}, **paper_metrics(run)} for run in runs]
@@ -82,6 +85,11 @@ def compare(directories: list[Path], out: Path) -> dict[str, Any]:
     if any(out.resolve() == directory.resolve() for directory in directories):
         raise ValueError("comparison output must differ from every input directory")
     runs = load_runs(directories)
+    if any(r["tool"] == "semantist_full" and r.get("configuration_id") != "full" for r in runs):
+        raise ValueError(
+            "main tool comparison requires SemantiST configuration_id=full; "
+            "analyze each ablation directory independently"
+        )
     tools = sorted({r["tool"] for r in runs})
     if len(tools) < 2:
         raise ValueError("comparison requires at least two different tools")
@@ -102,6 +110,16 @@ def compare(directories: list[Path], out: Path) -> dict[str, Any]:
         trials = [{r["trial_id"] for r in target_runs if r["tool"] == tool} for tool in tools]
         if any(trial_set != trials[0] for trial_set in trials[1:]):
             raise ValueError(f"{target}: tools have different trial sets")
+        for trial_id in sorted(trials[0]):
+            seeds = {
+                r.get("rng_seed_requested")
+                for r in target_runs
+                if r["trial_id"] == trial_id
+            }
+            if len(seeds) != 1 or None in seeds:
+                raise ValueError(
+                    f"{target} trial {trial_id}: tools have different paired RNG seeds"
+                )
         common.add(target)
         for field in ("execution_model", "execution_timeout_model", "cpu_slots"):
             values = {r[field] for r in target_runs}

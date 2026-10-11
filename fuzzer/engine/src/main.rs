@@ -6,7 +6,7 @@ use libafl::{
     events::SimpleEventManager,
     executors::{forkserver::ForkserverExecutor, ExitKind, HasObservers, StdChildArgs},
     feedback_or,
-    feedbacks::{Feedback, MapFeedbackMetadata, MaxMapFeedback, StateInitializer, TimeFeedback},
+    feedbacks::{Feedback, MaxMapFeedback, StateInitializer, TimeFeedback},
     fuzzer::{Evaluator, Fuzzer, InputFilter, StdFuzzer},
     inputs::BytesInput,
     monitors::SimpleMonitor,
@@ -15,7 +15,7 @@ use libafl::{
     schedulers::{QueueScheduler, RemovableScheduler, Scheduler},
     stages::{Restartable, Stage, StdMutationalStage},
     state::{HasCorpus, HasExecutions, HasRand, StdState},
-    Error, HasMetadata, HasNamedMetadata, SerdeAny,
+    Error, HasMetadata, SerdeAny,
 };
 use libafl_bolts::{
     current_nanos,
@@ -32,7 +32,7 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     env, fs,
     fs::OpenOptions,
-    io::Write,
+    io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -51,9 +51,13 @@ include!("mutations.rs");
 include!("config.rs");
 include!("cli.rs");
 include!("../../stages/semantic_budget.rs");
+#[cfg(test)]
+mod algorithm_regressions;
 fn main() -> Result<(), Error> {
+    let fuzz_started = std::time::Instant::now();
     // 1. 解析配置并确认目标程序存在。
     let config = Config::from_args()?;
+    env::set_var("SEMANTIST_FB_MAX_CYCLES", fb_max_cycles().to_string());
     if let Some(path) = config.semantic_runtime_ids.as_deref() {
         env::set_var("SEMANTIST_SEMANTIC_RUNTIME_IDS", path);
     }
@@ -90,9 +94,11 @@ fn main() -> Result<(), Error> {
     let mut shmem_provider = UnixShMemProvider::new()?;
     let mut shmem = shmem_provider.new_shmem(MAP_SIZE)?;
     let mut semantic_shmem = shmem_provider.new_shmem(semantic_map_size)?;
+    let mut telemetry_shmem = shmem_provider.new_shmem(TELEMETRY_SIZE)?;
     unsafe {
         shmem.write_to_env("__AFL_SHM_ID")?;
         semantic_shmem.write_to_env("SEMANTIST_SEMANTIC_SHM_ID")?;
+        telemetry_shmem.write_to_env("SEMANTIST_TELEMETRY_SHM_ID")?;
     }
     env::set_var("AFL_MAP_SIZE", MAP_SIZE.to_string());
     env::set_var("SEMANTIST_SEMANTIC_MAP_SIZE", semantic_map_size.to_string());
@@ -104,18 +110,26 @@ fn main() -> Result<(), Error> {
     let observer_handle = edges_observer.handle();
     let semantic_observer =
         unsafe { StdMapObserver::new("semantic_shared_mem", semantic_shmem.as_slice_mut()) };
+    // StdMapObserver clears this bounded buffer before every target execution,
+    // including executions later classified as solutions.
+    let telemetry_observer = unsafe {
+        StdMapObserver::new("semantic_telemetry", telemetry_shmem.as_slice_mut())
+    };
     let time_observer = TimeObserver::new("time");
 
     // 4. feedback 决定哪些输入进入 corpus；objective 决定哪些输入是 crash/solution。
     let semantic_objective = SemanticViolationObjective::new(&semantic_observer, &runtime_ids);
+    let semantic_evidence = SemanticEvidenceCollector(
+        SemanticIrCoverageFeedback::new(&semantic_observer, runtime_ids)
+            .with_telemetry(&telemetry_observer));
     let mut feedback = feedback_or!(
-        CoverageProgressFeedback::new(&edges_observer),
-        SemanticIrCoverageFeedback::new(&semantic_observer, runtime_ids),
+        SemanticNoveltyFeedback,
         MaxMapFeedback::new(&edges_observer),
         TimeFeedback::new(&time_observer)
     );
 
     let mut objective = feedback_or!(
+        semantic_evidence,
         semantic_objective,
         RuntimeFindingFeedback::new(
             config.findings_dir.clone(),
@@ -146,8 +160,11 @@ fn main() -> Result<(), Error> {
     let mut mgr = SimpleEventManager::new(monitor);
 
     // 6. scheduler 决定下一轮从 corpus 里挑哪个 testcase。
-    let scheduler =
-        TargetAwareScheduler::new(config.metadata_bootstrap.clone(), config.seed_dir.clone());
+    let scheduler = TargetAwareScheduler::new(
+        config.metadata_bootstrap.clone(),
+        config.seed_dir.clone(),
+        config.ablation,
+    );
     let mut fuzzer = StdFuzzer::builder()
         .scheduler(scheduler)
         .feedback(feedback)
@@ -167,7 +184,8 @@ fn main() -> Result<(), Error> {
         .build(tuple_list!(
             time_observer,
             edges_observer,
-            semantic_observer
+            semantic_observer,
+            telemetry_observer
         ))?;
 
     // AFL 目标可能报告真实 map size；observer 跟着截断，减少无效 map 区域。
@@ -184,7 +202,12 @@ fn main() -> Result<(), Error> {
         &mut mgr,
         &initial_corpus_dirs(&config),
     )?;
-    if let Some(model_path) = config.semantic_model.as_deref() {
+    if let Some(model_path) = config
+        .ablation
+        .semantic_initial_generation()
+        .then_some(config.semantic_model.as_deref())
+        .flatten()
+    {
         let mut generator = SemanticInitialGenerator::from_stg(
             model_path,
             &config.function,
@@ -284,7 +307,8 @@ fn main() -> Result<(), Error> {
         SEMANTIC_MUTATION_PROBABILITY * 100.0,
         (1.0 - SEMANTIC_MUTATION_PROBABILITY) * 100.0,
     );
-    let mutator = StructuredStMutator::new();
+    println!("Ablation profile: {}", config.ablation.as_str());
+    let mutator = StructuredStMutator::new(config.ablation);
     let budget_stage = SemanticTaskBudgetStage::new(
         config.semantic_task_budget,
         config.semantic_task_state_file.clone(),
@@ -295,6 +319,8 @@ fn main() -> Result<(), Error> {
     } else {
         fuzzer.fuzz_loop(&mut stages, &mut executor, &mut state, &mut mgr)?;
     }
+    println!("SemantiST final executions: {}, elapsed_seconds: {:.6}",
+        state.executions(), fuzz_started.elapsed().as_secs_f64());
     Ok(())
 }
 
@@ -549,8 +575,19 @@ mod tests {
         assert_eq!(records[0].value, "1");
 
         runtime.record_coverage(["target:branch".to_string()]);
-        assert_eq!(runtime.guide_target_id.as_deref(), Some("target:violation"));
+        // The stage keeps the guide it actually mutated. A retained child
+        // supplies the observed prefix for the next scheduler decision.
+        assert_eq!(runtime.guide_target_id.as_deref(), Some("target:branch"));
         assert!(runtime.covered_target_ids.contains("target:branch"));
+        runtime.cache_seed_profile(SeedProfile {
+            content_hash: "child".to_string(),
+            covered_target_ids: vec!["target:branch".to_string()],
+            ordered_target_ids: vec!["target:branch".to_string()],
+            ordered_trace_complete: true,
+            ..SeedProfile::default()
+        });
+        runtime.select_cached().unwrap();
+        assert_eq!(runtime.guide_target_id.as_deref(), Some("target:violation"));
 
         let state_path = std::env::temp_dir().join(format!(
             "semantist-semantic-state-{}-{}.json",
@@ -871,11 +908,69 @@ mod tests {
             ..TargetContext::default()
         };
         let mut rand = StdRand::with_seed(2);
-        assert!(semantic_mutate_cycle_seed(&mut rand, &mut seed, &context));
+        assert!(semantic_mutate_cycle_seed(
+            &mut rand,
+            &mut seed,
+            &context,
+            SemantiSTAblation::Full,
+        ));
         assert!((4..=64).contains(&seed.cycles.len()));
         for records in seed.cycles.values() {
             assert_eq!(records[0].name, "STATE");
         }
+    }
+
+    #[test]
+    fn state_transfer_reads_guide_a_preterminal_cycle_without_touching_the_goal_cycle() {
+        let field = ControllableSeedField {
+            symbol: "FB.EN".to_string(),
+            seed_field: Some("EN".to_string()),
+            role: None,
+            type_name: Some("BOOL".to_string()),
+            configuration_source: None,
+            type_fact: None,
+        };
+        let selection = ActiveSelection {
+            guide_target_id: "target".to_string(),
+            controllable_seed_fields: vec![field],
+            state_transfer_chains: vec![semantic::StateTransfer {
+                reads: vec!["FB.EN".to_string()],
+                ..semantic::StateTransfer::default()
+            }],
+            ..ActiveSelection::default()
+        };
+        let context = semantic_target_context(&selection);
+        assert_eq!(context.transition_seed_fields.len(), 1);
+        let mut seed = parse_cycle_aware_seed("0.EN,BOOL,0\n1.EN,BOOL,0\n");
+        let mut rand = StdRand::with_seed(7);
+        assert!(mutate_transition_prefix(
+            &mut rand,
+            &mut seed,
+            &context.transition_seed_fields
+        ));
+        assert_eq!(seed.cycles.get(&0).unwrap()[0].value, "1");
+        assert_eq!(seed.cycles.get(&1).unwrap()[0].value, "0");
+    }
+
+    #[test]
+    fn fallback_cycle_growth_respects_the_execution_bound() {
+        let mut seed = parse_cycle_aware_seed("0.EN,BOOL,0\n");
+        ensure_cycle_hint(&mut seed, fb_max_cycles());
+        let mut rand = StdRand::with_seed(7);
+        cycle_clone_cycle(&mut rand, &mut seed);
+        cycle_insert_cycle(&mut rand, &mut seed);
+        assert_eq!(seed.cycles.len(), fb_max_cycles());
+    }
+
+    #[test]
+    fn semantic_prefix_growth_preserves_the_terminal_cycle() {
+        let mut seed = parse_cycle_aware_seed("0.EN,BOOL,0\n1.EN,BOOL,1\n");
+        let mut rand = StdRand::with_seed(7);
+        assert!(expand_state_prefix(&mut rand, &mut seed));
+        assert_eq!(seed.cycles.len(), 3);
+        assert_eq!(seed.cycles.get(&0).unwrap()[0].value, "0");
+        assert_eq!(seed.cycles.get(&1).unwrap()[0].value, "0");
+        assert_eq!(seed.cycles.get(&2).unwrap()[0].value, "1");
     }
 
     #[test]
@@ -926,6 +1021,7 @@ mod tests {
             fuzz_iterations: None,
             rng_seed: None,
             debug_child: false,
+            ablation: SemantiSTAblation::Full,
         };
 
         assert_eq!(
@@ -935,5 +1031,37 @@ mod tests {
                 PathBuf::from("unified-corpus/runtime"),
             ]
         );
+    }
+
+    #[test]
+    fn ablation_profiles_keep_unrelated_mechanisms_enabled() {
+        let init = SemantiSTAblation::parse("no_semantic_init").unwrap();
+        assert!(!init.semantic_initial_generation());
+        assert!(init.semantic_scheduling());
+        assert!(init.targeted_mutation());
+
+        let mutation = SemantiSTAblation::parse("no_targeted_mutation").unwrap();
+        assert!(mutation.semantic_initial_generation());
+        assert!(mutation.semantic_scheduling());
+        assert!(!mutation.targeted_mutation());
+
+        let transition = SemantiSTAblation::parse("no_transition_guidance").unwrap();
+        assert!(!transition.transition_guidance());
+        assert!(transition.prefix_growth());
+
+        let growth = SemantiSTAblation::parse("no_prefix_growth").unwrap();
+        assert!(growth.transition_guidance());
+        assert!(!growth.prefix_growth());
+
+        let combined = SemantiSTAblation::parse("no_multicycle_guidance").unwrap();
+        assert!(!combined.transition_guidance());
+        assert!(!combined.prefix_growth());
+        assert!(combined.targeted_mutation());
+
+        let queue = SemantiSTAblation::parse("queue_havoc").unwrap();
+        assert!(!queue.semantic_initial_generation());
+        assert!(!queue.semantic_scheduling());
+        assert!(!queue.targeted_mutation());
+        assert!(SemantiSTAblation::parse("not_a_profile").is_err());
     }
 }

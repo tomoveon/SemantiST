@@ -19,6 +19,7 @@ from typing import Any
 
 from experiments.comparison.lib.process import container_run_command
 from experiments.comparison.lib.schema import validate_run_result
+from experiments.comparison.lib.metrics import paper_metrics
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -184,6 +185,8 @@ def merge_coverage_results(experiment_dir: Path, records: list[dict[str, Any]]) 
                 "metric": record.get("metric", "tool_native_edge_slots"),
                 "cross_tool_comparable": bool(record.get("cross_tool_comparable", False)),
             }
+        # Coverage replay is offline evidence, never a replacement for the native status.
+        run["paper_metrics"] = paper_metrics(run)
         validate_run_result(run)
         write_json(result_path, run)
 

@@ -20,8 +20,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from experiments.comparison.adapters import ADAPTERS, DEFAULT_TOOL_ORDER  # noqa: E402
+from experiments.comparison.ablations import ABLATION_PROFILES  # noqa: E402
 from experiments.comparison.adapters.base import AdapterError, ExperimentConfig, PreprocessingResult  # noqa: E402
 from experiments.comparison.analysis.aggregate import aggregate_experiment  # noqa: E402
+from experiments.comparison.analysis.compare_tools import export_metrics, load_runs  # noqa: E402
 from experiments.comparison.analysis.coverage import coverage_experiment, merge_coverage_results  # noqa: E402
 from experiments.comparison.analysis.replay import merge_replay_results, replay_experiment  # noqa: E402
 from experiments.comparison.analysis.validate_complete import validate as validate_complete  # noqa: E402
@@ -30,6 +32,7 @@ from experiments.comparison.lib.manifest import experiment_manifest_entry, load_
 from experiments.comparison.lib.process import (  # noqa: E402
     command_exists,
     container_image_id,
+    container_run_command,
     container_runtime_version,
     parse_cpus,
     resolve_container_runtime,
@@ -40,9 +43,27 @@ from experiments.comparison.lib.metrics import CONTRACT, paper_metrics  # noqa: 
 
 DEFAULT_EXPERIMENT_ID = "comparison_3tools_90targets_300s_5trials"
 DEFAULT_TOOLS = ",".join(DEFAULT_TOOL_ORDER)
+DEFAULT_SEED_NAMESPACE = "semantist-comparison-v1"
 DEFAULT_SEMANTIST_IMAGE = os.environ.get("SEMANTIST_IMAGE", "semantist:0.1.0")
+EXPERIMENT_PRESETS = {
+    "main": {
+        "experiment_id": DEFAULT_EXPERIMENT_ID,
+        "target_id": (),
+        "fuzz_time": 300,
+        "trials": 5,
+        "cpus": "1-8",
+    },
+    "smoke": {
+        "experiment_id": "comparison_3tools_20s_smoke",
+        "target_id": (
+            "oscat_basic_charname", "icsfuzz_bf_mcpy_1", "scan_cycle_aircraft_oobw_4",
+        ),
+        "fuzz_time": 20,
+        "trials": 1,
+        "cpus": "1-2",
+    },
+}
 EXPECTED_SOURCE_REVISIONS = {
-    "SemantiST": "5ae1b74d064d303ecb7fc5aa70bf85f944b36907",
     "ICSQuartz": "8021bd44f47147776c6394e008bbea23ac993076",
 }
 EXPECTED_INPUT_HASHES = {
@@ -54,58 +75,142 @@ EXPECTED_INPUT_HASHES = {
 
 
 def parse_args(argv: list[str] | None = None, *, description: str | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=description or __doc__, allow_abbrev=False)
-    parser.add_argument("--experiment-id", default=DEFAULT_EXPERIMENT_ID)
-    parser.add_argument("--manifest", type=Path, default=ROOT / "benchmarks" / "external" / "manifest.json")
-    parser.add_argument("--artifact-root", type=Path, default=ROOT / "artifacts" / "experiments")
-    parser.add_argument("--workspace-root", type=Path, default=ROOT.parent)
-    parser.add_argument("--icsquartz-root", type=Path, default=None)
+    argv = list(sys.argv[1:] if argv is None else argv)
+    parser = argparse.ArgumentParser(
+        description=description or __doc__, allow_abbrev=False,
+        epilog=("Presets: main = all manifest targets, 300 seconds, 5 trials, CPUs 1-8; "
+                "smoke = 3 representative targets, 20 seconds, 1 trial, CPUs 1-2. "
+                "Explicit options override preset defaults. Use a new run ID for each run. "
+                "Successful runs export metrics.csv; comparative analysis is a separate step."),
+    )
+    parser.add_argument("--help-all", action="help", help="show all options, including advanced settings")
+    parser.add_argument("--experiment", choices=EXPERIMENT_PRESETS, default="main",
+                        help="experiment preset (default: main)")
+    parser.add_argument("--run-id", "--experiment-id", dest="experiment_id",
+                        help="new output directory name (default: fixed preset ID)")
     parser.add_argument("--tools", default=DEFAULT_TOOLS, help=f"comma-separated tools; default: {DEFAULT_TOOLS}")
-    parser.add_argument("--target-id", action="append", default=[], help="target id to run; can be repeated")
-    parser.add_argument("--limit-targets", type=int, help="use the first N manifest targets for smoke runs")
-    parser.add_argument("--trials", type=int, default=5)
-    parser.add_argument("--fuzz-time", type=int, default=300)
-    parser.add_argument("--timeout-ms", type=int, default=1000)
-    parser.add_argument("--semantic-task-budget", type=int, default=1000)
-    parser.add_argument("--semantist-fb-max-cycles", type=int, default=10000)
-    parser.add_argument("--semantist-fb-stale-threshold", type=int, default=0)
-    parser.add_argument("--no-semantist-fb-state-trace", action="store_true")
-    parser.add_argument("--observer-poll-interval-ms", type=int, default=10)
-    parser.add_argument("--cpus", default="1-8")
-    parser.add_argument("--cpus-isolated", action="store_true")
-    parser.add_argument(
+    parser.add_argument("--target-id", action="append", help="replace preset targets; can be repeated")
+    parser.add_argument("--fuzz-time", type=int, help="online seconds per trial (default: preset)")
+    parser.add_argument("--fuzz-trials", "--trials", dest="trials", type=int,
+                        help="trials per tool and target (default: preset)")
+    parser.add_argument("--cpus", help="CPU IDs for parallel trials, e.g. 1-8 or 1,3,5 (default: preset)")
+    parser.add_argument("--preflight-only", action="store_true",
+                        help="write manifest/support/schedule and stop before preprocessing")
+    advanced = parser.add_argument_group("Advanced options")
+
+    def add_advanced(*flags: str, group: Any = advanced, **kwargs: Any) -> None:
+        kwargs["help"] = kwargs.get("help", "") if "--help-all" in argv else argparse.SUPPRESS
+        group.add_argument(*flags, **kwargs)
+
+    add_advanced("--manifest", type=Path, default=ROOT / "benchmarks" / "external" / "manifest.json")
+    add_advanced("--artifact-root", type=Path, default=ROOT / "artifacts" / "experiments")
+    add_advanced("--workspace-root", type=Path, default=ROOT.parent)
+    add_advanced("--icsquartz-root", type=Path, default=None)
+    add_advanced("--limit-targets", type=int, help="use the first N selected targets")
+    add_advanced(
+        "--seed-namespace",
+        default=DEFAULT_SEED_NAMESPACE,
+        help="stable namespace shared by independent tool runs for paired target/trial seeds",
+    )
+    add_advanced("--timeout-ms", type=int, default=1000)
+    add_advanced("--semantic-task-budget", type=int, default=1000)
+    add_advanced(
+        "--semantist-ablation",
+        choices=ABLATION_PROFILES,
+        default="full",
+        help="SemantiST-only runtime mechanism ablation; use a separate one-tool run",
+    )
+    add_advanced("--semantist-fb-max-cycles", type=int, default=256)
+    add_advanced("--semantist-fb-stale-threshold", type=int, default=0)
+    trace_group = advanced.add_mutually_exclusive_group()
+    add_advanced(
+        "--semantist-fb-state-trace",
+        group=trace_group,
+        dest="semantist_fb_state_trace",
+        action="store_true",
+        help="enable SemantiST-only diagnostic state tracing (off by default for comparisons)",
+    )
+    add_advanced(
+        "--no-semantist-fb-state-trace",
+        group=trace_group,
+        dest="semantist_fb_state_trace",
+        action="store_false",
+        help="disable diagnostic state tracing (default)",
+    )
+    parser.set_defaults(semantist_fb_state_trace=False)
+    add_advanced("--observer-poll-interval-ms", type=int, default=10)
+    add_advanced(
+        "--cpus-isolated",
+        action="store_true",
+        help=(
+            "record that the selected CPUs are administratively isolated; "
+            "per-trial CPU binding is always enforced"
+        ),
+    )
+    add_advanced(
         "--semantist-image",
         default=DEFAULT_SEMANTIST_IMAGE,
         help="SemantiST toolchain/container image used for SemantiST and AFL++ target builds",
     )
-    parser.add_argument(
+    add_advanced(
         "--container-runtime",
         choices=("auto", "docker", "podman"),
         default=os.environ.get("CONTAINER_RUNTIME", "auto"),
         help="container runtime; auto tries Docker then Podman (default: %(default)s)",
     )
-    parser.add_argument(
+    add_advanced(
         "--container-platform",
         "--docker-platform",
         dest="container_platform",
         help="container image platform; --docker-platform remains as a compatibility alias",
     )
-    parser.add_argument("--reuse-preprocessing", action="store_true")
-    parser.add_argument("--resume", action="store_true", help="reuse existing run-result.json files")
-    parser.add_argument("--overwrite", action="store_true", help="remove an existing experiment directory first")
-    parser.add_argument("--preflight-only", action="store_true", help="write manifest/support/schedule and stop before preprocessing")
-    parser.add_argument("--with-replay", action="store_true", help="run common replay and merge it into run records")
-    parser.add_argument("--with-coverage", action="store_true", help="run common coverage replay and merge it into run records")
-    parser.add_argument("--analysis-timeout", type=float, default=2.0)
-    parser.add_argument("--validate-complete", action="store_true")
-    parser.add_argument("--skip-aggregate", action="store_true")
-    parser.add_argument("--serial", action="store_true", help="run one trial at a time")
-    return parser.parse_args(argv)
+    add_advanced("--with-replay", action="store_true", help="run common replay and merge it into run records")
+    add_advanced("--with-coverage", action="store_true", help="run common coverage replay and merge it into run records")
+    add_advanced("--analysis-timeout", type=float, default=2.0)
+    add_advanced("--validate-complete", action="store_true", help="compatibility option; online validation is always enabled")
+    add_advanced(
+        "--require-valid-runs",
+        action="store_true",
+        default=True,
+        help="require complete budgets and native executions (always enabled for online runs)",
+    )
+    analysis_group = advanced.add_mutually_exclusive_group()
+    add_advanced("--aggregate", group=analysis_group, dest="skip_aggregate", action="store_false",
+                 help="also generate legacy summaries after successful validation")
+    add_advanced("--skip-aggregate", group=analysis_group, dest="skip_aggregate", action="store_true",
+                 help="save raw results for separate offline analysis (default)")
+    parser.set_defaults(skip_aggregate=True)
+    add_advanced("--serial", action="store_true", help="run one trial at a time")
+    args = parser.parse_args(argv)
+    for name, value in EXPERIMENT_PRESETS[args.experiment].items():
+        if getattr(args, name) is None:
+            setattr(args, name, list(value) if name == "target_id" else value)
+    if (not args.experiment_id or args.experiment_id in {".", ".."}
+            or args.experiment_id != args.experiment_id.strip()
+            or any(char in args.experiment_id for char in "/\\:|")):
+        parser.error("--experiment-id must be a new directory name, not a path")
+    for name in ("trials", "fuzz_time", "timeout_ms", "semantic_task_budget"):
+        if getattr(args, name) < 1:
+            parser.error(f"--{name.replace('_', '-')} must be positive")
+    if not 1 <= args.semantist_fb_max_cycles <= 10000:
+        parser.error("--semantist-fb-max-cycles must be in [1, 10000]")
+    if args.semantist_fb_stale_threshold < 0:
+        parser.error("--semantist-fb-stale-threshold must not be negative")
+    if not 1 <= args.observer_poll_interval_ms <= 10:
+        parser.error("--observer-poll-interval-ms must be in [1, 10]")
+    if not 0 < args.analysis_timeout < float("inf"):
+        parser.error("--analysis-timeout must be finite and positive")
+    return args
 
 
 def main(argv: list[str] | None = None, *, description: str | None = None) -> int:
     args = parse_args(argv, description=description)
     tools = normalize_tools(args.tools)
+    if args.semantist_ablation != "full" and tools != ["semantist_full"]:
+        raise SystemExit("SemantiST ablations require --tools semantist_full in an independent run")
+    experiment_dir = args.artifact_root.resolve() / args.experiment_id
+    if experiment_dir.exists() or experiment_dir.is_symlink():
+        raise SystemExit(f"experiment directory already exists; choose a new --experiment-id: {experiment_dir}")
     cpus = parse_cpus(args.cpus)
     unavailable = unavailable_cpus(cpus)
     if unavailable:
@@ -113,14 +218,6 @@ def main(argv: list[str] | None = None, *, description: str | None = None) -> in
             "requested CPUs are outside the runner affinity mask: "
             + ", ".join(str(cpu) for cpu in unavailable)
         )
-    if args.trials < 1:
-        raise SystemExit("--trials must be positive")
-    if args.fuzz_time < 1:
-        raise SystemExit("--fuzz-time must be positive")
-    if args.timeout_ms < 1:
-        raise SystemExit("--timeout-ms must be positive")
-    if args.observer_poll_interval_ms < 1 or args.observer_poll_interval_ms > 10:
-        raise SystemExit("--observer-poll-interval-ms must be in [1, 10]")
     try:
         container_runtime, container_runtime_status = resolve_container_runtime(
             args.container_runtime
@@ -131,6 +228,14 @@ def main(argv: list[str] | None = None, *, description: str | None = None) -> in
     if taskset_required and not command_exists("taskset"):
         raise SystemExit("taskset was not found; selected experiment rows require CPU affinity")
     icsquartz_root = find_icsquartz_root(args)
+    if not args.preflight_only:
+        validate_execution_environment(
+            container_runtime,
+            container_runtime_status,
+            tools,
+            args.semantist_image,
+            args.container_platform,
+        )
     config = ExperimentConfig(
         experiment_id=args.experiment_id,
         semantist_root=ROOT,
@@ -142,25 +247,24 @@ def main(argv: list[str] | None = None, *, description: str | None = None) -> in
         semantic_task_budget=args.semantic_task_budget,
         semantist_fb_max_cycles=args.semantist_fb_max_cycles,
         semantist_fb_stale_threshold=args.semantist_fb_stale_threshold,
-        semantist_fb_state_trace=not args.no_semantist_fb_state_trace,
+        semantist_fb_state_trace=args.semantist_fb_state_trace,
         observer_poll_interval_ms=args.observer_poll_interval_ms,
-        cpuset=args.cpus if args.cpus_isolated else None,
+        cpuset=args.cpus,
         container_runtime=container_runtime,
         container_runtime_status=container_runtime_status,
         container_platform=args.container_platform,
         semantist_image=args.semantist_image,
-        reuse_preprocessing=args.reuse_preprocessing,
+        semantist_ablation=args.semantist_ablation,
     )
-    experiment_dir = config.artifact_root / config.experiment_id
-    if experiment_dir.exists() and args.overwrite:
-        shutil.rmtree(experiment_dir)
-    if experiment_dir.exists() and not args.resume and not args.preflight_only:
-        raise SystemExit(f"experiment directory exists; use --resume or --overwrite: {experiment_dir}")
-    experiment_dir.mkdir(parents=True, exist_ok=True)
-
     manifest = load_manifest(args.manifest, ROOT)
     targets = select_targets(manifest.targets, args.target_id, args.limit_targets)
+    if not targets:
+        raise SystemExit("benchmark selection is empty")
     adapters = {tool: ADAPTERS[tool](config) for tool in tools}
+    try:
+        experiment_dir.mkdir(parents=True, exist_ok=False)
+    except FileExistsError as error:
+        raise SystemExit(f"experiment directory already exists; choose a new --experiment-id: {experiment_dir}") from error
 
     write_environment(
         experiment_dir,
@@ -177,28 +281,49 @@ def main(argv: list[str] | None = None, *, description: str | None = None) -> in
         {
             "schema_version": "semantist.full-comparison-manifest/1.0.0",
             "experiment_id": config.experiment_id,
+            "experiment": args.experiment,
             "benchmark_manifest": str(manifest.path),
             "benchmark_manifest_sha256": manifest.sha256,
             "tools": tools,
             "target_count": len(targets),
             "trial_count": args.trials,
+            "seed_namespace": args.seed_namespace,
+            "configuration_id": args.semantist_ablation,
             "targets": [experiment_manifest_entry(target, tools) for target in targets],
         },
     )
 
     support = write_support_matrix(experiment_dir, tools, targets, adapters)
-    schedule = write_schedule(experiment_dir, config.experiment_id, tools, targets, args.trials)
+    schedule = write_schedule(
+        experiment_dir,
+        config.experiment_id,
+        tools,
+        targets,
+        args.trials,
+        seed_namespace=args.seed_namespace,
+    )
     print(
         f"[comparison] prepared schedule: {len(tools)} tools x {len(targets)} targets x {args.trials} trials = {len(schedule)} rows"
     )
+    unsupported_tools = [tool for tool in tools if not any(
+        support[(tool, target.target_id)].status == "supported" for target in targets
+    )]
+    if unsupported_tools:
+        raise SystemExit("no supported targets for " + ", ".join(unsupported_tools)
+                         + f"; inspect {experiment_dir / 'support-matrix.csv'}")
     if args.preflight_only:
         print(f"[comparison] preflight artifacts written to {experiment_dir}")
         return 0
 
     preprocessing = prepare_supported_targets(tools, targets, adapters, support)
     update_support_matrix_preprocessing(experiment_dir, preprocessing)
-    run_online_matrix(experiment_dir, schedule, targets, adapters, support, preprocessing, cpus, args.resume, serial=args.serial)
+    run_online_matrix(experiment_dir, schedule, targets, adapters, support, preprocessing, cpus, serial=args.serial)
     write_raw_runs(experiment_dir, schedule)
+    errors = validate_complete(experiment_dir, require_valid_runs=True)
+    if errors:
+        for error in errors:
+            print(f"[comparison] validation error: {error}", file=sys.stderr)
+        return 1
     if args.with_replay:
         replay_records = replay_experiment(
             experiment_dir,
@@ -221,13 +346,9 @@ def main(argv: list[str] | None = None, *, description: str | None = None) -> in
         write_raw_runs(experiment_dir, schedule)
     if not args.skip_aggregate:
         aggregate_experiment(experiment_dir)
-    if args.validate_complete:
-        errors = validate_complete(experiment_dir)
-        if errors:
-            for error in errors:
-                print(f"[comparison] validation error: {error}", file=sys.stderr)
-            return 1
+    export_metrics(load_runs([experiment_dir]), experiment_dir)
     print(f"[comparison] experiment artifacts: {experiment_dir}")
+    print(f"[comparison] per-trial metrics: {experiment_dir / 'metrics.csv'}")
     return 0
 
 
@@ -267,6 +388,60 @@ def find_icsquartz_root(args: argparse.Namespace) -> Path | None:
     return None
 
 
+def validate_execution_environment(
+    container_runtime: str | None,
+    container_runtime_status: str,
+    tools: list[str],
+    semantist_image: str,
+    container_platform: str | None,
+) -> None:
+    """Fail before creating run records when required runtime images are unusable."""
+    if container_runtime is None:
+        raise SystemExit(f"container runtime is unavailable: {container_runtime_status}")
+
+    required_images: dict[str, str] = {}
+    if any(tool in {"semantist_full", "aflplusplus_full", "icsquartz_full"} for tool in tools):
+        required_images["SemantiST toolchain"] = semantist_image
+    required_images.update(
+        {f"{name} baseline": image for name, image in _baseline_images_for_tools(tools).items()}
+    )
+    missing = [
+        f"{name} ({image})"
+        for name, image in required_images.items()
+        if container_image_id(container_runtime, image) is None
+    ]
+    if missing:
+        raise SystemExit(
+            "required container image(s) are missing or unreadable: " + ", ".join(missing)
+            + "; build the pinned images before starting the experiment"
+        )
+
+    if "semantist_full" not in tools:
+        return
+    probe = container_run_command(
+        container_runtime,
+        semantist_image,
+        platform=container_platform,
+        command=["/opt/semantist/cargo-target/release/semantist", "--help"],
+    )
+    try:
+        result = subprocess.run(
+            probe,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise SystemExit(f"SemantiST image interface probe timed out: {semantist_image}") from error
+    output = (result.stdout or "") + "\n" + (result.stderr or "")
+    if result.returncode != 0 or "--ablation" not in output:
+        raise SystemExit(
+            f"SemantiST image {semantist_image!r} does not contain the current experiment CLI "
+            "(--ablation is missing); rebuild it from the current source tree"
+        )
+
+
 def write_environment(
     experiment_dir: Path,
     args: argparse.Namespace,
@@ -301,6 +476,7 @@ def write_environment(
     environment = {
         "schema_version": "semantist.full-comparison-environment/1.0.0",
         "experiment_id": args.experiment_id,
+        "experiment": args.experiment,
         "host": {"hostname": platform.node(), "platform": platform.platform(),
                  "machine": platform.machine(), "logical_cpus": os.cpu_count()},
         "serial_trials": args.serial,
@@ -311,9 +487,17 @@ def write_environment(
         "tools": tools,
         "target_count": len(targets),
         "trial_count": args.trials,
+        "seed_namespace": args.seed_namespace,
+        "semantist_ablation": args.semantist_ablation,
         "online_budget_seconds": args.fuzz_time,
         "per_execution_timeout_ms": args.timeout_ms,
+        "semantic_task_budget": args.semantic_task_budget,
+        "semantist_fb_max_cycles": args.semantist_fb_max_cycles,
+        "semantist_fb_stale_threshold": args.semantist_fb_stale_threshold,
+        "semantist_fb_state_trace": args.semantist_fb_state_trace,
+        "observer_poll_interval_ms": args.observer_poll_interval_ms,
         "cpus": args.cpus,
+        "cpus_bound": True,
         "cpus_isolated": args.cpus_isolated,
         "tool_cpu_slots": {
             tool: int(getattr(ADAPTERS[tool], "cpu_slots", 1))
@@ -452,6 +636,8 @@ def write_schedule(
     tools: list[str],
     targets: list[Any],
     trials: int,
+    *,
+    seed_namespace: str | None = None,
 ) -> list[dict[str, Any]]:
     rows = []
     order = 0
@@ -459,6 +645,10 @@ def write_schedule(
         for target in targets:
             for trial_id in range(1, trials + 1):
                 run_key = f"{experiment_id}|{tool}|{target.suite}|{target.target_id}|trial_{trial_id:02d}"
+                seed_key = (
+                    f"{seed_namespace or experiment_id}|{target.suite}|"
+                    f"{target.target_id}|trial_{trial_id:02d}"
+                )
                 sort_key = sha256_text(
                     f"{experiment_id}|schedule|{tool}|{target.suite}|{target.target_id}|{trial_id}"
                 )
@@ -471,14 +661,13 @@ def write_schedule(
                         "suite": target.suite,
                         "target_id": target.target_id,
                         "trial_id": trial_id,
-                        "rng_seed": rng_seed(run_key),
+                        "rng_seed": rng_seed(seed_key),
                     }
                 )
                 order += 1
     rows.sort(key=lambda row: row["sort_key"])
     with (experiment_dir / "schedule.jsonl").open("w", encoding="utf-8") as handle:
         for index, row in enumerate(rows):
-            row = dict(row)
             row["schedule_index"] = index
             handle.write(json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n")
     return rows
@@ -509,7 +698,6 @@ def run_online_matrix(
     support: dict[tuple[str, str], Any],
     preprocessing: dict[tuple[str, str], PreprocessingResult],
     cpus: list[int],
-    resume: bool,
     *,
     serial: bool = False,
 ) -> None:
@@ -519,9 +707,6 @@ def run_online_matrix(
     for row in schedule:
         target = by_target[row["target_id"]]
         adapter = adapters[row["tool"]]
-        result_path = adapter.run_dir(target, row["trial_id"]) / "run-result.json"
-        if resume and result_path.is_file():
-            continue
         support_result = support[(row["tool"], target.target_id)]
         if support_result.status != "supported":
             immediate.append((row, "unsupported"))
@@ -583,6 +768,7 @@ def run_online_matrix(
     batches = ([[(row, cpus[:int(getattr(adapters[row["tool"]], "cpu_slots", 1))])]
                 for row in online] if serial else _cpu_scheduled_batches(online, adapters, cpus))
     for batch in batches:
+        runner_errors = []
         with ThreadPoolExecutor(max_workers=len(batch)) as executor:
             futures = []
             for row, assigned_cpus in batch:
@@ -595,10 +781,16 @@ def run_online_matrix(
             for future in as_completed(futures):
                 row, run_dir, result = future.result()
                 write_run_result(run_dir, result)
+                if result["run_status"] == "runner_error":
+                    runner_errors.append(result["run_key"])
                 print(
                     f"[comparison] completed {row['tool']} {row['target_id']} trial {row['trial_id']}: {result['run_status']}",
                     flush=True,
                 )
+        if runner_errors:
+            raise SystemExit("runner error; remaining batches were not started. Inspect logs and container cleanup, "
+                             "then rerun the affected target group with a new experiment ID: "
+                             + ", ".join(runner_errors))
 
 
 def _cpu_scheduled_batches(
@@ -700,6 +892,8 @@ def make_base_result(row: dict[str, Any], target: Any, adapter: Any, support_sta
             "replay_image": adapter.config.semantist_image,
         }
     )
+    if row["tool"] == "semantist_full":
+        result["configuration_id"] = adapter.config.semantist_ablation
     return result
 
 

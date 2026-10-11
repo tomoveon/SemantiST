@@ -222,20 +222,32 @@ def container_name_from_run_command(command: list[str]) -> tuple[str, str] | Non
     return None
 
 
-def remove_container_quiet(runtime: str, name: str) -> None:
+def remove_container_quiet(runtime: str, name: str) -> bool:
     """Best-effort cleanup for a possibly stale named container."""
     if runtime not in CONTAINER_RUNTIMES or shutil.which(runtime) is None:
-        return
+        return False
     try:
-        subprocess.run(
+        completed = subprocess.run(
             [runtime, "rm", "-f", name],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             timeout=10,
             check=False,
         )
+        output = ((completed.stdout or "") + (completed.stderr or "")).lower()
+        if completed.returncode == 0 or "no such container" in output:
+            return True
+        # --rm may already be removing the container when our explicit rm
+        # arrives. Confirm absence instead of treating that race as a failure.
+        inspected = subprocess.run(
+            [runtime, "container", "inspect", name],
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=10, check=False,
+        )
+        return inspected.returncode != 0 and "no such container" in (inspected.stderr or "").lower()
     except Exception:
-        return
+        return False
 
 
 def _stop_named_container(command: list[str]) -> dict[str, object] | None:
@@ -255,13 +267,13 @@ def _stop_named_container(command: list[str]) -> dict[str, object] | None:
         )
     except Exception as error:  # noqa: BLE001 - timeout path must stay best-effort.
         result["stop_error"] = str(error)
-        remove_container_quiet(runtime, name)
+        result["remove_succeeded"] = remove_container_quiet(runtime, name)
         return result
     result["stop_returncode"] = completed.returncode
     output = (completed.stdout or completed.stderr or "").strip()
     if output:
         result["stop_output"] = output[-500:]
-    remove_container_quiet(runtime, name)
+    result["remove_succeeded"] = remove_container_quiet(runtime, name)
     return result
 
 
@@ -344,6 +356,8 @@ def run_with_budget(
     stderr_path.parent.mkdir(parents=True, exist_ok=True)
     t0 = time.monotonic_ns()
     observer = FindingObserver(t0, stdout_path.parent / "measurement-events.jsonl")
+    stdout = None
+    stderr = None
     try:
         stdout = stdout_path.open("ab")
         stderr = stderr_path.open("ab")
@@ -362,6 +376,10 @@ def run_with_budget(
             **popen_kwargs,
         )
     except FileNotFoundError as error:
+        if stdout is not None:
+            stdout.close()
+        if stderr is not None:
+            stderr.close()
         stderr_path.write_text(str(error) + "\n", encoding="utf-8")
         return {
             "started": False,
@@ -402,10 +420,31 @@ def run_with_budget(
             time.sleep(min(poll_seconds, max((deadline - now) / 1_000_000_000, 0)))
         # Capture artifacts flushed during normal exit or signal handling.
         observe_findings()
+    except BaseException:
+        # Never leave a fuzzing container running after an observer/host error.
+        try:
+            container_stop = _stop_named_container(command)
+            if process.poll() is None:
+                if container_stop is not None:
+                    try:
+                        process.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        _terminate_process(process)
+                else:
+                    _terminate_process(process)
+        except Exception:
+            pass  # Preserve the original observer error if cleanup also fails.
+        raise
     finally:
+        # A disconnected/exited CLI does not prove the daemon's container has
+        # stopped. Normal --rm completion simply makes this cleanup a no-op.
+        if container_stop is None:
+            container_stop = _stop_named_container(command)
         stdout.close()
         stderr.close()
 
+    if container_stop is not None and not container_stop.get("remove_succeeded"):
+        raise RuntimeError(f"container cleanup could not be confirmed: {container_stop}")
     end = time.monotonic_ns()
     return {
         "started": True,

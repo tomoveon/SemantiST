@@ -13,29 +13,7 @@ if str(ROOT) not in sys.path:
 from experiments.comparison.run_full_comparison import main  # noqa: E402
 
 
-DEFAULT_ARGS = [
-    "--experiment-id",
-    "comparison_3tools_20s_smoke",
-    "--target-id",
-    "oscat_basic_charname",
-    "--target-id",
-    "icsfuzz_bf_mcpy_1",
-    "--target-id",
-    "scan_cycle_aircraft_oobw_4",
-    "--trials",
-    "1",
-    "--fuzz-time",
-    "20",
-    "--tools",
-    "semantist,aflplusplus,icsquartz",
-    "--container-runtime",
-    "auto",
-    "--cpus",
-    "1-2",
-    "--with-replay",
-    "--with-coverage",
-    "--validate-complete",
-]
+DEFAULT_ARGS = ["--experiment", "smoke"]
 
 
 if __name__ == "__main__":

@@ -15,7 +15,7 @@ cp "${PREPARED_LL}" "${AFL_LL}"
 # LLVM 16 compatibility normalization in prepare_target_ir.
 perl -0pi -e 's/\s+captures\(none\)//g; s/getelementptr inbounds nuw/getelementptr inbounds/g' "${AFL_LL}"
 
-SANITIZER_FLAGS=(-fsanitize=address,undefined -fno-omit-frame-pointer)
+read -r -a SANITIZER_FLAGS <<< "${SEMANTIST_TARGET_SANITIZERS:--fsanitize=address -fno-omit-frame-pointer}"
 "${AFL_CC}" -g -O1 "${SANITIZER_FLAGS[@]}" -c "${AFL_LL}" -o "${OUT_OBJ}"
 
 LINK_INPUTS=("${HARNESS_OUT}" "${OUT_OBJ}" "${RUSTY_STDLIB_OUT}")
@@ -27,7 +27,7 @@ if [[ -n "${SEMANTIST_COMPATIBILITY_MANIFEST:-}" ]]; then
     --manifest "${SEMANTIST_COMPATIBILITY_MANIFEST}" \
     --build-dir "${COMPATIBILITY_BUILD_DIR}" \
     --clang "${AFL_CC}" \
-    --compile-arg=-fsanitize=address,undefined \
+    --compile-arg=-fsanitize=address \
     --compile-arg=-fno-omit-frame-pointer > "${COMPATIBILITY_LINK_FILE}"
   mapfile -t COMPATIBILITY_LINK_INPUTS < "${COMPATIBILITY_LINK_FILE}"
   LINK_INPUTS+=("${COMPATIBILITY_LINK_INPUTS[@]}")

@@ -41,10 +41,11 @@ class SemantiSTAdapter(BaseAdapter):
 
     def prepare(self, target: Target) -> PreprocessingResult:
         preprocess_dir = self.preprocessing_dir(target)
-        if preprocess_dir.exists() and self.config.reuse_preprocessing:
-            return _reuse_preprocessing(preprocess_dir)
         if preprocess_dir.exists():
-            shutil.rmtree(preprocess_dir)
+            raise AdapterError(
+                "preprocessing_directory_exists",
+                f"preprocessing directory already exists: {preprocess_dir}; use a new experiment ID",
+            )
         for child in ("stg", "base-seeds", "logs"):
             (preprocess_dir / child).mkdir(parents=True, exist_ok=True)
 
@@ -73,6 +74,7 @@ class SemantiSTAdapter(BaseAdapter):
             "SEMANTIST_ARTIFACT_DIR": self.container_path(preprocess_dir),
             "SEMANTIST_BUILD_ARTIFACT_DIR": self.container_path(preprocess_dir / "build"),
             "SEMANTIST_SEMANTIC_INSTRUMENTATION": "ir",
+            "SEMANTIST_TARGET_SANITIZERS": "-fsanitize=address -fno-omit-frame-pointer",
             "SEMANTIST_STG_DIR": self.container_path(preprocess_dir / "stg"),
             "OUT_LL": self.container_path(preprocess_dir / "target.ll"),
             "OUT_OBJ": self.container_path(preprocess_dir / "target.o"),
@@ -257,6 +259,8 @@ class SemantiSTAdapter(BaseAdapter):
                 self.container_path(semantic_model),
                 "--timeout-ms",
                 str(self.config.per_execution_timeout_ms),
+                "--ablation",
+                self.config.semantist_ablation,
             ],
             workdir=self.container_path(run_dir),
             name=container_name,
@@ -307,7 +311,9 @@ class SemantiSTAdapter(BaseAdapter):
         for json_path in sorted((run_dir / "findings").rglob("*.json")):
             try:
                 raw = json.loads(json_path.read_text(encoding="utf-8"))
-            except json.JSONDecodeError:
+            except (OSError, json.JSONDecodeError):
+                # A report can be replaced between directory enumeration and
+                # reading, especially across Docker Desktop's host mount.
                 continue
             if not isinstance(raw, dict) or not (raw.get("kind") or raw.get("finding_kind")):
                 continue
@@ -325,14 +331,17 @@ class SemantiSTAdapter(BaseAdapter):
                 executions = execution_count(native_event.get("executions"))
                 count_source = "runtime_finding_event" if executions is not None else "unavailable"
             oracle = _oracle_from_kind(str(raw.get("kind") or raw.get("finding_kind") or "target_signal"))
-            event = self.candidate_from_path(
-                path=json_path,
-                target=target,
-                trial_id=trial_id,
-                oracle=oracle,
-                discovery_phase=_phase_from_source(str(raw.get("source") or raw.get("finding_source") or "fuzzing")),
-                execution_ordinal=executions,
-            )
+            try:
+                event = self.candidate_from_path(
+                    path=json_path,
+                    target=target,
+                    trial_id=trial_id,
+                    oracle=oracle,
+                    discovery_phase=_phase_from_source(str(raw.get("source") or raw.get("finding_source") or "fuzzing")),
+                    execution_ordinal=executions,
+                )
+            except OSError:
+                continue
             event["execution_count_source"] = count_source
             event["tool_reported_unix_time_seconds"] = raw.get("unix_time_seconds")
             # Report JSON is evidence, never a target input. Keep identity
@@ -343,8 +352,11 @@ class SemantiSTAdapter(BaseAdapter):
             reproducer = raw.get("reproducer")
             reproducer_path = self.host_artifact_path(reproducer) if isinstance(reproducer, str) else None
             if reproducer_path is not None:
-                event["seed_sha256"] = sha256_file(reproducer_path)
-                event["reproducer_artifact_path"] = self.relative_artifact(reproducer_path)
+                try:
+                    event["seed_sha256"] = sha256_file(reproducer_path)
+                    event["reproducer_artifact_path"] = self.relative_artifact(reproducer_path)
+                except OSError:
+                    pass  # The report is retained; a later poll can add the reproducer.
             events.append(event)
         return events
 
@@ -411,11 +423,6 @@ def _copy_dir(source: Path, destination: Path) -> None:
     shutil.copytree(source, destination)
 
 
-def _reuse_preprocessing(preprocess_dir: Path) -> PreprocessingResult:
-    now = 0
-    return PreprocessingResult("completed", preprocess_dir, now, now)
-
-
 def _filtered_env(env: dict[str, str]) -> dict[str, str]:
     keep = {
         "CARGO_TARGET_DIR",
@@ -429,6 +436,7 @@ def _filtered_env(env: dict[str, str]) -> dict[str, str]:
         "HARNESS_OUT",
         "SEMANTIST_HARNESS_SOURCE",
         "SEMANTIST_SEMANTIC_INSTRUMENTATION",
+        "SEMANTIST_TARGET_SANITIZERS",
         "SEMANTIST_STG_DIR",
         "SEMANTIST_SEMANTIC_RUNTIME_IDS",
         "SEMANTIST_SEMANTIC_TRACE_FILE",

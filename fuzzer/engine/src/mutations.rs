@@ -1,9 +1,24 @@
 #[derive(Debug)]
 struct StructuredStMutator {
     name: Cow<'static, str>,
+    ablation: SemantiSTAblation,
 }
 
 const SEMANTIC_MUTATION_PROBABILITY: f64 = 0.70;
+const DEFAULT_FB_MAX_CYCLES: usize = 256;
+const HARD_FB_MAX_CYCLES: usize = 10_000;
+
+fn fb_max_cycles() -> usize {
+    static LIMIT: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *LIMIT.get_or_init(|| parse_fb_max_cycles(env::var("SEMANTIST_FB_MAX_CYCLES").ok().as_deref()))
+}
+
+fn parse_fb_max_cycles(value: Option<&str>) -> usize {
+    value.and_then(|value| value.trim().parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_FB_MAX_CYCLES)
+        .min(HARD_FB_MAX_CYCLES)
+}
 const REAL_BOUNDARY_VALUES: &[&str] = &[
     "0.0",
     "-0.0",
@@ -55,9 +70,10 @@ const TIME_BOUNDARY_VALUES: &[i64] = &[
 const TEMPORAL_BOOTSTRAP_VALUES: &[i64] = &[0, 1, -1, 31, 32, 59, 60, 91, 92, 365, 730];
 
 impl StructuredStMutator {
-    fn new() -> Self {
+    fn new(ablation: SemantiSTAblation) -> Self {
         Self {
             name: Cow::Borrowed("StructuredStMutator"),
+            ablation,
         }
     }
 }
@@ -98,12 +114,13 @@ where
                     }],
                 );
             }
-            let use_semantic = context.target_id.is_some()
+            let use_semantic = self.ablation.targeted_mutation()
+                && context.target_id.is_some()
                 && state
                     .rand_mut()
                     .coinflip(SEMANTIC_MUTATION_PROBABILITY);
             if !use_semantic
-                || !semantic_mutate_cycle_seed(state.rand_mut(), &mut seed, &context)
+                || !semantic_mutate_cycle_seed(state.rand_mut(), &mut seed, &context, self.ablation)
             {
                 mutate_cycle_aware_seed(state.rand_mut(), &mut seed);
             }
@@ -120,7 +137,8 @@ where
             });
         }
 
-        let use_semantic = context.target_id.is_some()
+        let use_semantic = self.ablation.targeted_mutation()
+            && context.target_id.is_some()
             && state
                 .rand_mut()
                 .coinflip(SEMANTIC_MUTATION_PROBABILITY);
@@ -276,47 +294,167 @@ fn expression_operands(expression: &serde_json::Value) -> &[serde_json::Value] {
 }
 
 fn expression_variable(expression: &serde_json::Value) -> Option<String> {
-    let qualified = expression
-        .get("kind")
-        .and_then(|kind| kind.get("qualified_name"))
-        .and_then(|value| value.as_str())
-        .or_else(|| {
-            expression
-                .get("reads")
-                .and_then(|reads| reads.as_array())
-                .and_then(|reads| reads.first())
-                .and_then(|value| value.as_str())
-        })?;
-    Some(
-        qualified
-            .rsplit(['.', ':'])
-            .next()
-            .unwrap_or(qualified)
-            .to_ascii_uppercase(),
-    )
+    let kind = expression.get("kind")?;
+    let qualified = match kind.get("kind")?.as_str()? {
+        "variable" => kind.get("qualified_name")?.as_str()?,
+        "member_access" => {
+            // The compiler wraps a direct identifier in MemberAccess. Only
+            // unwrap that identity-preserving leaf, never arbitrary reads or
+            // a real member selection with a base/compound expression.
+            let [variable] = expression_operands(expression) else { return None; };
+            let variable_kind = variable.get("kind")?;
+            if variable_kind.get("kind")?.as_str()? != "variable"
+                || !variable.get("operands")?.as_array()?.is_empty()
+            { return None; }
+            let qualified = variable_kind.get("qualified_name")?.as_str()?;
+            let member = kind.get("member")?.as_str()?;
+            let type_name = expression.get("type_name")?.as_str()?;
+            if qualified.is_empty() || member.is_empty() || type_name.is_empty()
+                || !qualified.rsplit('.').next()?.eq_ignore_ascii_case(member)
+                || !type_name.eq_ignore_ascii_case(variable.get("type_name")?.as_str()?)
+            { return None; }
+            let reads_same_variable = |value: &serde_json::Value| {
+                value.get("reads").and_then(|reads| reads.as_array()).is_some_and(|reads| {
+                    reads.len() == 1
+                        && reads[0].as_str().is_some_and(|read| read.eq_ignore_ascii_case(qualified))
+                })
+            };
+            if !reads_same_variable(expression) || !reads_same_variable(variable) {
+                return None;
+            }
+            qualified
+        }
+        _ => return None,
+    };
+    Some(qualified.to_ascii_uppercase())
 }
 
-fn expression_integer_literal(expression: &serde_json::Value) -> Option<i64> {
-    let kind = expression.get("kind")?;
-    let value = kind.get("value")?;
-    let raw = value
-        .get("value")
-        .and_then(|value| value.as_str())
-        .or_else(|| value.as_str())?;
-    parse_integer_value(raw)
+fn expression_definition<'a>(
+    variable: &str,
+    definitions: &'a BTreeMap<String, serde_json::Value>,
+) -> Option<&'a serde_json::Value> {
+    definitions.get(variable).or_else(|| {
+        // Compatibility with older plans is limited to a direct POU local.
+        // Never collapse P.instance.X and P.X into the same short symbol.
+        let (_, local) = variable.split_once('.')?;
+        if local.contains(['.', ':']) { return None; }
+        definitions.get(local)
+    })
+}
+
+fn seed_variable_was_written(
+    expression: &serde_json::Value,
+    definitions: &BTreeMap<String, serde_json::Value>,
+) -> bool {
+    expression_variable(expression)
+        .is_some_and(|variable| expression_definition(&variable, definitions).is_some())
+}
+
+fn integer_record_bounds(ty: &str) -> Option<(i128, i128)> {
+    let (bits, signed) = match ty {
+        "SINT" => (8, true), "INT" => (16, true), "DINT" => (32, true), "LINT" => (64, true),
+        "BOOL" => return Some((0, 1)),
+        "USINT" | "BYTE" | "CHAR" => (8, false), "UINT" | "WORD" | "WCHAR" => (16, false),
+        "UDINT" | "DWORD" => (32, false), "ULINT" | "LWORD" => (64, false),
+        _ => return None,
+    };
+    Some(if signed { (-(1_i128 << (bits - 1)), (1_i128 << (bits - 1)) - 1) }
+        else { (0, (1_i128 << bits) - 1) })
+}
+
+fn parse_wide_integer(raw: &str) -> Option<i128> {
+    let value = raw.trim().replace('_', "");
+    if value.eq_ignore_ascii_case("TRUE") { return Some(1); }
+    if value.eq_ignore_ascii_case("FALSE") { return Some(0); }
+    let (negative, digits) = value.strip_prefix('-').map(|digits| (true, digits))
+        .unwrap_or((false, value.trim_start_matches('+')));
+    let result = if let Some(digits) = digits.strip_prefix("0x").or_else(|| digits.strip_prefix("0X")) {
+        i128::from_str_radix(digits, 16).ok()?
+    } else { digits.parse::<i128>().ok()? };
+    if negative { result.checked_neg() } else { Some(result) }
+}
+
+fn integer_expression_wide(records: &[StRecord], expression: &serde_json::Value,
+    definitions: &BTreeMap<String, serde_json::Value>, depth: usize) -> Option<i128>
+{
+    if depth > 16 { return None; }
+    if expression.get("type_name").and_then(|ty| ty.as_str()).is_some_and(is_float_type) {
+        return None;
+    }
+    if let Some(index) = expression_record_index(records, expression) {
+        // The seed stores the invocation input, not a later assignment's
+        // value. Without variable versions, even a known write is ambiguous.
+        if seed_variable_was_written(expression, definitions) { return None; }
+        let (low, high) = integer_record_bounds(&records[index].ty)?;
+        return parse_wide_integer(&records[index].value).filter(|value| (low..=high).contains(value));
+    }
+    if let Some(value) = expression.get("kind").and_then(|kind| kind.get("value")) {
+        if value.get("kind").and_then(|kind| kind.as_str()) == Some("real") { return None; }
+        if let Some(value) = value.get("value").and_then(|value| value.as_bool()) {
+            return Some(i128::from(value));
+        }
+        if let Some(raw) = value.get("value").and_then(|value| value.as_str()).or_else(|| value.as_str()) {
+            return parse_wide_integer(raw);
+        }
+    }
+    if let Some(variable) = expression_variable(expression) {
+        return integer_expression_wide(records, expression_definition(&variable, definitions)?, definitions, depth + 1);
+    }
+    let operands = expression_operands(expression);
+    if operands.len() == 1 {
+        let operand = integer_expression_wide(records, &operands[0], definitions, depth + 1)?;
+        let result = match expression_operator(expression)? {
+            "+" => Some(operand), "-" => operand.checked_neg(), _ => None,
+        }?;
+        if let Some((low, high)) = expression.get("type_name").and_then(|ty| ty.as_str()).and_then(integer_record_bounds) {
+            if !(low..=high).contains(&result) { return None; }
+        }
+        return Some(result);
+    }
+    if operands.len() != 2 { return None; }
+    let left = integer_expression_wide(records, &operands[0], definitions, depth + 1)?;
+    let right = integer_expression_wide(records, &operands[1], definitions, depth + 1)?;
+    let result = match expression_operator(expression)? {
+        "+" => left.checked_add(right), "-" => left.checked_sub(right), "*" => left.checked_mul(right),
+        "/" | "DIV" => left.checked_div(right), "MOD" => left.checked_rem(right), _ => None,
+    }?;
+    if let Some((low, high)) = expression.get("type_name").and_then(|ty| ty.as_str()).and_then(integer_record_bounds) {
+        if result < low || result > high { return None; }
+    }
+    Some(result)
+}
+
+fn mutate_integer_comparison(record: &mut StRecord, operator: &str, fixed: i128,
+    variable_on_left: bool, desired: bool) -> bool
+{
+    let Some((low, high)) = integer_record_bounds(&record.ty) else { return false; };
+    for candidate in [Some(fixed), fixed.checked_sub(1), fixed.checked_add(1), Some(low), Some(high)].into_iter().flatten() {
+        if candidate < low || candidate > high { continue; }
+        let (left, right) = if variable_on_left { (candidate, fixed) } else { (fixed, candidate) };
+        let satisfied = match operator {
+            "<" => left < right, "<=" => left <= right, ">" => left > right, ">=" => left >= right,
+            "=" => left == right, "<>" => left != right, _ => return false,
+        };
+        if satisfied == desired && parse_wide_integer(&record.value) != Some(candidate) {
+            record.value = candidate.to_string();
+            return true;
+        }
+    }
+    false
 }
 
 fn expression_record_index(records: &[StRecord], expression: &serde_json::Value) -> Option<usize> {
     let variable = expression_variable(expression)?;
-    records
+    let local = variable.split_once('.').map(|(_, local)| local);
+    let mut indices = records
         .iter()
-        .position(|record| normalized_field_name(&record.name) == variable)
-}
-
-fn expression_integer_value(records: &[StRecord], expression: &serde_json::Value) -> Option<i64> {
-    expression_record_index(records, expression)
-        .and_then(|index| parse_integer_value(&records[index].value))
-        .or_else(|| expression_integer_literal(expression))
+        .enumerate()
+        .filter_map(|(index, record)| {
+            let name = normalized_field_name(&record.name);
+            (name == variable || local == Some(name.as_str())).then_some(index)
+        });
+    let index = indices.next()?;
+    indices.next().is_none().then_some(index)
 }
 
 fn expression_number_literal(expression: &serde_json::Value) -> Option<f64> {
@@ -338,36 +476,42 @@ fn expression_number_value(
     if depth > 16 {
         return None;
     }
+    if let Some(value) = integer_expression_wide(records, expression, definitions, depth) {
+        // Do not silently lose low bits of LINT/ULINT in a floating constraint.
+        return (-(1_i128 << 53)..=(1_i128 << 53)).contains(&value).then_some(value as f64);
+    }
     if let Some(index) = expression_record_index(records, expression) {
-        return parse_number_value(&records[index].value);
+        if seed_variable_was_written(expression, definitions) { return None; }
+        if !is_float_type(&records[index].ty) { return None; }
+        return typed_float_value(&records[index].ty, parse_number_value(&records[index].value)?);
     }
     if let Some(value) = expression_number_literal(expression) {
-        return Some(value);
+        return typed_float_value(expression.get("type_name").and_then(|ty| ty.as_str()).unwrap_or("LREAL"), value);
     }
     if let Some(variable) = expression_variable(expression) {
-        if let Some(definition) = definitions.get(&variable) {
+        if let Some(definition) = expression_definition(&variable, definitions) {
             return expression_number_value(records, definition, definitions, depth + 1);
         }
     }
     let operands = expression_operands(expression);
-    let Some(operator) = expression_operator(expression) else {
-        return (operands.len() == 1)
-            .then(|| expression_number_value(records, &operands[0], definitions, depth + 1))
-            .flatten();
-    };
+    let operator = expression_operator(expression)?;
+    if operands.len() == 1 {
+        let operand = expression_number_value(records, &operands[0], definitions, depth + 1)?;
+        return match operator { "+" => Some(operand), "-" => Some(-operand), _ => None };
+    }
     if operands.len() != 2 {
         return None;
     }
     let left = expression_number_value(records, &operands[0], definitions, depth + 1)?;
     let right = expression_number_value(records, &operands[1], definitions, depth + 1)?;
-    match operator.to_ascii_uppercase().as_str() {
+    let value = match operator.to_ascii_uppercase().as_str() {
         "+" => Some(left + right),
         "-" => Some(left - right),
         "*" => Some(left * right),
-        "/" | "DIV" => (right != 0.0).then_some(left / right),
-        "MOD" => (right != 0.0).then_some(left % right),
+        "/" => (right != 0.0).then_some(left / right),
         _ => None,
-    }
+    }?;
+    typed_float_value(expression.get("type_name").and_then(|ty| ty.as_str()).unwrap_or("LREAL"), value)
 }
 
 fn evaluate_integer_expression(
@@ -376,36 +520,7 @@ fn evaluate_integer_expression(
     definitions: &BTreeMap<String, serde_json::Value>,
     depth: usize,
 ) -> Option<i64> {
-    if depth > 16 {
-        return None;
-    }
-    if let Some(value) = expression_integer_value(records, expression) {
-        return Some(value);
-    }
-    if let Some(variable) = expression_variable(expression) {
-        if let Some(definition) = definitions.get(&variable) {
-            return evaluate_integer_expression(records, definition, definitions, depth + 1);
-        }
-    }
-    let operands = expression_operands(expression);
-    let Some(operator) = expression_operator(expression) else {
-        return (operands.len() == 1)
-            .then(|| evaluate_integer_expression(records, &operands[0], definitions, depth + 1))
-            .flatten();
-    };
-    if operands.len() != 2 {
-        return None;
-    }
-    let left = evaluate_integer_expression(records, &operands[0], definitions, depth + 1)?;
-    let right = evaluate_integer_expression(records, &operands[1], definitions, depth + 1)?;
-    match operator.to_ascii_uppercase().as_str() {
-        "+" => left.checked_add(right),
-        "-" => left.checked_sub(right),
-        "*" => left.checked_mul(right),
-        "DIV" => (right != 0).then(|| left.checked_div(right)).flatten(),
-        "MOD" => (right != 0).then(|| left.checked_rem(right)).flatten(),
-        _ => None,
-    }
+    integer_expression_wide(records, expression, definitions, depth)?.try_into().ok()
 }
 
 fn mutate_expression_to_value(
@@ -418,14 +533,29 @@ fn mutate_expression_to_value(
     if depth > 16 {
         return false;
     }
-    if let Some(index) = expression_record_index(records, expression) {
-        if is_integer_type(&records[index].ty) {
-            set_integer_record_value(&mut records[index], desired);
+    if depth == 0 {
+        let original = records.to_vec();
+        if mutate_expression_to_value(records, expression, desired, definitions, 1)
+            && integer_expression_wide(records, expression, definitions, 0) == Some(desired as i128)
+        {
             return true;
         }
+        records.clone_from_slice(&original);
+        return false;
+    }
+    if let Some(index) = expression_record_index(records, expression) {
+        if seed_variable_was_written(expression, definitions) { return false; }
+        if integer_record_bounds(&records[index].ty)
+            .is_some_and(|(low, high)| (low..=high).contains(&(desired as i128)))
+            && parse_wide_integer(&records[index].value) != Some(desired as i128)
+        {
+            records[index].value = desired.to_string();
+            return true;
+        }
+        return false;
     }
     if let Some(variable) = expression_variable(expression) {
-        if let Some(definition) = definitions.get(&variable) {
+        if let Some(definition) = expression_definition(&variable, definitions) {
             return mutate_expression_to_value(
                 records,
                 definition,
@@ -436,16 +566,7 @@ fn mutate_expression_to_value(
         }
     }
     let operands = expression_operands(expression);
-    let Some(operator) = expression_operator(expression) else {
-        return operands.len() == 1
-            && mutate_expression_to_value(
-                records,
-                &operands[0],
-                desired,
-                definitions,
-                depth + 1,
-            );
-    };
+    let Some(operator) = expression_operator(expression) else { return false; };
     if operands.len() != 2 {
         return false;
     }
@@ -517,42 +638,55 @@ fn mutate_expression_to_value(
     }
 }
 
-fn comparison_target_number(
+fn typed_float_value(ty: &str, value: f64) -> Option<f64> {
+    if integer_record_bounds(ty).is_some() { return None; }
+    let value = if ty == "REAL" { value as f32 as f64 } else { value };
+    value.is_finite().then_some(value)
+}
+
+fn comparison_holds<T: PartialOrd>(operator: &str, left: T, right: T) -> Option<bool> {
+    match operator {
+        "<" => Some(left < right), "<=" => Some(left <= right),
+        ">" => Some(left > right), ">=" => Some(left >= right),
+        "=" => Some(left == right), "<>" => Some(left != right), _ => None,
+    }
+}
+
+fn mutate_float_comparison(
+    record: &mut StRecord,
     operator: &str,
     fixed: f64,
     variable_on_left: bool,
     desired: bool,
-) -> f64 {
-    let step = if fixed.abs() >= 1.0 {
-        fixed.abs() * 0.01
+) -> bool {
+    if !fixed.is_finite() { return false; }
+    let candidates = if record.ty == "REAL" {
+        let rounded = fixed as f32;
+        [rounded as f64, rounded.next_down() as f64, rounded.next_up() as f64]
     } else {
-        1.0
+        [fixed, fixed.next_down(), fixed.next_up()]
     };
-    match (operator, variable_on_left, desired) {
-        ("<", true, true) | (">", false, true) => fixed - step,
-        ("<", true, false) | (">", false, false) => fixed,
-        ("<=", true, true) | (">=", false, true) => fixed,
-        ("<=", true, false) | (">=", false, false) => fixed + step,
-        (">", true, true) | ("<", false, true) => fixed + step,
-        (">", true, false) | ("<", false, false) => fixed,
-        (">=", true, true) | ("<=", false, true) => fixed,
-        (">=", true, false) | ("<=", false, false) => fixed - step,
-        ("=", _, true) | ("<>", _, false) => fixed,
-        ("=", _, false) | ("<>", _, true) => fixed + step,
-        _ => fixed,
+    let current = parse_number_value(&record.value).and_then(|value| typed_float_value(&record.ty, value));
+    for candidate in candidates {
+        if !candidate.is_finite() || current == Some(candidate) { continue; }
+        let (left, right) = if variable_on_left { (candidate, fixed) } else { (fixed, candidate) };
+        if comparison_holds(operator, left, right) == Some(desired) {
+            set_number_record_value(record, candidate);
+            return true;
+        }
     }
+    false
 }
 
 fn set_number_record_value(record: &mut StRecord, value: f64) {
-    if is_float_type(&record.ty) {
-        let value = if value.is_finite() { value } else { 0.0 };
-        record.value = if value != 0.0 && !(1.0e-4..1.0e9).contains(&value.abs()) {
-            format!("{value:.9e}")
-        } else {
-            format!("{value:.6}")
-        };
-    } else if is_integer_type(&record.ty) {
-        set_integer_record_value(record, value.round() as i64);
+    if let Some(value) = typed_float_value(&record.ty, value) {
+        // Rust's shortest round-trip representation preserves adjacent IEEE
+        // values; fixed decimal precision can round a strict boundary away.
+        if record.ty == "REAL" {
+            record.value = (value as f32).to_string();
+        } else if record.ty == "LREAL" {
+            record.value = value.to_string();
+        }
     }
 }
 
@@ -634,41 +768,63 @@ fn mutate_range_conjunction(
     } else {
         (second, first)
     };
-    let integer = is_integer_type(&records[lower.value_index].ty);
+    if !is_float_type(&records[lower.value_index].ty) { return false; }
     let mut low = lower.bound_value;
     let mut high = upper.bound_value;
-    let needs_room = if integer {
-        if lower.inclusive && upper.inclusive {
-            low > high
-        } else if lower.inclusive || upper.inclusive {
-            low >= high
-        } else {
-            low + 1.0 >= high
-        }
-    } else {
-        low >= high
-    };
+    let needs_room = low > high || (low == high && (!lower.inclusive || !upper.inclusive));
     if needs_room {
+        let (Some(lower_index), Some(upper_index)) = (lower.bound_index, upper.bound_index) else { return false; };
+        if lower_index == upper_index || lower_index == lower.value_index || upper_index == lower.value_index
+            || !is_float_type(&records[lower_index].ty) || !is_float_type(&records[upper_index].ty)
+        { return false; }
         low = 0.0;
-        high = if integer { 10.0 } else { 1.0 };
-        if let Some(index) = lower.bound_index {
-            set_number_record_value(&mut records[index], low);
-        }
-        if let Some(index) = upper.bound_index {
-            set_number_record_value(&mut records[index], high);
-        }
+        high = 1.0;
+        set_number_record_value(&mut records[lower_index], low);
+        set_number_record_value(&mut records[upper_index], high);
     }
-    let value = if integer {
-        if lower.inclusive {
-            low.ceil()
-        } else {
-            low.floor() + 1.0
-        }
-    } else {
-        (low + high) / 2.0
-    };
+    let value = low / 2.0 + high / 2.0;
     set_number_record_value(&mut records[lower.value_index], value);
     true
+}
+
+fn evaluate_expression_goal(
+    records: &[StRecord],
+    expression: &serde_json::Value,
+    definitions: &BTreeMap<String, serde_json::Value>,
+    depth: usize,
+) -> Option<bool> {
+    if depth > 16 { return None; }
+    if let Some(value) = expression.get("kind").and_then(|kind| kind.get("value"))
+        .and_then(|value| value.get("value")).and_then(|value| value.as_bool())
+    { return Some(value); }
+    if let Some(variable) = expression_variable(expression) {
+        if let Some(index) = expression_record_index(records, expression) {
+            if expression_definition(&variable, definitions).is_some() { return None; }
+            return (records[index].ty == "BOOL")
+                .then(|| parse_wide_integer(&records[index].value).map(|value| value != 0)).flatten();
+        }
+        return evaluate_expression_goal(records, expression_definition(&variable, definitions)?, definitions, depth + 1);
+    }
+    let operands = expression_operands(expression);
+    let operator = expression_operator(expression)?;
+    if operator.eq_ignore_ascii_case("NOT") && operands.len() == 1 {
+        return evaluate_expression_goal(records, &operands[0], definitions, depth + 1).map(|value| !value);
+    }
+    if operands.len() != 2 { return None; }
+    if operator.eq_ignore_ascii_case("AND") || operator.eq_ignore_ascii_case("OR") {
+        let left = evaluate_expression_goal(records, &operands[0], definitions, depth + 1)?;
+        let right = evaluate_expression_goal(records, &operands[1], definitions, depth + 1)?;
+        return Some(if operator.eq_ignore_ascii_case("AND") { left && right } else { left || right });
+    }
+    if let (Some(left), Some(right)) = (
+        integer_expression_wide(records, &operands[0], definitions, depth + 1),
+        integer_expression_wide(records, &operands[1], definitions, depth + 1),
+    ) {
+        return comparison_holds(operator, left, right);
+    }
+    comparison_holds(operator,
+        expression_number_value(records, &operands[0], definitions, depth + 1)?,
+        expression_number_value(records, &operands[1], definitions, depth + 1)?)
 }
 
 fn mutate_expression_goal(
@@ -682,72 +838,64 @@ fn mutate_expression_goal(
         return false;
     }
     if let Some(variable) = expression_variable(expression) {
-        if expression_record_index(records, expression).is_none() {
-            if let Some(definition) = definitions.get(&variable) {
-                return mutate_expression_goal(records, definition, desired, definitions, depth + 1);
-            }
+        if let Some(index) = expression_record_index(records, expression) {
+            if expression_definition(&variable, definitions).is_some() { return false; }
+            if records[index].ty != "BOOL" { return false; }
+            let value = if desired { "1" } else { "0" };
+            if records[index].value == value { return false; }
+            records[index].value = value.to_string();
+            return true;
         }
-    }
-    let operands = expression_operands(expression);
-    let Some(operator) = expression_operator(expression) else {
-        if operands.len() == 1 {
-            return mutate_expression_goal(records, &operands[0], desired, definitions, depth + 1);
+        if let Some(definition) = expression_definition(&variable, definitions) {
+            return mutate_expression_goal(records, definition, desired, definitions, depth + 1);
         }
         return false;
-    };
+    }
+    let operands = expression_operands(expression);
+    let Some(operator) = expression_operator(expression) else { return false; };
     if operator.eq_ignore_ascii_case("NOT") && operands.len() == 1 {
         return mutate_expression_goal(records, &operands[0], !desired, definitions, depth + 1);
     }
-    if operator.eq_ignore_ascii_case("AND") && operands.len() == 2 {
-        if desired {
-            if mutate_range_conjunction(records, &operands[0], &operands[1], definitions, depth + 1)
-            {
-                return true;
+    if (operator.eq_ignore_ascii_case("AND") || operator.eq_ignore_ascii_case("OR")) && operands.len() == 2 {
+        // A bounded local attempt, not a solver: preserve the original input
+        // unless the whole Boolean goal is satisfied after the edits.
+        let original = records.to_vec();
+        if operator.eq_ignore_ascii_case("AND") && desired {
+            mutate_range_conjunction(records, &operands[0], &operands[1], definitions, depth + 1);
+        }
+        let needs_both = operator.eq_ignore_ascii_case("AND") == desired;
+        for operand in operands {
+            if evaluate_expression_goal(records, operand, definitions, depth + 1) != Some(desired) {
+                mutate_expression_goal(records, operand, desired, definitions, depth + 1);
             }
-            let left = mutate_expression_goal(records, &operands[0], true, definitions, depth + 1);
-            let right =
-                mutate_expression_goal(records, &operands[1], true, definitions, depth + 1);
-            return left || right;
+            if !needs_both && evaluate_expression_goal(records, expression, definitions, depth) == Some(desired) {
+                break;
+            }
         }
-        return mutate_expression_goal(records, &operands[0], false, definitions, depth + 1)
-            || mutate_expression_goal(records, &operands[1], false, definitions, depth + 1);
-    }
-    if operator.eq_ignore_ascii_case("OR") && operands.len() == 2 {
-        if desired {
-            return mutate_expression_goal(records, &operands[0], true, definitions, depth + 1)
-                || mutate_expression_goal(records, &operands[1], true, definitions, depth + 1);
+        if evaluate_expression_goal(records, expression, definitions, depth) == Some(desired) {
+            return records.iter().zip(&original).any(|(new, old)| new.value != old.value);
         }
-        let left = mutate_expression_goal(records, &operands[0], false, definitions, depth + 1);
-        let right = mutate_expression_goal(records, &operands[1], false, definitions, depth + 1);
-        return left || right;
+        records.clone_from_slice(&original);
+        return false;
     }
     if !matches!(operator, "<" | "<=" | ">" | ">=" | "=" | "<>") || operands.len() != 2 {
         return false;
     }
-    if let Some(left_index) = expression_record_index(records, &operands[0]) {
-        if !is_integer_type(&records[left_index].ty) && !is_float_type(&records[left_index].ty) {
-            return false;
-        }
-        if let Some(right) = expression_number_value(records, &operands[1], definitions, depth + 1)
-        {
-            set_number_record_value(
-                &mut records[left_index],
-                comparison_target_number(operator, right, true, desired),
-            );
+    for (variable, fixed, on_left) in [(&operands[0], &operands[1], true), (&operands[1], &operands[0], false)] {
+        let Some(index) = expression_record_index(records, variable) else { continue; };
+        if seed_variable_was_written(variable, definitions) { continue; }
+        let original = records[index].value.clone();
+        let changed = if integer_record_bounds(&records[index].ty).is_some() {
+            integer_expression_wide(records, fixed, definitions, depth + 1)
+                .is_some_and(|value| mutate_integer_comparison(&mut records[index], operator, value, on_left, desired))
+        } else if is_float_type(&records[index].ty) {
+            expression_number_value(records, fixed, definitions, depth + 1)
+                .is_some_and(|value| mutate_float_comparison(&mut records[index], operator, value, on_left, desired))
+        } else { false };
+        if changed && evaluate_expression_goal(records, expression, definitions, depth) == Some(desired) {
             return true;
         }
-    }
-    if let Some(right_index) = expression_record_index(records, &operands[1]) {
-        if !is_integer_type(&records[right_index].ty) && !is_float_type(&records[right_index].ty) {
-            return false;
-        }
-        if let Some(left) = expression_number_value(records, &operands[0], definitions, depth + 1) {
-            set_number_record_value(
-                &mut records[right_index],
-                comparison_target_number(operator, left, false, desired),
-            );
-            return true;
-        }
+        records[index].value = original;
     }
     false
 }
@@ -1085,13 +1233,24 @@ fn mutate_hazard_goal<R>(
 where
     R: Rand,
 {
+    // A task may end at a hazard while its active guide is still a branch or
+    // state prerequisite. Only apply hazard-specific operands to a hazard guide.
+    if !matches!(context.target_type.as_deref(), Some("hazard_reach" | "hazard_violation")) {
+        return false;
+    }
     let Some(expression) = context.goal_expression.as_ref() else {
         return false;
     };
     let violation = context.target_type.as_deref() == Some("hazard_violation");
     let operands = expression_operands(expression);
     match context.hazard_kind.as_deref() {
-        Some("division" | "modulo") if operands.len() == 2 => {
+        Some("division" | "modulo")
+            if operands.len() == 2
+                && expression_operator(expression).is_some_and(|operator| {
+                    matches!(operator, "/" | "%")
+                        || operator.eq_ignore_ascii_case("DIV")
+                        || operator.eq_ignore_ascii_case("MOD")
+                }) => {
             mutate_expression_to_value(
                 records,
                 &operands[1],
@@ -1369,6 +1528,7 @@ fn semantic_mutate_cycle_seed<R>(
     rand: &mut R,
     seed: &mut CycleAwareSeed,
     context: &TargetContext,
+    ablation: SemantiSTAblation,
 ) -> bool
 where
     R: Rand,
@@ -1377,6 +1537,26 @@ where
         return false;
     }
     ensure_cycle_hint(seed, context.cycle_hint.unwrap_or(3).max(1) as usize);
+    // Keep exploring deeper state histories even when the terminal predicate
+    // is easy to mutate. This is a cheap, bounded counterpart to a dynamic
+    // scan horizon and preserves the terminal cycle while growing its prefix.
+    if ablation.prefix_growth()
+        && (context.cycle_hint.unwrap_or(1) > 1 || !context.transition_seed_fields.is_empty())
+        && rand.coinflip(0.15)
+        && expand_state_prefix(rand, seed)
+    {
+        return true;
+    }
+    // Spend some mutations on the state-building prefix, but retain direct
+    // terminal-goal mutations and ordinary cycle havoc for exploration.
+    if ablation.transition_guidance()
+        && !context.transition_seed_fields.is_empty()
+        && rand.coinflip(0.5)
+        && mutate_transition_prefix(rand, seed, &context.transition_seed_fields)
+    {
+        normalize_cycle_ids(seed);
+        return true;
+    }
     if let Some((_cycle, records)) = seed.cycles.iter_mut().next_back() {
         if mutate_hazard_goal(rand, records, context)
             || context
@@ -1389,6 +1569,12 @@ where
             normalize_cycle_ids(seed);
             return true;
         }
+    }
+    if ablation.transition_guidance()
+        && mutate_transition_prefix(rand, seed, &context.transition_seed_fields)
+    {
+        normalize_cycle_ids(seed);
+        return true;
     }
     if context.semantic_task_id.is_none() {
         return false;
@@ -1406,12 +1592,12 @@ where
             &mut cycles[selected],
             &context.controllable_seed_fields,
         ),
-        1 if cycles.len() < 64 => {
+        1 if cycles.len() < fb_max_cycles() => {
             let duplicate = cycles[selected].clone();
             cycles.insert(selected.saturating_add(1), duplicate);
             true
         }
-        2 if cycles.len() < 64 => {
+        2 if cycles.len() < fb_max_cycles() => {
             cycles.push(cycles[selected].clone());
             true
         }
@@ -1431,8 +1617,42 @@ where
     changed
 }
 
+fn mutate_transition_prefix<R>(
+    rand: &mut R,
+    seed: &mut CycleAwareSeed,
+    transfer_fields: &[Vec<ControllableSeedField>],
+) -> bool
+where
+    R: Rand,
+{
+    if seed.cycles.len() < 2 || transfer_fields.is_empty() {
+        return false;
+    }
+    let transfer = &transfer_fields[rand.below_or_zero(transfer_fields.len())];
+    let prefix_cycle = rand.below_or_zero(seed.cycles.len() - 1);
+    seed.cycles
+        .values_mut()
+        .nth(prefix_cycle)
+        .is_some_and(|records| mutate_controllable_seed_field(rand, records, transfer))
+}
+
+fn expand_state_prefix<R>(rand: &mut R, seed: &mut CycleAwareSeed) -> bool
+where
+    R: Rand,
+{
+    if seed.cycles.len() < 2 || seed.cycles.len() >= fb_max_cycles() {
+        return false;
+    }
+    let mut cycles = seed.cycles.values().cloned().collect::<Vec<_>>();
+    let source = rand.below_or_zero(cycles.len() - 1);
+    let duplicate = cycles[source].clone();
+    cycles.insert(source + 1, duplicate);
+    seed.cycles = cycles.into_iter().enumerate().collect();
+    true
+}
+
 fn ensure_cycle_hint(seed: &mut CycleAwareSeed, desired_cycles: usize) {
-    let desired_cycles = desired_cycles.max(1).min(64);
+    let desired_cycles = desired_cycles.max(1).min(fb_max_cycles());
     if seed.cycles.is_empty() {
         let base = if seed.shared.is_empty() {
             vec![StRecord {
@@ -1503,6 +1723,9 @@ fn cycle_clone_cycle<R>(rand: &mut R, seed: &mut CycleAwareSeed)
 where
     R: Rand,
 {
+    if seed.cycles.len() >= fb_max_cycles() {
+        return;
+    }
     let ids = seed.cycles.keys().copied().collect::<Vec<_>>();
     if ids.is_empty() {
         return;
@@ -1533,6 +1756,9 @@ fn cycle_insert_cycle<R>(rand: &mut R, seed: &mut CycleAwareSeed)
 where
     R: Rand,
 {
+    if seed.cycles.len() >= fb_max_cycles() {
+        return;
+    }
     let ids = seed.cycles.keys().copied().collect::<Vec<_>>();
     let mut records = if ids.is_empty() {
         seed.shared.clone()
@@ -1715,6 +1941,10 @@ impl RuntimeFindingFeedback {
             if !metadata.is_file() || metadata.len() == 0 {
                 continue;
             }
+            let fingerprint = sanitizer_log_fingerprint(&path, &metadata);
+            if self.seen_sanitizer_logs.contains(&fingerprint) {
+                continue;
+            }
             let Ok(contents) = fs::read(&path) else {
                 continue;
             };
@@ -1727,7 +1957,6 @@ impl RuntimeFindingFeedback {
                 .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
                 .map(|duration| duration.as_nanos())
                 .unwrap_or_default();
-            let fingerprint = sanitizer_log_fingerprint(&path, &metadata);
             candidates.push((
                 modified,
                 SanitizerEvidence {
@@ -2073,3 +2302,336 @@ where
 }
 
 // 运行配置：命令行参数和环境变量最终都会汇总到这里。
+
+#[cfg(test)]
+mod mutation_regression_tests {
+    use super::*;
+
+    fn variable(name: &str) -> serde_json::Value {
+        serde_json::json!({"kind": {"kind": "variable", "qualified_name": name}, "reads": [name], "operands": []})
+    }
+
+    fn integer(value: &str) -> serde_json::Value {
+        serde_json::json!({"kind": {"kind": "literal", "value": {"kind": "integer", "value": value}}})
+    }
+
+    fn binary(operator: &str, left: serde_json::Value, right: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({"kind": {"kind": "binary", "operator": operator}, "operands": [left, right], "reads": ["P.X"]})
+    }
+
+    fn compiler_member_variable(name: &str, ty: &str) -> serde_json::Value {
+        // Shape emitted by the real ALGORITHM_BRANCH compiler plan, including
+        // the single variable operand, both read sets, and both type names.
+        serde_json::json!({
+            "kind": {"kind": "member_access", "member": name.rsplit('.').next().unwrap()},
+            "operands": [{
+                "kind": {"kind": "variable", "qualified_name": name},
+                "operands": [], "reads": [name], "type_name": ty
+            }],
+            "reads": [name], "type_name": ty
+        })
+    }
+
+    #[test]
+    fn branch_prerequisite_is_not_mutated_as_the_terminal_division() {
+        let goal = binary(">", variable("P.X"), variable("P.Y"));
+        let context = TargetContext {
+            target_id: Some("branch:true".into()),
+            target_type: Some("branch_outcome".into()),
+            hazard_kind: Some("division".into()),
+            goal_expression: Some(goal.clone()),
+            ..TargetContext::default()
+        };
+        let mut rand = StdRand::with_seed(12);
+        let mut records = parse_structured_records("X,DINT,0\nY,DINT,5\n");
+        assert!(!mutate_hazard_goal(&mut rand, &mut records, &context));
+        assert_eq!(serialize_records(&records), "X,DINT,0\nY,DINT,5\n");
+        assert!(semantic_mutate_records(&mut rand, &mut records, &context));
+        assert_eq!(evaluate_expression_goal(&records, &goal, &BTreeMap::new(), 0), Some(true));
+        // Also reject a mismatched expression in a hazard-labelled context.
+        let invalid = TargetContext { target_type: Some("hazard_reach".into()), ..context };
+        assert!(!mutate_hazard_goal(&mut rand, &mut records, &invalid));
+    }
+
+    #[test]
+    fn sanitizer_history_dedup_preserves_new_and_updated_reports() {
+        let root = env::temp_dir().join(format!("semantist-log-dedup-{}-{}", std::process::id(), current_nanos()));
+        fs::create_dir_all(&root).unwrap();
+        let old = root.join("asan.old");
+        fs::write(&old, b"ERROR: AddressSanitizer: old report\n").unwrap();
+        let mut feedback = RuntimeFindingFeedback::new(
+            root.join("findings"), root.join("corpus"), None, root.join("events.jsonl"), root.clone());
+        assert!(feedback.take_new_sanitizer_evidence().is_none());
+        fs::write(root.join("ubsan.new"), b"runtime error: division by zero\n").unwrap();
+        fs::write(root.join("asan.new"), b"ERROR: AddressSanitizer: new report\n").unwrap();
+        fs::write(root.join("asan.noise"), b"LeakSanitizer has encountered a fatal error\nLeakSanitizer does not work under ptrace\n").unwrap();
+        fs::write(root.join("irrelevant.txt"), b"runtime error: ignored name\n").unwrap();
+        let mut kinds = Vec::new();
+        while let Some(evidence) = feedback.take_new_sanitizer_evidence() {
+            kinds.push(evidence.kind);
+        }
+        kinds.sort();
+        assert_eq!(kinds, vec!["asan", "ubsan"]);
+        // A changed existing file must still be consumed, even on a later scan.
+        fs::write(&old, b"ERROR: AddressSanitizer: updated and longer report\n").unwrap();
+        let updated = feedback.take_new_sanitizer_evidence().unwrap();
+        assert_eq!(updated.path, old);
+        assert_eq!(updated.kind, "asan");
+        assert!(feedback.take_new_sanitizer_evidence().is_none());
+        // An initially irrelevant/incomplete log can become a valid report.
+        fs::write(root.join("asan.noise"), b"runtime error: new report after noise\n").unwrap();
+        assert_eq!(feedback.take_new_sanitizer_evidence().unwrap().kind, "ubsan");
+        assert!(feedback.take_new_sanitizer_evidence().is_none());
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn compiler_member_plan_goals_use_the_controllable_input() {
+        let defs = BTreeMap::new();
+        let mut records = parse_structured_records("X,DINT,0\nY,DINT,0\n");
+        let goal = serde_json::json!({
+            "kind": {"kind": "binary", "operator": "="},
+            "operands": [compiler_member_variable("ALGORITHM_BRANCH.X", "DINT"), {
+                "kind": {"kind": "literal", "value": {"kind": "integer", "value": "42"}},
+                "operands": [], "reads": [], "type_name": "DINT"
+            }],
+            "reads": ["ALGORITHM_BRANCH.X"], "type_name": "BOOL"
+        });
+        assert_eq!(evaluate_expression_goal(&records, &goal, &defs, 0), Some(false));
+        assert!(mutate_expression_goal(&mut records, &goal, true, &defs, 0));
+        assert_eq!(serialize_records(&records), "X,DINT,42\nY,DINT,0\n");
+        assert_eq!(evaluate_expression_goal(&records, &goal, &defs, 0), Some(true));
+
+        let mut records = parse_structured_records("X,DINT,0\nY,DINT,20\n");
+        let conjunction = binary("AND",
+            binary(">", compiler_member_variable("ALGORITHM_BRANCH.X", "DINT"), integer("10")),
+            binary("<", compiler_member_variable("ALGORITHM_BRANCH.Y", "DINT"), integer("20")));
+        assert!(mutate_expression_goal(&mut records, &conjunction, true, &defs, 0));
+        assert_eq!(serialize_records(&records), "X,DINT,11\nY,DINT,19\n");
+        assert_eq!(evaluate_expression_goal(&records, &conjunction, &defs, 0), Some(true));
+    }
+
+    #[test]
+    fn compiler_member_wrappers_reject_nonidentity_shapes() {
+        let valid = compiler_member_variable("ALGORITHM_BRANCH.X", "DINT");
+        for (pointer, replacement) in [
+            ("/kind/kind", serde_json::json!("call")),
+            ("/kind/kind", serde_json::json!("cast")),
+            ("/kind/kind", serde_json::json!("array_index")),
+            ("/kind/member", serde_json::json!("Y")),
+            ("/type_name", serde_json::json!("REAL")),
+            ("/type_name", serde_json::Value::Null),
+            ("/reads", serde_json::json!(["OTHER.X"])),
+            ("/reads", serde_json::json!(["ALGORITHM_BRANCH.X", "ALGORITHM_BRANCH.Y"])),
+            ("/operands/0/reads", serde_json::json!(["OTHER.X"])),
+            ("/operands/0/kind/qualified_name", serde_json::json!("OTHER.X")),
+            ("/operands/0/operands", serde_json::json!([integer("1")])),
+            ("/operands/0", binary("+", variable("ALGORITHM_BRANCH.X"), integer("1"))),
+            ("/operands", serde_json::json!([valid["operands"][0], valid["operands"][0]])),
+        ] {
+            let mut invalid = valid.clone();
+            *invalid.pointer_mut(pointer).unwrap() = replacement;
+            let mut records = parse_structured_records("X,DINT,0\n");
+            let goal = binary("=", invalid.clone(), integer("42"));
+            assert!(expression_variable(&invalid).is_none(), "{pointer}: {invalid}");
+            assert_eq!(evaluate_expression_goal(&records, &goal, &BTreeMap::new(), 0), None);
+            assert!(!mutate_expression_goal(&mut records, &goal, true, &BTreeMap::new(), 0));
+            assert_eq!(records[0].value, "0");
+        }
+    }
+
+    #[test]
+    fn compiler_member_wrappers_preserve_scope_and_written_input_rejection() {
+        let records = parse_structured_records("X,DINT,0\n");
+        let nested = compiler_member_variable("P.INSTANCE.X", "DINT");
+        assert_eq!(expression_variable(&nested).as_deref(), Some("P.INSTANCE.X"));
+        assert_eq!(expression_record_index(&records, &nested), None);
+        let definitions = BTreeMap::from([
+            ("P.INSTANCE.X".into(), integer("42")), ("X".into(), integer("99")),
+        ]);
+        assert_eq!(integer_expression_wide(&records, &nested, &definitions, 0), Some(42));
+        assert_eq!(integer_expression_wide(&records,
+            &compiler_member_variable("Q.INSTANCE.X", "DINT"), &definitions, 0), None);
+
+        for ty in ["DINT", "ULINT", "REAL", "LREAL", "BOOL"] {
+            let input = compiler_member_variable("ALGORITHM_BRANCH.X", ty);
+            for definition in [integer("42"), binary("+", input.clone(), integer("1")), serde_json::Value::Null] {
+                let definitions = BTreeMap::from([("ALGORITHM_BRANCH.X".into(), definition)]);
+                let mut records = parse_structured_records(&format!("X,{ty},0\n"));
+                let goal = if ty == "BOOL" { input.clone() } else { binary("=", input.clone(), integer("42")) };
+                assert!(seed_variable_was_written(&input, &definitions));
+                assert_eq!(integer_expression_wide(&records, &input, &definitions, 0), None);
+                assert_eq!(expression_number_value(&records, &input, &definitions, 0), None);
+                assert_eq!(evaluate_expression_goal(&records, &goal, &definitions, 0), None);
+                assert!(!mutate_expression_goal(&mut records, &goal, true, &definitions, 0));
+                assert!(!mutate_expression_to_value(&mut records, &input, 1, &definitions, 0));
+                assert_eq!(records[0].value, "0");
+            }
+        }
+    }
+
+    #[test]
+    fn strict_integer_goals_cross_the_actual_discrete_boundary() {
+        for (operator, expected) in [(">", "11"), ("<", "9"), ("<>", "9")] {
+            let mut records = parse_structured_records("X,INT,10\n");
+            let goal = binary(operator, variable("P.X"), integer("10"));
+            assert!(mutate_expression_goal(&mut records, &goal, true, &BTreeMap::new(), 0));
+            assert_eq!(records[0].value, expected);
+        }
+        let mut records = parse_structured_records("X,INT,-10\n");
+        let reversed = binary("<", integer("-10"), variable("P.X"));
+        assert!(mutate_expression_goal(&mut records, &reversed, true, &BTreeMap::new(), 0));
+        assert_eq!(records[0].value, "-9");
+    }
+
+    #[test]
+    fn integer_limits_are_exact_and_unsatisfiable_goals_fall_back() {
+        for (ty, initial, op, fixed, expected) in [
+            ("ULINT", "0", ">", "18446744073709551614", Some("18446744073709551615")),
+            ("LINT", "0", "<", "-9223372036854775807", Some("-9223372036854775808")),
+            ("SINT", "0", ">", "127", None),
+            ("USINT", "1", "<", "0", None),
+            ("LINT", "0", "<", "-9223372036854775808", None),
+            ("ULINT", "0", ">", "18446744073709551615", None),
+        ] {
+            let mut records = parse_structured_records(&format!("X,{ty},{initial}\n"));
+            let goal = binary(op, variable("P.X"), integer(fixed));
+            assert_eq!(mutate_expression_goal(&mut records, &goal, true, &BTreeMap::new(), 0), expected.is_some(), "{ty} {op} {fixed}");
+            assert_eq!(records[0].value, expected.unwrap_or(initial));
+        }
+        let mut records = parse_structured_records("X,ULINT,18446744073709551615\n");
+        let equal = binary("=", variable("P.X"), integer("18446744073709551615"));
+        assert!(!mutate_expression_goal(&mut records, &equal, true, &BTreeMap::new(), 0));
+    }
+
+    #[test]
+    fn float_goals_survive_real_and_lreal_roundtrip() {
+        for ty in ["REAL", "LREAL"] {
+            for op in [">", "<", "<>"] {
+                let mut records = parse_structured_records(&format!("X,{ty},10\n"));
+                let goal = binary(op, variable("P.X"), serde_json::json!({
+                    "kind": {"kind": "literal", "value": {"kind": "real", "value": "10.0"}}, "type_name": ty
+                }));
+                assert!(mutate_expression_goal(&mut records, &goal, true, &BTreeMap::new(), 0));
+                let actual = if ty == "REAL" { records[0].value.parse::<f32>().unwrap() as f64 }
+                    else { records[0].value.parse::<f64>().unwrap() };
+                assert!(comparison_holds(op, actual, 10.0).unwrap());
+                assert_eq!(actual, if ty == "REAL" {
+                    if op == ">" { 10_f32.next_up() as f64 } else { 10_f32.next_down() as f64 }
+                } else if op == ">" { 10_f64.next_up() } else { 10_f64.next_down() });
+            }
+        }
+        let mut record = StRecord { name: "X".into(), ty: "REAL".into(), value: "0".into() };
+        assert!(!mutate_float_comparison(&mut record, ">", f32::MAX as f64, true, true));
+        assert_eq!(record.value, "0");
+    }
+
+    #[test]
+    fn compound_reads_are_not_a_variable_and_definitions_keep_scope() {
+        let records = parse_structured_records("X,INT,10\n");
+        let arithmetic = binary("+", variable("P.X"), integer("2"));
+        assert!(expression_variable(&arithmetic).is_none());
+        assert_eq!(integer_expression_wide(&records, &arithmetic, &BTreeMap::new(), 0), Some(12));
+        let definitions = BTreeMap::from([
+            ("P.TMP".into(), arithmetic), ("Q.TMP".into(), integer("50")),
+            ("TMP".into(), integer("99")),
+        ]);
+        assert_eq!(integer_expression_wide(&records, &variable("P.TMP"), &definitions, 0), Some(12));
+        assert_eq!(integer_expression_wide(&records, &variable("Q.TMP"), &definitions, 0), Some(50));
+        assert_eq!(integer_expression_wide(&records, &variable("P.INSTANCE.TMP"), &definitions, 0), None);
+        assert_eq!(expression_record_index(&records, &variable("P.INSTANCE.X")), None);
+        let opaque = serde_json::json!({"kind": {"kind": "call"}, "reads": ["P.X"], "operands": [variable("P.X")]});
+        assert_eq!(integer_expression_wide(&records, &opaque, &definitions, 0), None);
+    }
+
+    #[test]
+    fn conjunction_uses_wide_integers_and_rejects_contradictions() {
+        let defs = BTreeMap::new();
+        let mut records = parse_structured_records("X,ULINT,0\n");
+        let goal = binary("AND",
+            binary(">", variable("P.X"), integer("18446744073709551613")),
+            binary("<", variable("P.X"), integer("18446744073709551615")));
+        assert!(mutate_expression_goal(&mut records, &goal, true, &defs, 0));
+        assert_eq!(records[0].value, "18446744073709551614");
+        for ty in ["INT", "REAL"] {
+            let mut records = parse_structured_records(&format!("X,{ty},2\n"));
+            let impossible = binary("AND", binary(">", variable("P.X"), integer("10")), binary("<", variable("P.X"), integer("0")));
+            assert!(!mutate_expression_goal(&mut records, &impossible, true, &defs, 0));
+            assert_eq!(records[0].value, "2");
+        }
+        let mut records = parse_structured_records("X,INT,2\n");
+        let impossible = binary("<", variable("P.X"), variable("P.X"));
+        assert!(!mutate_expression_goal(&mut records, &impossible, true, &defs, 0));
+        assert_eq!(records[0].value, "2");
+    }
+
+    #[test]
+    fn inverse_arithmetic_does_not_claim_success_for_aliasing_operands() {
+        let mut records = parse_structured_records("X,INT,2\n");
+        let expression = binary("+", variable("P.X"), variable("P.X"));
+        assert!(!mutate_expression_to_value(&mut records, &expression, 0, &BTreeMap::new(), 0));
+        assert_eq!(records[0].value, "2");
+        let definitions = BTreeMap::from([("P.DEN".into(), binary("+", variable("P.X"), integer("1")))]);
+        assert!(mutate_expression_to_value(&mut records, &variable("P.DEN"), 0, &definitions, 0));
+        assert_eq!(records[0].value, "-1");
+    }
+
+    #[test]
+    fn assigned_seed_fields_are_not_treated_as_current_program_values() {
+        for ty in ["INT", "ULINT", "REAL", "LREAL", "BOOL"] {
+            for definition in [binary("+", variable("P.X"), integer("1")), serde_json::Value::Null] {
+                let mut records = parse_structured_records(&format!("X,{ty},0\n"));
+                let definitions = BTreeMap::from([("P.X".into(), definition)]);
+                let goal = if ty == "BOOL" { variable("P.X") }
+                    else { binary("=", variable("P.X"), integer("10")) };
+                assert_eq!(integer_expression_wide(&records, &variable("P.X"), &definitions, 0), None);
+                assert_eq!(expression_number_value(&records, &variable("P.X"), &definitions, 0), None);
+                assert_eq!(evaluate_expression_goal(&records, &goal, &definitions, 0), None);
+                assert!(!mutate_expression_goal(&mut records, &goal, true, &definitions, 0));
+                assert!(!mutate_expression_to_value(&mut records, &variable("P.X"), 1, &definitions, 0));
+                assert_eq!(records[0].value, "0");
+            }
+        }
+        // A written bound is equally unsafe, even when the mutated side was
+        // not assigned. No fake equality may be inferred from its seed value.
+        let mut records = parse_structured_records("X,INT,5\nY,INT,0\n");
+        let definitions = BTreeMap::from([("P.Y".into(), integer("10"))]);
+        let goal = binary("=", variable("P.X"), variable("P.Y"));
+        assert!(!mutate_expression_goal(&mut records, &goal, true, &definitions, 0));
+        assert_eq!(serialize_records(&records), "X,INT,5\nY,INT,0\n");
+    }
+
+    #[test]
+    fn cycle_limit_configuration_is_bounded_without_global_env_races() {
+        assert_eq!(parse_fb_max_cycles(None), 256);
+        assert_eq!(parse_fb_max_cycles(Some("0")), 256);
+        assert_eq!(parse_fb_max_cycles(Some("-1")), 256);
+        assert_eq!(parse_fb_max_cycles(Some("bad")), 256);
+        assert_eq!(parse_fb_max_cycles(Some("100")), 100);
+        assert_eq!(parse_fb_max_cycles(Some("100000")), HARD_FB_MAX_CYCLES);
+    }
+
+    #[test]
+    fn short_prefix_grows_past_64_and_preserves_terminal_input() {
+        let mut rand = StdRand::with_seed(37);
+        let limit = fb_max_cycles();
+        if limit < 2 {
+            let mut seed = parse_cycle_aware_seed("0.X,INT,9\n");
+            cycle_clone_cycle(&mut rand, &mut seed);
+            cycle_insert_cycle(&mut rand, &mut seed);
+            assert_eq!(seed.cycles.len(), 1);
+            return;
+        }
+        let mut seed = parse_cycle_aware_seed("0.X,INT,1\n1.X,INT,9\n");
+        while seed.cycles.len() < limit {
+            assert!(expand_state_prefix(&mut rand, &mut seed));
+        }
+        assert_eq!(seed.cycles.len(), limit);
+        assert_eq!(seed.cycles.values().next_back().unwrap()[0].value, "9");
+        assert!(!expand_state_prefix(&mut rand, &mut seed));
+        cycle_clone_cycle(&mut rand, &mut seed);
+        cycle_insert_cycle(&mut rand, &mut seed);
+        assert_eq!(seed.cycles.len(), limit);
+        if env::var("SEMANTIST_FB_MAX_CYCLES").is_err() { assert!(limit > 64); }
+    }
+}

@@ -1,626 +1,178 @@
-# SemantiST STG 语义任务排序算法
+# SemantiST 语义引导算法与实现边界
 
-## 1. 文档目的
+本文按 2026-10-09 工作区源码核对。实现依据为 Python 静态 planner、Rust 在线调度/反馈/变异器和 C harness；实验配置以当前入口解析结果为准。通过哪些验证以带源码与样本范围的 [2026-10-08 算法验收记录](algorithm_validation_20261008_zh.md) 为准，该历史记录和本文都不是正式实验性能结论或无缺陷证明。
 
-本文档定义 SemantiST 默认语义模式下的任务排序、Seed 选择、GuideTarget
-推进、失败衰减和任务状态迁移算法。
+## 1. 定位与数据流
 
-算法的静态输入 Schema 为：
-
-```text
-semantist.semantic-task-plan/1.0.0
-```
-
-运行时快照 Schema 为：
+SemantiST 是针对重新编译的 IEC 61131-3 ST 程序的语义引导灰盒 fuzzer。测试输入为结构化字段或扫描周期序列。FUNCTION_BLOCK 的每个输入从新建 FB 实例开始，状态只在同一输入的扫描序列内继承；FUNCTION 输入只调用一次函数。
 
 ```text
-semantist.semantic-task-state/1.0.0
+编译器 AST / 类型信息 → STG → 有界候选路径与任务
+                                  ↓
+真实输入执行 → AFL 边图 + 语义目标图 + 有界周期/状态遥测
+                                  ↓
+全局发现、当前输入画像、当前任务进展
+                                  ↓
+混合任务/队列调度 → 轻量定向变异 / 结构化随机变异
 ```
 
-排序算法不使用源码条件字符串、正则分支目标、LLM 风险分数或人工漏洞类型
-分数。默认语义模式只使用 STG Stable Target ID 和运行时 Observer 证据。
+算法不包含完整符号执行、全路径约束求解或物理过程仿真。排序分数不是漏洞概率，预算失败不是不可满足证明。
 
-## 2. 核心原则
+## 2. 静态计划
 
-排序算法遵循以下原则：
+计划 schema 保持 `semantist.semantic-task-plan/1.0.0`。每个任务保存终点、候选路径、控制义务、数据依赖、状态 transfer、时间要求、可控输入和建模状态。
 
-1. `SemanticTaskPlan` 保存静态语义事实。
-2. `SemanticRuntimeMetadata` 保存动态覆盖、优先级和尝试历史。
-3. Seed 是具体输入序列，不是路径证明。
-4. 目标覆盖只能由语义 Observer 返回的 Stable Target ID 确认。
-5. GuideTarget 是当前 Seed 沿活动路径遇到的第一个未覆盖目标。
-6. 任务收益来自可达语义目标，不来自漏洞类型经验打分。
-7. 纯 Fuzzer 只允许延后任务，不声明任务不可满足。
+路径搜索保存最多 8 条普通候选或 4 条 exploration 候选。除路径长度/数量限制外，每次搜索默认最多展开 4096 条边；拒绝的循环边也计入预算。任务的 `path_search` 记录实际展开数、队列峰值、截断原因。未找到路径可能是搜索截断，不能据此声称目标不可达。
 
-静态计划和动态状态的边界如下：
+每条候选保存按程序顺序排列的 `edge_ids`。在线构造赋值定义时只消费选定路径中引导条件之前的 transfer；相同 waypoint 序列对应多条不同路径时停用有歧义的定义。符号优先使用完整限定名，重复赋值、未知写入或无法确定的 reaching definition 保守回退。
 
-| 信息 | 所属实体 |
-| --- | --- |
-| 候选路径、控制义务、数据依赖、状态 Transfer、时间要求 | SemanticTaskPlan |
-| Stable Target ID 与 Runtime ID 映射 | STG Runtime ID 表 |
-| Seed 覆盖、周期、状态签名、目标亲和度 | SeedProfile |
-| 当前任务、GuideTarget、优先级、失败次数 | SemanticRuntimeMetadata |
-| 实际覆盖事实 | Semantic Observer |
+## 3. 三类证据的边界
 
-## 3. 排序输入
+| 证据 | 用途 | 不能据此推导 |
+| --- | --- | --- |
+| 全局静态目标集合 | 目标发现、收益计算、终点去重 | 当前输入已完成某条路径 |
+| 单个输入的有序事件与实际扫描次数 | 当前 seed 的路径前缀、下一 guide、时间工作量 | 未观测到的分支或完整状态可达性 |
+| 有界抽象状态摘要 | 保留相同边覆盖下的状态变化输入 | 数值距离、指定 transfer 已完成或过程安全 |
 
-对 POU `P`，排序输入定义为：
+每次执行先采集证据，再由 LibAFL 分类 corpus/solution。因此正常退出的语义违规也更新全局覆盖、任务状态和本次执行元数据。下一输入会清空共享内存和当前画像，不继承上个输入的证据。
+
+语义 objective 按稳定目标和诊断类别去重；该去重不是根因级 unique bug 统计。Crash、sanitizer、timeout 等仍由各自运行时逻辑处理。
+
+## 4. 默认周期与状态反馈
+
+除独立的 AFL edge map 和 STG semantic map 外，默认另用 40,976 字节共享内存遥测区，包含：
+
+- 真实扫描次数；
+- 最多 4096 个按执行顺序记录的 (runtime ID, 扫描序号) 事件；
+- 最多 512 对扫描前后抽象状态；
+- 启用及溢出标记。
+
+父进程在每次执行前清零。目标侧不为默认反馈写逐事件文件。文本 trace 保留给调试；正常实验不需要开启它才能得到周期和状态信息。固定 benchmark harness 在构建副本上补入同一反馈钩子，原始 fixture 不变；不能安全识别的 FB wrapper 显式构建失败。
+
+抽象投影检查快照字段列表的前 32 项（output、persistent 和 inout），其中指针及非标量 inout 跳过，标量 inout 读取其值。小整数保留细粒度值，大整数按符号和数量级分桶；浮点保留符号、指数和特殊值类别；普通数组/字符串只检查前 16 字节是否包含非零字节。因此它有意合并部分状态，不是完整内存快照或目标相关分支距离。
+
+本次画像最多保留 256 个状态/转换签名；全局最多记忆 4096 个紧凑签名。容量满后不再仅凭新的状态签名扩充 corpus，但当前输入画像仍更新，其他覆盖反馈仍有效。状态摘要不含周期序号，单纯重复相同状态不会无限制造新颖性。
+
+截断遥测只能证明实际保留的正向前缀，不能证明尾部完整、未发生某事件或任意完整执行路径。缺少有序事件的旧目标只能提供平面覆盖，不能跳过路径义务；需要重新构建目标才能获得新反馈。
+
+## 5. Seed、路径前缀和 GuideTarget
+
+`SeedProfile` 保存输入哈希、静态覆盖、有序 `ordered_target_ids`、`ordered_trace_complete`、按周期覆盖、实际周期序号、当前状态签名、affinity 和 parent。
+
+对候选路径 pi 和当前输入的事件序列 T，令：
 
 ```text
-R_P = <TaskPlan_P, SeedProfiles, RuntimeState, Coverage>
+prefix(pi, T) = pi 的最长前缀长度，且该前缀按顺序出现在 T 中
+guide_index = prefix(pi, T)
+Guide = pi[guide_index]，若 index == len(pi) 则没有剩余 guide
+Remaining = pi[guide_index..]
 ```
 
-其中：
+匹配允许中间存在其他事件，是 waypoint 子序列证据，不是完整控制流轨迹等价性。重复 waypoint 按位置计数，例如路径 [a,b,a,v] 和事件 [a,b] 的下一 guide 是第二次 a。禁止用集合去掉重复次数，禁止拼接不同输入的事件推进。
 
-- `TaskPlan_P` 是 POU 的语义任务集合。
-- `SeedProfiles` 是可选 Corpus 输入的运行时画像。
-- `RuntimeState` 是任务状态和尝试历史。
-- `Coverage` 是 Observer 已确认的全局 Stable Target ID 集合。
+目前匹配可以跨同一输入的多个扫描，不把候选路径的 temporal edge 与扫描边界逐一绑定。例如先 reset、后累计到阈值的输入，可能匹配包含 reset 和阈值分支的候选序列；这不能证明二者在同一扫描可行，也不能证明候选 transfer 链已满足。此近似用于引导，终点发现仍须真实探针命中。
 
-每个 `SemanticTask` 至少包含：
+选择路径依次最小化剩余长度、总长度、稳定 ID 序列。实际抽到探索 seed 后重新计算该 seed 的路径和 guide，不沿用最佳 seed 的位置。
+
+一个 LibAFL 变异阶段内 task、guide 及 guide 位置固定。单次执行的有序前缀越过该位置才记成功，每阶段至多记一次。即使后续事件因容量不足截断，已实际看到的正向前缀仍然有效。下一个调度阶段从真正保存的 seed 画像重新计算 guide。
+
+每个任务/候选路径保存一个单调的最长前缀计数。首次更长的连贯前缀也可触发 corpus admission，即使它的静态目标此前被不同输入分别覆盖。反复重现同一前缀不会不断扩充 corpus；目前只跟踪活动任务路径的这项进展。
+
+## 6. 排序与调度
+
+工作量是五个归一化启发式量之和：
 
 ```text
-task_id
-task_kind
-pou
-terminal_target_id
-candidate_paths
-ordered_waypoints
-control_obligations
-data_dependencies
-state_transfer_chains
-temporal_requirements
-hazard_prerequisites
-controllable_seed_fields
-modeling_status
-unlocked_targets
+EC = 剩余路径上的控制义务数 / NEC
+ED = 数据依赖数 × (1 - affinity) / NED
+ES = transfer 数 × (1 - state_progress) / NES
+ET = max(0, required_steps - completed_steps) / NET
+EH = 未满足危险前置目标与终点数 / NEH
+Effort = EC + ED + ES + ET + EH
 ```
 
-## 4. SeedProfile
-
-每个初始 Seed 和新 Corpus 输入在普通执行后生成 `SeedProfile`：
+各归一化因子为同一 POU 中对应静态量的最大值，至少为 1。EC 和 EH 使用当前 seed 已证实的有序前缀，而不是全局覆盖集合。affinity 仍是该 seed 的 waypoint 集合重叠比例，仅影响估计成本，不推进 guide。只有存在当前状态签名时 state_progress 才取 affinity，否则为 0；该量不表示某条 transfer 已求解。并行时间要求取各自 minimum_cycles - 1 的最大值，不求和；completed_steps 使用真实扫描次数减一。下式的 Gain 才使用全局已发现目标。
 
 ```text
-SeedProfile = <
-  content_hash,
-  covered_target_ids,
-  covered_targets_by_cycle,
-  cycle_ids,
-  state_signatures,
-  target_affinity,
-  parent_id
->
+Gain = 未发现的 exact violation 指示量
+     + 未覆盖 unlocked targets 数
+     + min(1, 控制义务种类数 / 7)
+Priority = Gain / (1 + minimum_seed_effort) × exp(-0.25 × failed_attempts)
 ```
 
-字段含义如下：
+优先级并列按 task ID，seed 并列按内容哈希。每个任务缓存最多 4 个候选 seed，新入库画像增量更新缓存；只在失效事件后重排任务。普通选择仍需筛选可调度任务，探索选择可能遍历 seed 索引，不能把整个 Scheduler::next() 宣称为严格 O(1)。
 
-| 字段 | 含义 |
-| --- | --- |
-| content_hash | Seed 内容 SHA-256，也是稳定 Seed 标识 |
-| covered_target_ids | Observer 确认的 Stable Target ID 集合 |
-| covered_targets_by_cycle | 按扫描周期保存的语义覆盖 |
-| cycle_ids | Seed 实际执行的周期编号 |
-| state_signatures | Function Block 状态签名 |
-| target_affinity | Seed 对各任务已有路径进度的归一化估计 |
-| parent_id | 生成该 Seed 的父输入 |
+调度保持 75% 语义选择、25% 普通队列；语义分支中保留 15% 任务探索和 20% seed 探索。非探索选择在前四名按 8/4/2/1 抽样。均匀 seed 探索不再先对整个 corpus 按 effort 排序。上述比例是实现参数，需实验评价。
 
-`target_affinity(s, task)` 当前按 Seed 已覆盖的任务 Waypoint 比例计算：
+## 7. 预算和任务状态
 
-```text
-Affinity(s, Task) =
-  |Cov(s) intersect Waypoints(Task)| / |Waypoints(Task)|
-```
+默认预算为每个 task + path + guide_index + target 1000 次实际目标执行，可由 `--semantic-task-budget` 调整。同一稳定目标在不同路径或不同出现位置分别计费。它以变异阶段为结算窗口，可能超过阈值一个阶段，不是逐输入硬停止。
 
-它只用于估计剩余依赖和状态工作量，不能替代覆盖证据。
+预算结算归给上一阶段实际执行的上下文，即使调度器已选择另一个任务。该窗口有新 guide 成功时先清除该键的失败预算。普通队列选择显式暂停语义上下文，更新全局发现但不消耗旧任务预算。
 
-输入支持：
-
-```text
-NAME,TYPE,VALUE
-cycle.NAME,TYPE,VALUE
-```
-
-即使 Seed 文本中出现某个目标名称，也不能据此把目标加入
-`covered_target_ids`。
-
-## 5. 候选路径与 GuideTarget
-
-任务的一条候选路径表示为：
-
-```text
-pi = [t1, t2, ..., tn]
-```
-
-其中每个 `ti` 都是 STG Stable Target ID。
-
-对 Seed `s`，GuideTarget 定义为：
-
-```text
-Guide(s, pi) = first ti in pi where ti not in Cov(s)
-```
-
-若路径全部覆盖，则：
-
-```text
-Guide(s, pi) = None
-```
-
-### 5.1 活动路径选择
-
-对多条候选路径，当前实现按以下稳定次序选择：
-
-1. 剩余未覆盖 Waypoint 数量最少。
-2. 完整路径长度最短。
-3. Stable Target ID 序列字典序最小。
-
-定义：
-
-```text
-Remaining(pi, s) =
-  suffix of pi beginning at Guide(s, pi)
-```
-
-则：
-
-```text
-ActivePath(s, Task) =
-  argmin_pi (
-    |Remaining(pi, s)|,
-    |pi|,
-    lexicographic(pi)
-  )
-```
-
-路径由有限 SCC 展开生成。排序器不会为了估算工作量无限展开循环。
-
-### 5.2 自动推进
-
-Observer 覆盖当前 GuideTarget 后：
-
-1. Stable Target ID 加入全局覆盖集合。
-2. `coverage_epoch` 增加。
-3. 在当前活动路径上重新计算第一个未覆盖目标。
-4. 若终点已覆盖，任务进入 `Covered`。
-5. 否则新的第一个未覆盖目标成为 GuideTarget。
-
-## 6. 剩余语义工作量
-
-对 Seed `s` 和任务 `Task`：
-
-```text
-Effort(s, Task) = EC + ED + ES + ET + EH
-```
-
-五个维度都使用当前 POU 的静态最大值归一化：
-
-```text
-NX(P) = max(1, max raw_X(Task in P))
-Normalized_X = raw_X / NX(P)
-```
-
-计划生成器把 `NEC`、`NED`、`NES`、`NET` 和 `NEH` 保存到：
-
-```text
-normalization_by_pou
-```
-
-### 6.1 控制工作量 EC
-
-`EC` 是活动路径剩余部分中的控制 Outcome 数量：
-
-```text
-raw_EC =
-  |{o in ControlObligations(Task) |
-      o.target_id in Remaining(ActivePath, s)}|
-
-EC = raw_EC / NEC(P)
-```
-
-控制义务来自 Evaluation Edge 和 Typed Expression DAG。
-
-### 6.2 数据依赖工作量 ED
-
-`ED` 表示尚需通过可控输入满足的 Def-Use 和输入依赖：
-
-```text
-raw_ED =
-  |DataDependencies(Task)| * (1 - Affinity(s, Task))
-
-ED = raw_ED / NED(P)
-```
-
-运行时变异器只修改 `controllable_seed_fields` 所描述的真实可控字段。
-
-### 6.3 状态迁移工作量 ES
-
-`ES` 表示尚需完成的状态 Transfer：
-
-```text
-StateProgress(s, Task) =
-  Affinity(s, Task), if state_signatures(s) is not empty
-  0,                 otherwise
-
-raw_ES =
-  |StateTransferChains(Task)| * (1 - StateProgress(s, Task))
-
-ES = raw_ES / NES(P)
-```
-
-状态签名只能说明 Seed 产生了可区分状态，不能直接证明某条 Transfer 已完成。
-
-### 6.4 时间工作量 ET
-
-对每个时间要求 `r`：
-
-```text
-required_steps(r) = max(0, r.minimum_cycles - 1)
-```
-
-任务所需时间步和 Seed 已完成时间步为：
-
-```text
-RequiredTemporal =
-  sum required_steps(r)
-
-CompletedTemporal =
-  max(0, |cycle_ids(s)| - 1)
-```
-
-因此：
-
-```text
-raw_ET = max(0, RequiredTemporal - CompletedTemporal)
-ET = raw_ET / NET(P)
-```
-
-该维度用于区分单周期输入和已具备多周期状态推进的输入。
-
-### 6.5 危险阶段工作量 EH
-
-`EH` 表示尚未覆盖的危险前置目标和终点：
-
-```text
-raw_EH =
-  |{h in HazardPrerequisites(Task) | h not in Cov(s)}|
-  + indicator(TerminalTarget(Task) not in Cov(s))
-
-EH = raw_EH / NEH(P)
-```
-
-对 HazardViolation，`HazardReach` 必须先作为前置 Waypoint。覆盖
-`HazardReach` 只减少工作量，不构成漏洞。
-
-## 7. Seed 选择
-
-对每个可调度任务，计算所有 Seed 的 Effort：
-
-```text
-BestSeed(Task) =
-  argmin_s (
-    Effort(s, Task),
-    content_hash(s)
-  )
-```
-
-第二项是确定性并列规则。
-
-若 Corpus 暂时没有 Seed，则使用空 `SeedProfile` 计算默认工作量，任务仍可参与
-排序，但 `best_seed_id` 为 `null`。
-
-## 8. 任务收益
-
-任务收益定义为：
-
-```text
-Gain(Task) =
-  ExactViolationGain
-  + UnlockedTargetGain
-  + SemanticNovelty
-```
-
-### 8.1 Exact Violation 收益
-
-```text
-ExactViolationGain = 1
-```
-
-仅当同时满足：
-
-- `task_kind == violation`
-- `modeling_status == exact`
-- `terminal_target_id` 尚未覆盖
-
-否则为 `0`。
-
-Conservative 和 Opaque 不会被猜测升级为 Exact。
-
-### 8.2 解锁目标收益
-
-```text
-UnlockedTargetGain =
-  |{t in unlocked_targets(Task) | t not in GlobalCoverage}|
-```
-
-它表示完成该任务路径可能带来的额外语义覆盖和危险目标解锁。
-
-### 8.3 语义新颖性
-
-当前引导目标共有七类：
-
-```text
-BranchOutcome
-CaseOutcome
-LoopOutcome
-ControlTransfer
-Cycle
-HazardReach
-terminal semantic target
-```
-
-任务控制义务中的语义种类越丰富，新颖性越高：
-
-```text
-SemanticNovelty =
-  min(1, |distinct control obligation kinds| / 7)
-```
-
-## 9. 静态优先级与失败衰减
-
-任务基础优先级为：
-
-```text
-Priority(Task) =
-  Gain(Task) / (1 + Effort(BestSeed(Task), Task))
-```
-
-运行时动态优先级为：
-
-```text
-DynamicPriority(Task) =
-  Priority(Task) * exp(-rho * failed_attempts)
-```
-
-当前参数：
-
-```text
-rho = 0.25
-```
-
-失败次数只保存在运行时 State，不回写 STG 或静态任务计划。
-
-完整任务排序按以下顺序：
-
-1. `DynamicPriority` 降序。
-2. `task_id` 字典序升序。
-
-非活动状态任务仍保留在完整 ranking 尾部，状态次序为：
-
-```text
-Ready/Active
-Deferred
-Blocked
-Unmapped
-Covered
-```
-
-## 10. 任务状态机
-
-任务状态包括：
+连续 3 次预算失败进入 Deferred。新的语义覆盖、corpus 增长或 128 次调度选择后的冷却到期可重新激活；冷却每 32 次调度检查一次。重新激活时失败数最多保留 2，避免立即永久沉睡，也不把旧失败历史全部抹掉。诊断 attempt history 最多保留 1024 项，触限批量删除旧 512 项；任务累计计数保留。
 
 | 状态 | 含义 |
 | --- | --- |
-| Blocked | 任务没有可执行候选路径 |
-| Ready | 可以参与排序 |
-| Active | 当前选中的任务 |
-| Covered | 终点 Stable Target ID 已覆盖 |
-| Deferred | 多次预算失败后暂时延后 |
-| Unmapped | 终点没有可执行语义探针映射 |
+| Ready / Active | 可调度 / 当前已选 |
+| Covered | 终点由真实探针命中 |
+| Deferred | 暂时降权等待重试 |
+| Blocked | 当前静态计划无可执行候选路径 |
+| Unmapped | 缺少终点探针映射 |
 
-状态迁移如下：
+不产生 Infeasible 状态。Covered 只表示该语义终点已观察到；一次 fuzz 运行没有发现违规不证明程序安全。
 
-```text
-Ready -> Active
-Active -> Covered
-Active -> Deferred
-Deferred -> Ready
-Active -> Ready
-```
+## 8. 生成与变异
 
-规则如下：
+初始生成保留 FUNCTION 最多 16、FB 最多 24 个候选。序列化先输出共享配置，再逐周期输出该周期全部输入字段，符合 harness 按周期 ID 切换执行的合同。
 
-- 任务被选中时进入 `Active`。
-- 切换到另一任务时，旧 `Active` 返回 `Ready`。
-- 当前终点被 Observer 覆盖时进入 `Covered`。
-- 连续 3 次预算失败后进入 `Deferred`。
-- `Deferred` 记录当时的 `coverage_epoch`。
-- 任意新的语义覆盖使 `coverage_epoch` 增加，旧 `Deferred` 重新进入 `Ready`。
-- 没有 IR 探针映射的任务保持 `Unmapped`。
-- 纯 Fuzzer 不产生 `Infeasible` 状态。
+生成、变异和 engine 启动时传给 harness 的 `SEMANTIST_FB_MAX_CYCLES` 统一：默认 256，最高 10000；环境变量无法解析或为 0 时回到默认，超过上限的可解析正整数截为 10000。实验入口则直接拒绝超出 1–10000 的参数。周期增长保留现有短序列探索、前缀复制和结构操作，不直接为所有 seed 填充 256 周期。这个上限是资源约束，不是对所有目标足够的理论深度；独立执行 harness 时仍需自行传入预算相关环境变量。
 
-## 11. 事件驱动调度流程
+语义变异占可用语义上下文下的 70%，其余保持结构化随机探索。轻量局部处理包括：
 
-初始化或 `ranking_dirty` 事件发生时，语义调度执行以下步骤：
+- 整数比较使用 i128 中间表示和 IEC 类型范围，严格比较用可表示的离散邻值；ULINT/LINT 不经过 f64。
+- REAL/LREAL 使用各自类型的相邻可表示数，输出可往返解析的文本。
+- AND/OR 只做有界局部尝试，并验证整个局部谓词；矛盾、不支持或未改变输入时恢复并回退。
+- 除数表达式沿无歧义局部定义做有界反推，最终重新求值验证；不把复合表达式的 reads[0] 冒充可写变量。被赋值或调用改写过的输入不再视为当前程序值，未知写入保留 null 标记并回退。
+- 编译器生成的 `member_access` 单变量包装仅在成员名、完整读取符号和类型一致时透明识别；call、cast、array 及复杂成员表达式不按普通变量处理。
+- 状态前缀变异只从选定路径 transfer 的读取集关联可控输入，不直接写内部状态；它不求解完整跨周期 transfer 链，也不保证所有既有前置条件保持。
 
-```text
-1. 刷新所有任务状态
-2. 过滤 Ready 和 Active 任务
-3. 为每个任务选择最小 Effort Seed
-4. 选择该 Seed 的活动候选路径
-5. 计算 GuideTarget
-6. 计算 Gain、Priority 和 DynamicPriority
-7. 生成完整 ranking
-8. 选择最高优先级任务
-9. 把任务、Seed、路径和 GuideTarget 安装到运行时上下文
-```
+完整配置下，满足多周期 hint 或存在 transfer 输入的上下文，会以 15% 条件概率尝试复制一个非末周期，使序列增长一周期并保留原末周期输入。若未返回，存在 transfer 字段时再以 50% 条件概率修改一个非末周期的相关输入；末周期 goal 尝试失败后还可再次尝试 transfer 输入变异。前述概率只作用于对应分支，不是实际执行中固定的操作占比。
 
-结果写入缓存的 `ActiveSelection`。在当前 `semantic-task-budget` 内且没有语义
-失效事件时，普通 `Scheduler::next()` 直接返回缓存的 Corpus ID 和活动选择，
-不再扫描 Corpus，也不再执行 Task×Seed 排序。
+语义分支会先补足受周期上限约束的 hint，其删除操作也检查最低周期数。通用 cycle havoc 保留复制、插入、删除、reset-like、enable toggle 等操作，可以缩短序列，故“每次变异都保持任务最低周期数”不是当前保证。
 
-State 维护：
+最多 65,536 个 u64 输入指纹以 FIFO 淘汰，避免每次尝试都永久保存字符串哈希。该过滤是有界启发式去重，存在哈希碰撞可能，淘汰后相同输入允许再次执行；持久语料身份仍使用 SHA-256。
 
-```text
-content_hash -> CorpusId
-content_hash -> SeedProfile
-Task -> Top-K minimum-effort seeds
-ActiveSelection
-ranking_dirty
-coverage_epoch
-corpus_epoch
-ranking/cache/rerank-reason statistics
-```
+## 9. 消融与当前实验配置
 
-Seed 加入 Corpus 时只构造一次 `SeedProfile`。新 Seed 只与语义覆盖、状态签名、
-时间步或 target affinity 受影响的 Task 比较并增量更新 Top-K。只新增 AFL edge、
-没有新增语义目标或状态信息的 Seed 会进入缓存，但不会触发全量任务重排。
+当前 engine 支持 `full` 和六种消融：
 
-允许设置 `ranking_dirty` 的事件为：
-
-1. 初始化和首批 SeedProfile 建立；
-2. GuideTarget 或终点 Stable Target ID 被 Observer 覆盖；
-3. 新 Seed 产生新语义目标、状态签名或相关多周期进度；
-4. Task 进入 Deferred 或在新 `coverage_epoch` 后重新激活；
-5. 当前 BestSeed 被移除或失效。
-
-选择结果包含：
-
-```text
-task_id
-terminal_target_id
-guide_target_id
-active_path
-remaining_obligations
-best_seed_id
-priority
-control_obligation
-controllable_seed_fields
-backward_dependencies
-hazard_prerequisites
-modeling_status
-goal_expression
-cycle_hint
-```
-
-Mutator、预算 Stage 和外部符号接口都消费同一个 GuideTarget Stable ID。
-
-## 12. 运行时 JSON
-
-`RUN_DIR/semantic-task-state.json` 是原子写入的紧凑运行时快照：
-
-```json
-{
-  "schema_version": "semantist.semantic-task-state/1.0.0",
-  "coverage_epoch": 8,
-  "corpus_epoch": 23,
-  "active_task_id": "semantic-task:...",
-  "guide_target_id": "target:...",
-  "active_path": ["target:...", "target:..."],
-  "best_seed_id": "sha256...",
-  "ranking": ["semantic-task:...", "semantic-task:..."],
-  "ranking_total": 42,
-  "ranking_truncated": true,
-  "ranking_dirty": false,
-  "ranking_statistics": {
-    "ranking_count": 9,
-    "cache_hit_count": 12000,
-    "full_rebuild_count": 9,
-    "incremental_seed_updates": 23,
-    "seed_profile_build_count": 23,
-    "corpus_scan_count": 0,
-    "rerank_reasons": {"semantic_coverage": 4}
-  },
-  "covered_target_count": 17,
-  "active_task_state": {
-    "status": "active",
-    "failed_attempts": 1,
-    "attempts": 4,
-    "priority": 0.73,
-    "base_priority": 0.94,
-    "gain": 2.5,
-    "minimum_effort": 1.66,
-    "best_seed_id": "sha256...",
-    "active_path": ["target:...", "target:..."],
-    "guide_target_id": "target:...",
-    "remaining_obligations": ["target:..."],
-    "prerequisites": ["target:..."],
-    "unlocked_targets": ["target:..."]
-  },
-  "attempt_history_len": 4
-}
-```
-
-默认快照只保留主线调度和报告所需摘要：当前任务、GuideTarget、活动路径、最佳
-Seed、ranking 前缀、ranking 总数、覆盖计数、活动任务状态和尝试历史长度。
-设置 `SEMANTIST_SEMANTIC_STATE_DETAIL=1` 时才额外写出完整
-`covered_target_ids`、`task_states` 和 `attempt_history`。
-
-该文件用于观察、报告和恢复诊断，不是 STG 静态事实来源。
-
-## 13. 与 LibAFL 实体的关系
-
-| 实体 | 排序职责 |
+| 配置 | 关闭的机制 |
 | --- | --- |
-| State | 保存计划、SeedProfile 缓存、Top-K、活动选择、epoch、ranking 和尝试历史 |
-| Scheduler | 增量更新 Top-K；事件发生时重排；普通 next() 返回缓存 Seed |
-| Mutator | 消费 GuideTarget、Goal Expression、类型和依赖 |
-| Observer | 返回实际覆盖的 Stable Target ID 和周期 |
-| Feedback | 接纳新语义覆盖、新状态签名、新 AFL edge 或解锁任务的输入 |
-| Objective | 只接受 Exact Violation、Crash、Timeout 和 OOM |
-| Stage | 管理任务预算、失败计数、优先级衰减和 Deferred |
+| `no_semantic_init` | 语义初始候选生成 |
+| `no_targeted_mutation` | 语义定向变异，仍使用语义调度 |
+| `queue_havoc` | 语义初始生成、语义调度和语义定向变异 |
+| `no_transition_guidance` | transfer 输入引导的非末周期变异 |
+| `no_prefix_growth` | 15% 专用前缀增长分支 |
+| `no_multicycle_guidance` | 专用前缀增长和 transfer 输入引导两项 |
 
-所有输入都必须像普通 Seed 一样执行。只有 Observer 命中对应
-`guide_target_id`，本次尝试才记为覆盖成功。
+所有配置保留语义/状态反馈、objective、结构化输入和通用周期操作。`queue_havoc` 不能称为无语义反馈的纯 AFL++；`no_prefix_growth` 仍可通过通用操作增长周期，`no_multicycle_guidance` 也不是单周期执行。具体调用见 [消融说明](../experiments/ablations/README.md)。
 
-## 14. 轻量定向变异与预算降权
+批量实验推荐使用仓库根目录的 `python run_experiment.py`：`main` 默认三工具、当前 manifest 全部 90 目标、300 秒和 5 次重复；`smoke` 默认三个代表目标、20 秒和一次。使用 `--run-id` 选择新目录，`--fuzz-time`、`--fuzz-trials`、`--tools`、`--target-id` 和 `--cpus` 覆盖预设。非 `full` 消融必须选择 SemantiST 单工具；旧脚本保持兼容。操作步骤见 [服务器手册](server_experiment_runbook_zh.md)。
 
-GuideTarget 在固定 budget 内长期无进展时，Stage 记录一次失败尝试并触发
-priority decay。连续失败的 Task 会进入 Deferred，让调度器把 fuzzing 时间转给
-其他 Ready Task；新的 `coverage_epoch` 会重新激活 Deferred Task。
+文件级 FB state trace 默认关闭，stale threshold 默认 0，前文的共享内存反馈不受其影响。在线预算包含启动与语义初始生成，原生执行计数以 testcase 为单位，不能与 FB 扫描次数混用。正常运行严格校验通过后自动输出逐 trial `metrics.csv`/`metrics.jsonl`；公共重放、覆盖和统计分析默认留待手动执行。语义目标命中、公共 crash 候选、重放确认和根因级独立漏洞是不同口径，详见 [实验规范](experiment_standard.md)。
 
-Mutator 消费当前 `ActiveSelection` 中的 Goal Expression、控制义务、反向依赖、
-可控 Seed 字段、Transfer Summary、时间要求、建模状态以及 IEC 类型事实。
-它只做轻量定向：
+## 10. 吞吐平衡与验收
 
-1. 比较表达式 `=`, `<>`, `<`, `<=`, `>`, `>=` 推向相邻边界值；
-2. `AND` 范围表达式保持为一组可满足的 `low < x < high`；
-3. division/modulo hazard 定向修改分母；
-4. 整数、字符串、数组和指针使用 IEC 边界字典；
-5. `REAL`/`LREAL` arithmetic-boundary hazard 使用有限 IEEE 边界值，并同步维护
-   min/max guard。
+当前实现使用固定容量遥测、有界尝试输入缓存和不预排序全 corpus 的均匀 seed 探索。默认语义汇总日志主要记录全局新增目标或状态，不为每次重复执行写 JSON；显式 debug trace 仍可产生逐事件文件 I/O。每输入遥测解析、状态摘要和画像处理仍有开销，不能从代码变化直接断言总体提速。
 
-复杂路径条件、不可达 conservative violation 和全程序约束不由独立约束模块处理，
-而由普通 fuzzing 次数、调度探索和后续语义提取过滤共同承担。
+验收应包含实际 LibAFL solution 分类、不同 seed/全局覆盖隔离、重复 waypoint、预算切换、有界规划、IEC 边界、真实 harness 两字段扫描顺序、真实 ST 超过 64 周期目标、反馈溢出重置，以及固定 CPU、相同编译器/参数/种子下的前后吞吐、内存和日志增长对照。
 
-## 15. 确定性与可复现性
+必须报告样本范围和未覆盖条件。机械性问题修复与实验竞争力是两件独立的事；局部验收不能代替多目标、多随机种子的正式比较和消融实验。
 
-排序结果通过以下规则保持确定性：
+## 11. 源码核验入口
 
-- Stable Target ID 不重新编号。
-- `task_id` 由静态语义身份稳定生成。
-- Seed 并列时按 `content_hash` 排序。
-- 路径并列时按 Stable Target ID 序列排序。
-- 任务并列时按 `task_id` 排序。
-- 动态衰减只依赖持久化的 `failed_attempts`。
-
-相同计划、SeedProfile、覆盖集合和尝试历史应产生相同 ranking。
-
-## 16. 复杂度与当前边界
-
-缓存建立或全局语义覆盖变化时允许 O(Task×TopK) 重排。新 Seed 的增量工作量
-与受影响 Task 数和固定 Top-K 有关。无失效事件的 `Scheduler::next()` 为 O(1)
-哈希索引和缓存读取，不随完整 Corpus 或 Task×Seed 乘积增长。
-
-当前算法保留以下边界：
-
-- `target_affinity` 是进度估计，不是 Def-Use 完成证明。
-- 状态签名表示状态新颖性，不直接证明具体 Transfer。
-- 候选路径先按剩余 Waypoint 数选择，再计算五维任务 Effort。
-- SemanticNovelty 使用控制义务种类比例，不是全局稀有度模型。
-- `Blocked` 表示缺少可执行路径，不表示语义上不可达。
-- `Unmapped` 表示缺少探针映射，不表示目标不存在。
-- Conservative 和 Opaque 目标可用于引导或探索，但不是 Exact Objective。
-- 轻量定向变异不提供不可满足性证明，预算耗尽只表示当前 fuzzing 窗口内没有进展。
-- Conservative 和 Opaque 不会因变异命中路径而升级为 Exact Objective。
-
-这些边界必须在后续扩展中显式改进，不能通过人工风险分数或源码字符串推断
-绕过。
+- 静态计划：`fuzzer/semantic/planning.py`；路径与预算：`fuzzer/semantic/runtime.rs`、`fuzzer/stages/semantic_budget.rs`。
+- 逐执行证据与遥测：`fuzzer/engine/src/main.rs`、`fuzzer/semantic/observers.rs`、`compiler/instrumentation/runtime/semantic_coverage.c`；Harness 与固定 fixture 升级：`compiler/harness/generator.py`。
+- 调度、生成、变异与消融：`fuzzer/scheduler/engine.rs`、`fuzzer/corpus/generation.rs`、`fuzzer/engine/src/mutations.rs`、`fuzzer/engine/src/config.rs`。
+- 实验预设与导出：`experiments/comparison/run_full_comparison.py`；计量：`experiments/comparison/lib/metrics.py`；SemantiST 适配：`experiments/comparison/adapters/semantist.py`。

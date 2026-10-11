@@ -15,7 +15,6 @@ from typing import Any
 
 CONTRACT = "semantist.independent-tool-metrics/1"
 CRASH_ORACLES = {"asan", "ubsan", "target_signal"}
-VALID_STATUSES = {"budget_completed", "early_completed_with_finding", "early_completed_no_finding"}
 
 
 def number(value: Any) -> float | None:
@@ -37,6 +36,21 @@ def execution_count(value: Any) -> int | None:
     return int(parsed) if parsed is not None and parsed.is_integer() else None
 
 
+def valid_native_run(run: dict[str, Any]) -> bool:
+    """Accept measured full-budget trials; offline evidence cannot repair them."""
+    budget = number(run.get("online_budget_seconds"))
+    elapsed = number(run.get("online_elapsed_seconds"))
+    total = execution_count(run.get("total_executions"))
+    return (
+        run.get("support_status") == "supported"
+        and run.get("run_status") == "budget_completed"
+        and not run.get("failure_reason")
+        and budget is not None and budget > 0
+        and elapsed is not None and elapsed >= budget
+        and total is not None and total > 0
+    )
+
+
 def reported_executions(path: Path) -> int | None:
     """Read integer native monitor counters, never derive them from a rate."""
     if not path.is_file():
@@ -50,7 +64,11 @@ def read_events(path: Path) -> list[dict[str, Any]]:
     if not path.is_file():
         return []
     result = []
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []  # A writer may replace the file between stat and open.
+    for line in lines:
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
@@ -139,7 +157,7 @@ def paper_metrics(run: dict[str, Any]) -> dict[str, Any]:
                       not in {"confirmed", "not_reproduced"}]
     return {
         "contract": CONTRACT,
-        "valid_run": run.get("run_status") in VALID_STATUSES,
+        "valid_run": valid_native_run(run),
         "execution_unit": "native_executor_testcase",
         "execution_model": run.get("execution_model", "unknown"),
         "initialization_in_online_budget": True,
@@ -159,7 +177,7 @@ def paper_metrics(run: dict[str, Any]) -> dict[str, Any]:
         "unverified_crash_count": len(unknown_replay),
         "total_executions_reported": total,
         "total_executions_status": "last_native_report_not_exact_stop_count" if total is not None else "unavailable",
-        "total_executions_window": "native_stop_snapshot_may_include_shutdown_tail",
+        "total_executions_window": run.get("total_executions_window", "native_stop_snapshot_may_include_shutdown_tail"),
         "execs_per_sec": total / elapsed if total is not None and elapsed else None,
         "throughput_basis": "last_native_report_divided_by_online_wall_time",
     }

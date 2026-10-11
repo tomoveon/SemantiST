@@ -1,5 +1,8 @@
 # SemantiST STG 静态语义模型定义
 
+源码核对日期：2026-10-09。依据 `compiler/stg/src/model.rs`、`extract.rs`、
+`validate.rs`、`instrumentation.rs`、`ir.rs` 及当前 Harness/运行时实现。
+
 ## 1. 文档目的
 
 本文档定义 SemantiST 使用的 STG（State-aware Semantic Branch Graph，状态感知语义分支图）静态语义模型。
@@ -13,6 +16,11 @@ semantist.stg/1.2.0
 ```
 
 STG 只保存静态语义事实和静态特征，不保存动态覆盖次数、模糊测试历史、求解历史或调度权重。
+
+本文区分模型可表达的结构与当前下游实现的支持范围。Schema 中存在某个
+POU、表达式或目标类型，不表示 Harness、规划器或 LLVM 插桩已完整支持它。
+最终以对象的 `modeling` 字段、`stg-ir-mapping.json` 和运行时证据为准；
+模型为未来求解保留的信息也不代表当前已实现通用约束求解器。
 
 ## 2. 编译器语义来源
 
@@ -86,7 +94,8 @@ M_P = <G_P, Σ_P, μ_P, T_P>
 - `P` 表示一个 Program Organization Unit。
 - `G_P` 是该 POU 的状态感知语义分支图。
 - `Σ_P` 是该 POU 的辅助语义环境。
-- `μ_P` 是 Source AST、Lowered AST、STG 和未来 LLVM IR 位置之间的映射。
+- `μ_P` 是 Source AST、Lowered AST、STG 的静态映射，并预留 LLVM IR 位置字段。
+  当前实际 LLVM 映射由后续插桩阶段写入独立的 `stg-ir-mapping.json`。
 - `T_P` 是可供插桩、覆盖、调度、变异和规划使用的语义目标集合。
 
 支持描述的 POU 类型包括：
@@ -646,11 +655,14 @@ Literal Value 支持：
 - Boolean
 - String
 - WideString
-- Duration
-- Date
-- TimeOfDay
-- DateTime
+- DurationNanos（纳秒时长）
+- DateNanos
+- TimeOfDayNanos
+- DateTimeNanos
 - Array
+
+JSON 使用 snake_case 名称，例如 `duration_nanos`；日期转换失败时相应的
+可选数值可以为空，不能把它解释成精确的零时间。
 
 ### 7.4 Def-Use
 
@@ -694,6 +706,10 @@ IF True Target
 简单内部调用可以根据已知签名和副作用进行摘要。
 
 无法精确解释的库调用使用 Conservative 或 Opaque 摘要。
+
+当前调用读集合来自实参表达式，写集合主要来自被调函数的输出/引用形参。
+这不是跨过程全局状态或别名写入的完整证明，不能据此宣称获得了完整的
+调用副作用分析。
 
 ### 7.7 Persistent State
 
@@ -837,6 +853,10 @@ Target Kind 包括：
 
 表示 Source AST、Index、Type Annotation 或 Lowered AST 足以精确确定语义。
 
+这是该静态对象的建模精度标签，不代表所有相关语义都已实现运行时检查，
+也不代表发现了已确认漏洞。特别是指针解引用的当前运行时谓词检查空指针，
+不检查所有非空指针的生命周期、悬空引用或分配对象边界。
+
 例如：
 
 - 已解析变量引用。
@@ -901,9 +921,24 @@ Opaque 不能通过源码字符串猜测升级为 Exact。
 
 这些信息应由运行时反馈层、调度器或 Fuzzer State 单独维护。
 
+当前运行时已经通过共享内存保存每次执行的真实扫描次数、有序语义事件及
+周期序号、FB 抽象状态前后签名；它们不回写 STG。默认不依赖逐命中的文本
+日志。事件缓冲区最多 4096 条、状态对最多 512 组；发生截断时保留标志，
+不能把不完整事件序列当作完整的路径证据。实验入口默认 FB 周期上限为
+256；这是执行配置，既不是 STG 的时间展开深度，也不是所有低层 Harness
+调用的固有默认值。详见 [语义 IR 插桩](semantic_ir_instrumentation.md)。
+
 ## 13. 模型验证约束
 
 一个合法 STG 至少满足以下约束。
+
+以下是模型约束，并非每一条都已有自动检查。当前检查器覆盖 POU 内
+Node/Edge/Target ID 唯一性、边与表达式操作数引用、主要 Outcome 角色及
+Evaluation Edge、循环回边/出口、周期状态关系、赋值表达式/转换记录和
+目标映射。它不完整证明 Guard 互斥性、表达式 ID 全局唯一性、版本号一致性
+或调用副作用正确性。当前 `validate_project` 把检查结果写入模型诊断与
+`statistics.error_count`，`generate` 不会仅因为该计数非零就自动返回失败。
+因此“产物存在/命令成功退出”不能替代对诊断和统计的检查。
 
 ### 13.1 引用完整性
 
@@ -988,9 +1023,10 @@ STG 生成流程输出：
 | `stg-codegen-map.json` | STG 到 Lowered AST Codegen Anchor |
 | `stg-runtime-ids.json` | Stable ID 到 Dense Runtime ID |
 
-`--debug-sidecars` 或 pipeline 的 `--semantic-debug-artifacts` 会额外写
-`stg-diagnostics.json`、`stg-statistics.json` 和可选 `dot/*.dot`。主线运行
-默认依赖 `stg-model.json` 内嵌的诊断/统计，避免重复 JSON 产物。
+独立 STG 命令的 `--debug-sidecars true` 会额外写 `stg-diagnostics.json`、
+`stg-statistics.json`；`--dot true` 独立控制 `dot/*.dot`。Pipeline 的
+`--semantic-debug-artifacts` 同时开启这些调试产物。主线运行默认依赖
+`stg-model.json` 内嵌的诊断/统计，避免重复 JSON 产物。
 
 完成 LLVM IR 插桩后还会输出：
 
@@ -1037,6 +1073,8 @@ artifacts 时单独写出；默认诊断已经内嵌在 `stg-ir-mapping.json`。
   因而可以精确插桩。动态窄化在保留 LLVM trunc 时同样可以精确判断。
 - 非常量隐式窄化只有在 Lowering 后既缺少原始宽值、又缺少精确结构化
   常量时才退化为 Conservative。
+- 幂运算和缺少受支持精确谓词的转换也可能为 Conservative；应逐目标查看
+  `modeling`，不能把所有算术和转换都视为精确支持。
 - Pointer Provenance 和对象生命周期无法仅凭 GEP 完整恢复。
 - Index 提供语义字段顺序和类型大小时，不代表已经获得完整 ABI Padding。
 - 用户性质模型已经预留，但尚无正式 Property Language Frontend。

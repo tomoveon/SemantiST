@@ -1,5 +1,27 @@
 # RuSTy 编译器漏洞报告：OSCAT `LEAP_OF_DATE` 中 DWORD 高位比较被错误编译
 
+## 文档范围与当前状态（2026-10-09）
+
+本文保留一次针对指定 RuSTy 提交的历史调查，正文中的“已确认”“当前 IR”
+和复现结果均指该次调查，不表示本次文档更新重新执行了复现，也不表示已经核实
+RuSTy 上游现状、受影响的全部版本或漏洞披露状态。
+
+当前 `compiler/scripts/build_rusty_semantic.sh` 仍固定
+`be1de6f175ec1bed7928904dfb694208a24043fb`，并应用 SemantiST 语义元数据补丁。
+这与历史报告使用的干净上游构建不同，不能仅凭相同基础提交把历史结论视为当前
+完整工具链的验收结果；也未在本次更新中确认该问题已修复。
+
+本地证据检查结果：`benchmarks/oscat_basic/source/oscat.st` 仍在仓库中；文末
+`artifacts/benchmarks/compiler_semantics_leap_of_date_20260714_073516/`
+在当前工作区不存在。两处 `/tmp/rusty-be1de6f175-*` 是历史 Linux 环境路径，
+未作为可访问的证据随当前 Windows 工作区保存。因此本文可用于定位原调查与准备
+复现，不能单独作为当前版本已经验证或当前服务器实验已经通过的证据。复现时需
+自行准备对应提交、OSCAT 工程配置和调用程序，并保存新的源码版本、编译产物和日志。
+
+当前工具入口与流程见 [架构说明](architecture.md)、
+[漏洞报告流程](vulnerability_reporting.md) 和
+[服务器实验手册](server_experiment_runbook_zh.md)。下面保留原版本信息、IR 和调查说明。
+
 ## 建议标题
 
 RuSTy miscompiles OSCAT `LEAP_OF_DATE`: `DWORD` high-bit comparison against `16#80000000` becomes false because the left side is sign-extended while the literal is emitted as positive `i64`

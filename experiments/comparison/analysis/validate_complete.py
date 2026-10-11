@@ -6,9 +6,16 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any
+
+ROOT = Path(__file__).resolve().parents[3]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from experiments.comparison.lib.metrics import paper_metrics
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -32,7 +39,7 @@ def read_csv(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(handle))
 
 
-def validate(experiment_dir: Path) -> list[str]:
+def validate(experiment_dir: Path, *, require_valid_runs: bool = False) -> list[str]:
     experiment_dir = experiment_dir.resolve()
     errors: list[str] = []
     schedule = read_jsonl(experiment_dir / "schedule.jsonl")
@@ -87,14 +94,41 @@ def validate(experiment_dir: Path) -> list[str]:
             "unsupported",
         } and not run.get("failure_reason"):
             errors.append(f"{run.get('run_key')}: {status} missing failure_reason")
+        if not require_valid_runs or run.get("support_status") != "supported":
+            continue
+        if status != "budget_completed":
+            errors.append(
+                f"{run.get('run_key')}: supported trial did not complete its online budget "
+                f"(run_status={status!r})"
+            )
+        # Exported metrics may predate offline analysis or the acceptance rules.
+        paper = paper_metrics(run)
+        if paper.get("valid_run") is not True:
+            errors.append(f"{run.get('run_key')}: paper_metrics.valid_run is not true")
+        executions = paper.get("total_executions_reported")
+        if not isinstance(executions, int) or isinstance(executions, bool) or executions <= 0:
+            errors.append(
+                f"{run.get('run_key')}: total_executions_reported must be a positive integer"
+            )
+    if require_valid_runs:
+        if not tools:
+            errors.append("no tools or trials were scheduled")
+        valid_tools = {run.get("tool") for run in runs if paper_metrics(run)["valid_run"]}
+        for tool in sorted(tools - valid_tools):
+            errors.append(f"{tool}: no valid full-budget trial with native executions")
     return errors
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--experiment-dir", required=True, type=Path)
+    parser.add_argument(
+        "--require-valid-runs",
+        action="store_true",
+        help="also reject supported trials that did not finish the budget with native executions",
+    )
     args = parser.parse_args()
-    errors = validate(args.experiment_dir)
+    errors = validate(args.experiment_dir, require_valid_runs=args.require_valid_runs)
     if errors:
         for error in errors:
             print(f"ERROR: {error}")

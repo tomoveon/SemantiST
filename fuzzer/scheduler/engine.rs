@@ -7,6 +7,7 @@ struct TargetAwareScheduler {
     bootstrap: HashMap<String, StSeedMetadata>,
     seen_hashes: HashSet<String>,
     semantic_ids_by_hash: HashMap<String, CorpusId>,
+    semantic_scheduling_enabled: bool,
 }
 
 const SEMANTIC_SCHEDULING_PROBABILITY: f64 = 0.75;
@@ -49,7 +50,7 @@ where
 }
 
 impl TargetAwareScheduler {
-    fn new(bootstrap_path: Option<PathBuf>, seed_dir: PathBuf) -> Self {
+    fn new(bootstrap_path: Option<PathBuf>, seed_dir: PathBuf, ablation: SemantiSTAblation) -> Self {
         let bootstrap = load_bootstrap_metadata(bootstrap_path.as_deref());
         let bootstrap_modified = bootstrap_path
             .as_deref()
@@ -63,6 +64,7 @@ impl TargetAwareScheduler {
             bootstrap,
             seen_hashes: HashSet::new(),
             semantic_ids_by_hash: HashMap::new(),
+            semantic_scheduling_enabled: ablation.semantic_scheduling(),
         }
     }
 
@@ -267,7 +269,8 @@ impl TargetAwareScheduler {
             metadata.target_id = context.target_id.clone();
         }
         if let Some(semantic) = state.metadata_map().get::<SemanticCoverageMetadata>() {
-            if !semantic.last_covered_target_ids.is_empty() {
+            // An execution with no semantic hits must clear stale bootstrap
+            // evidence as well; profiles describe this input's actual run.
                 metadata.semantic_coverage.clear();
                 metadata.new_st_branch_sides = semantic.last_new_branch_sides.clone();
                 metadata.new_state_transitions = semantic.last_new_state_transitions.clone();
@@ -279,10 +282,11 @@ impl TargetAwareScheduler {
                         .cloned()
                 });
                 metadata.covered_target_ids = semantic.last_covered_target_ids.clone();
+                metadata.ordered_target_ids = semantic.last_ordered_target_ids.clone();
+                metadata.ordered_trace_complete = semantic.last_ordered_trace_complete;
                 metadata.covered_targets_by_cycle = semantic.last_covered_targets_by_cycle.clone();
                 metadata.cycle_ids = semantic.last_cycle_ids.clone();
                 metadata.state_signatures = semantic.last_state_signatures.clone();
-            }
         }
         if let Some(runtime) = state.metadata_map().get::<SemanticRuntimeMetadata>() {
             let covered = metadata
@@ -443,7 +447,11 @@ where
 
     fn next(&mut self, state: &mut S) -> Result<CorpusId, Error> {
         self.refresh_bootstrap(state)?;
-        if state
+        if let Some(runtime) = state.metadata_map_mut().get_mut::<SemanticRuntimeMetadata>() {
+            runtime.tick_selection();
+        }
+        if self.semantic_scheduling_enabled
+            && state
             .rand_mut()
             .coinflip(SEMANTIC_SCHEDULING_PROBABILITY)
         {
@@ -453,6 +461,9 @@ where
             }
         }
         state.add_metadata(TargetContext::default());
+        if let Some(runtime) = state.metadata_map_mut().get_mut::<SemanticRuntimeMetadata>() {
+            runtime.suspend_selection();
+        }
         self.base.next(state)
     }
 

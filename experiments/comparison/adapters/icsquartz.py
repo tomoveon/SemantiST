@@ -12,26 +12,19 @@ from pathlib import Path
 from typing import Any
 
 from benchmarks.lib.st_extract import extract_pou_text, strip_pou
-from experiments.comparison.adapters.base import BaseAdapter, PreprocessingResult, SupportResult
+from experiments.comparison.adapters.base import AdapterError, BaseAdapter, PreprocessingResult, SupportResult
 from experiments.comparison.lib.hashing import sha256_file
 from experiments.comparison.lib.manifest import Target
 from experiments.comparison.lib.metrics import FindingObserver, execution_count, metadata_for, native_inputs
-from experiments.comparison.lib.process import container_cpu_bound_command, container_run_command, run_capture
+from experiments.comparison.lib.process import (
+    container_cpu_bound_command,
+    container_image_id,
+    container_run_command,
+    run_capture,
+)
 
-
-ASAN_ALT_TARGETS = {
-    "icsfuzz_bf_mcpy_1",
-    "icsfuzz_bf_mcpy_6",
-    "icsfuzz_bf_mcpy_8",
-    "icsfuzz_bf_mcpy_12",
-    "icsfuzz_bf_mmove_1",
-    "icsfuzz_bf_mmove_4",
-    "icsfuzz_bf_mmove_7",
-    "icsfuzz_bf_mmove_12",
-    "icsfuzz_bf_mset_1",
-    "icsfuzz_bf_mset_3",
-    "icsfuzz_bf_mset_5",
-}
+CONTAINER_COMMAND_TIMEOUT_SECONDS = 10
+CONTAINER_START_TIMEOUT_SECONDS = 30
 
 
 class ICSQuartzAdapter(BaseAdapter):
@@ -39,19 +32,14 @@ class ICSQuartzAdapter(BaseAdapter):
     supports_rng_seed = True
     initial_seed_provider = "icsquartz_native_initial_generator"
     initial_seed_format = "raw_bytes"
-    initial_seed_policy = "tool_internal_default_plus_pattern_inputs"
-    cpu_slots = 2
+    initial_seed_policy = "native_forced_evaluation_of_default_plus_nine_pattern_inputs"
+    cpu_slots = 1
 
     def detect_support(self, target: Target) -> SupportResult:
         base = super().detect_support(target)
         if base.status != "supported":
             return base
-        if self.config.icsquartz_root is None:
-            return SupportResult.unsupported(
-                "icsquartz_missing_root", "ICSQuartz root was not found"
-            )
         required = [
-            self.config.icsquartz_root / "compiler" / "latest.Dockerfile",
             self.config.semantist_root
             / "experiments"
             / "baselines"
@@ -72,14 +60,16 @@ class ICSQuartzAdapter(BaseAdapter):
 
     def prepare(self, target: Target) -> PreprocessingResult:
         preprocess_dir = self.preprocessing_dir(target)
-        if preprocess_dir.exists() and self.config.reuse_preprocessing:
-            return PreprocessingResult("completed", preprocess_dir, 0, 0)
         if preprocess_dir.exists():
-            shutil.rmtree(preprocess_dir)
+            raise AdapterError(
+                "preprocessing_directory_exists",
+                f"preprocessing directory exists; use a fresh experiment ID: {preprocess_dir}",
+            )
         (preprocess_dir / "logs").mkdir(parents=True, exist_ok=True)
         benchmark_dir = preprocess_dir / "benchmark"
         (benchmark_dir / "src").mkdir(parents=True, exist_ok=True)
         (benchmark_dir / "icsquartz").mkdir(parents=True, exist_ok=True)
+        (benchmark_dir / "compatibility").mkdir(parents=True, exist_ok=True)
         shutil.copy2(target.fixture("target.st"), benchmark_dir / "src" / "target.st")
         shutil.copy2(target.fixture("program.st"), benchmark_dir / "src" / "program.st")
         shutil.copy2(target.fixture("harness.c"), benchmark_dir / "icsquartz" / "harness.c")
@@ -87,6 +77,16 @@ class ICSQuartzAdapter(BaseAdapter):
             name: sha256_file(target.fixture(name))
             for name in ("target.st", "program.st", "harness.c")
         }
+        if target.compatibility_manifest is not None:
+            compatibility = json.loads(
+                target.compatibility_manifest.read_text(encoding="utf-8")
+            )
+            native = compatibility.get("native") or {}
+            for relative in native.get("sources") or []:
+                source = target.compatibility_manifest.parent / str(relative)
+                destination = benchmark_dir / "compatibility" / source.name
+                shutil.copy2(source, destination)
+                benchmark_sources[f"compatibility/{source.name}"] = sha256_file(source)
         if target.suite == "oscat_basic":
             oscat_source = (
                 self.config.semantist_root / "benchmarks" / "oscat_basic" / "source" / "oscat.st"
@@ -145,10 +145,8 @@ class ICSQuartzAdapter(BaseAdapter):
                     "log_tail_path": None,
                 },
             )
-        assert self.config.icsquartz_root is not None
-        compiler = _compiler_version(target)
-        compiler_image = _image_tag("semantist-exp-plc-compiler", compiler, target.target_id)
-        fuzzer_image = _image_tag("semantist-exp-icsquartz", compiler, target.target_id)
+        compiler = "semantist_common_ir"
+        fuzzer_image = _image_tag("semantist-exp-icsquartz", "common-ir", target.target_id)
         fuzzer_dockerfile = (
             self.config.semantist_root
             / "experiments"
@@ -156,16 +154,35 @@ class ICSQuartzAdapter(BaseAdapter):
             / "icsquartz"
             / "target.Dockerfile"
         )
-        compile_cmd = [
-            runtime,
-            "build",
-            "-t",
-            compiler_image,
-            "--file",
-            str(self.config.icsquartz_root / "compiler" / f"{compiler}.Dockerfile"),
-            "--build-context",
-            f"fuzztarget={benchmark_dir}",
-            str(self.config.icsquartz_root / "compiler"),
+        semantist_env = {
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONPATH": "/repo",
+            "SEMANTIST_ARTIFACT_DIR": self.container_path(preprocess_dir),
+            "SEMANTIST_BUILD_ARTIFACT_DIR": self.container_path(preprocess_dir / "build"),
+            "SEMANTIST_SEMANTIC_INSTRUMENTATION": "off",
+            "OUT_LL": self.container_path(benchmark_dir / "target.ll"),
+            "PREPARED_LL": self.container_path(benchmark_dir / "target.prepared.ll"),
+            "HARNESS_OUT": self.container_path(benchmark_dir / "icsquartz" / "harness.c"),
+            "RUSTY_STDLIB_OUT": self.container_path(benchmark_dir / "libiec61131std.a"),
+            "SEMANTIST_HARNESS_SOURCE": self.container_path(target.fixture("harness.c")),
+            "SEMANTIST_PROGRAM_FILE": self.container_path(target.fixture("program.st")),
+            "SEMANTIST_PUBLIC_API_EXTRA": "PLC_PRG,PLC_PRG__ctor,PLC_PRG_instance",
+            "CARGO_TARGET_DIR": "/opt/semantist/cargo-target",
+        }
+        if target.compatibility_manifest is not None:
+            semantist_env["SEMANTIST_COMPATIBILITY_MANIFEST"] = self.container_path(
+                target.compatibility_manifest
+            )
+        target_path = self.container_path(target.st_file)
+        semantist_commands = [
+            self._semantist_container_command(
+                semantist_env,
+                ["./compiler/scripts/compile_st.sh", target_path, target.function],
+            ),
+            self._semantist_container_command(
+                semantist_env,
+                ["bash", "./compiler/scripts/prepare_baseline_target.sh", target.function],
+            ),
         ]
         scan_cycle = "1" if target.suite == "icsquartz_scan_cycle" else "0"
         fuzzer_cmd = [
@@ -176,32 +193,39 @@ class ICSQuartzAdapter(BaseAdapter):
             "--file",
             str(fuzzer_dockerfile),
             "--build-context",
-            f"icsbuild=docker-image://{compiler_image}",
-            "--build-context",
             f"fuzztarget={benchmark_dir}",
             "--build-arg",
             f"ICSQUARTZ_BASE_IMAGE={self.baseline_image('icsquartz')}",
             "--build-arg",
             f"SCAN_CYCLE={scan_cycle}",
             "--build-arg",
-            f"ASAN_ALT={1 if target.target_id in ASAN_ALT_TARGETS else 0}",
+            "ASAN_ALT=0",
             str(fuzzer_dockerfile.parent),
         ]
         if self.config.container_platform:
-            compile_cmd[2:2] = ["--platform", self.config.container_platform]
             fuzzer_cmd[2:2] = ["--platform", self.config.container_platform]
+        steps = [
+            *((command, self.config.semantist_root, None) for command in semantist_commands),
+            (fuzzer_cmd, self.config.semantist_root, os.environ.copy()),
+        ]
         self.write_preprocessing_command(
             preprocess_dir,
             [
-                {"command": compile_cmd, "environment": {}},
+                *(
+                    {
+                        "command": command,
+                        "environment": _filtered_semantist_env(semantist_env),
+                    }
+                    for command in semantist_commands
+                ),
                 {"command": fuzzer_cmd, "environment": {}},
             ],
         )
-        for index, command in enumerate((compile_cmd, fuzzer_cmd), 1):
+        for index, (command, cwd, process_env) in enumerate(steps, 1):
             result = run_capture(
                 command,
-                cwd=self.config.icsquartz_root,
-                env=os.environ.copy(),
+                cwd=cwd,
+                env=process_env,
                 stdout_path=preprocess_dir / "logs" / f"{index:02d}.stdout.log",
                 stderr_path=preprocess_dir / "logs" / f"{index:02d}.stderr.log",
             )
@@ -212,8 +236,8 @@ class ICSQuartzAdapter(BaseAdapter):
                     start,
                     int(result["end_monotonic_ns"]),
                     failure_reason={
-                        "code": "icsquartz_container_build_failed",
-                        "message": f"{runtime} build failed: {' '.join(command)}",
+                        "code": "icsquartz_preprocessing_command_failed",
+                        "message": f"preprocessing command failed: {' '.join(command)}",
                         "log_tail_path": self.relative_artifact(
                             preprocess_dir / "logs" / f"{index:02d}.stderr.log"
                         ),
@@ -222,10 +246,12 @@ class ICSQuartzAdapter(BaseAdapter):
         end = time.monotonic_ns()
         metadata = {
             "compiler": compiler,
-            "compiler_image": compiler_image,
+            "compiler_image": self.config.semantist_image,
+            "compiler_image_id": container_image_id(runtime, self.config.semantist_image),
             "fuzzer_image": fuzzer_image,
+            "fuzzer_image_id": container_image_id(runtime, fuzzer_image),
             "scan_cycle": scan_cycle == "1",
-            "asan_alt": target.target_id in ASAN_ALT_TARGETS,
+            "asan_alt": False,
             "container_runtime": runtime,
             "benchmark_context": str(benchmark_dir),
             "benchmark_fixture_sha256": benchmark_sources,
@@ -233,6 +259,15 @@ class ICSQuartzAdapter(BaseAdapter):
         (preprocess_dir / "metadata.json").write_text(
             json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
+        if not metadata["fuzzer_image_id"]:
+            return PreprocessingResult(
+                "failed", preprocess_dir, start, end, metrics=metadata,
+                failure_reason={
+                    "code": "icsquartz_target_image_id_missing",
+                    "message": f"Cannot resolve the newly built target image ID: {fuzzer_image}",
+                    "log_tail_path": self.relative_artifact(preprocess_dir / "metadata.json"),
+                },
+            )
         return PreprocessingResult(
             "completed",
             preprocess_dir,
@@ -240,6 +275,25 @@ class ICSQuartzAdapter(BaseAdapter):
             end,
             artifacts={"image": fuzzer_image},
             metrics=metadata,
+        )
+
+    def _semantist_container_command(
+        self, env: dict[str, str], command: list[str]
+    ) -> list[str]:
+        runtime = self.config.container_runtime
+        if runtime is None:
+            raise RuntimeError(self.config.container_runtime_status)
+        return container_run_command(
+            runtime,
+            self.config.semantist_image,
+            mounts=[
+                (self.config.semantist_root, "/repo", True),
+                (self.config.artifact_root, "/artifacts", False),
+            ],
+            env=env,
+            workdir="/repo",
+            platform=self.config.container_platform,
+            command=command,
         )
 
     def run(
@@ -258,14 +312,19 @@ class ICSQuartzAdapter(BaseAdapter):
                 "online_elapsed_seconds": 0.0,
                 "failure_reason": {
                     "code": "icsquartz_insufficient_cpu_slots",
-                    "message": "ICSQuartz needs at least two CPU slots: one LibAFL broker and one client",
+                    "message": "ICSQuartz needs one CPU slot for its fuzzing client",
                     "log_tail_path": None,
                 },
                 **self.collect_metrics(target, run_dir, []),
             }
         metadata = json.loads((preprocessing.preprocess_dir / "metadata.json").read_text(encoding="utf-8"))
-        image = str(metadata["fuzzer_image"])
-        container_name = _container_name(run_dir)
+        image = metadata.get("fuzzer_image_id")
+        if not isinstance(image, str) or not image:
+            raise AdapterError(
+                "icsquartz_target_image_id_missing",
+                "Preprocessing did not record a target image ID; start a fresh experiment",
+            )
+        container_name = self.container_name(target, run_dir, "online")
         runtime = self.config.container_runtime
         if runtime is None:
             return {
@@ -294,14 +353,23 @@ class ICSQuartzAdapter(BaseAdapter):
         }
         icsquartz_args = {
             "seed": str(rng_seed),
-            # LibAFL spawns one client per requested core. Reserve the other
-            # CPU for the broker; do not silently create two fuzzing workers.
-            "cores": str(assigned_cpus[-1]),
+            # One upstream Launcher client is requested. Its broker/respawner
+            # shares the same container cpuset and does not add a fuzz worker.
+            # Launcher selects by ordinal within sched_getaffinity(), not by
+            # the host CPU id, so the sole allowed CPU is always ordinal 0.
+            "cores": _launcher_core_spec(assigned_cpus),
             "scan_cycle_max": "10000" if metadata.get("scan_cycle") else "2",
             "mutator_pow": "4",
             "min_input_generation": "128",
             "timeout_ms": str(self.config.per_execution_timeout_ms),
         }
+        # Pinned LibAFL reports at stage boundaries, at least 15 seconds apart;
+        # StdMutationalStage can execute 128 inputs before reporting again.
+        # Allow two reporting intervals plus a whole worst-case timeout stage.
+        execution_timeout_seconds = self.config.per_execution_timeout_ms / 1000
+        progress_timeout_seconds = 30.0 + 128 * execution_timeout_seconds
+        # The native generator executes ten initial inputs before the fuzz loop.
+        startup_grace_seconds = 30.0 + 10 * execution_timeout_seconds
         inner_command = [
             "/out/icsfuzz-demo",
             "--seed",
@@ -327,7 +395,6 @@ class ICSQuartzAdapter(BaseAdapter):
         ]
         if metadata.get("scan_cycle"):
             inner_command.extend(["--state-resets", "--dynamic-scan-cycle"])
-        _remove_container_quiet(runtime, container_name)
         command = container_run_command(
             runtime,
             image,
@@ -354,71 +421,143 @@ class ICSQuartzAdapter(BaseAdapter):
                 "assigned_cpus": assigned_cpus,
                 "container_runtime": runtime,
                 "icsquartz_args": icsquartz_args,
-                "initial_seed_note": "ICSQuartz constructs its own initial BytesInput corpus at startup.",
+                "execution_progress_timeout_seconds": progress_timeout_seconds,
+                "execution_startup_grace_seconds": startup_grace_seconds,
+                "progress_check_note": (
+                    "Short budgets may end before the conservative stagnation window; "
+                    "a positive native execution count is still required."
+                ),
+                "initial_seed_note": (
+                    "ICSQuartz forcibly evaluates its native ten-input initial generator "
+                    "before entering the fuzz loop."
+                ),
             },
         )
         t0 = time.monotonic_ns()
-        start = subprocess.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        (run_dir / "stdout.log").write_text(start.stdout, encoding="utf-8")
-        (run_dir / "stderr.log").write_text(start.stderr, encoding="utf-8")
-        if start.returncode != 0:
-            return {
-                "run_status": "online_start_failed",
-                "t0_monotonic_ns": t0,
-                "online_elapsed_seconds": (time.monotonic_ns() - t0) / 1_000_000_000,
-                "failure_reason": {
-                    "code": "icsquartz_container_start_failed",
-                    "message": start.stderr.strip() or start.stdout.strip(),
-                    "log_tail_path": self.relative_artifact(run_dir / "stderr.log"),
-                },
-                **self.collect_metrics(target, run_dir, []),
-            }
         deadline = t0 + self.config.online_budget_seconds * 1_000_000_000
-        timed_out = True
+        status = "online_start_failed"
+        failure = None
+        last_executions: int | None = None
+        online_executions: int | None = None
         observer = FindingObserver(t0, run_dir / "measurement-events.jsonl")
 
         def observe_findings() -> None:
             observer.observe(self.scan_finding_events(target, run_dir), after_budget=time.monotonic_ns() > deadline)
 
-        while time.monotonic_ns() < deadline:
-            observe_findings()
-            if not _container_running(runtime, container_name):
-                timed_out = False
-                break
-            time.sleep(self.config.observer_poll_interval_ms / 1000)
-        observe_findings()
-        if timed_out:
-            subprocess.run(
-                [runtime, "stop", "--time", "5", container_name],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+        try:
+            start = subprocess.run(
+                command, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                timeout=min(CONTAINER_START_TIMEOUT_SECONDS, self.config.online_budget_seconds),
             )
-        exit_code = _container_exit_code(runtime, container_name)
-        observe_findings()
-        _write_container_logs(runtime, container_name, run_dir / "container.stdout.log", run_dir / "container.stderr.log")
-        subprocess.run(
-            [runtime, "rm", "--force", container_name],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        elapsed = (time.monotonic_ns() - t0) / 1_000_000_000
+            (run_dir / "stdout.log").write_text(start.stdout, encoding="utf-8")
+            (run_dir / "stderr.log").write_text(start.stderr, encoding="utf-8")
+            if start.returncode != 0:
+                failure = {
+                    "code": "icsquartz_container_start_failed",
+                    "message": start.stderr.strip() or start.stdout.strip(),
+                    "log_tail_path": self.relative_artifact(run_dir / "stderr.log"),
+                }
+                online_end = time.monotonic_ns()
+            else:
+                started_ns = last_progress_ns = time.monotonic_ns()
+                while True:
+                    observe_findings()
+                    running = _container_running(runtime, container_name)
+                    current_executions = _latest_total_executions(stats_file)
+                    now = time.monotonic_ns()
+                    if now <= deadline and current_executions is not None:
+                        online_executions = current_executions
+                        if current_executions > (last_executions or 0):
+                            last_executions = current_executions
+                            last_progress_ns = now
+                    if not running:
+                        exit_code = _container_exit_code(runtime, container_name)
+                        status = "online_crashed"
+                        failure = {
+                            "code": "icsquartz_exited_before_budget",
+                            "message": f"ICSQuartz exited before the runner stopped it (exit code {exit_code})",
+                            "log_tail_path": self.relative_artifact(fuzzer_log),
+                        }
+                        break
+                    no_executions = not online_executions
+                    if no_executions and (
+                        now >= deadline or (now - started_ns) / 1e9 >= startup_grace_seconds
+                    ):
+                        status = "watchdog_timeout"
+                        failure = {
+                            "code": "icsquartz_execution_count_missing",
+                            "message": "ICSQuartz reported no positive native execution count before the budget/startup grace ended",
+                            "log_tail_path": self.relative_artifact(stats_file),
+                        }
+                        break
+                    if not no_executions and (now - last_progress_ns) / 1e9 >= progress_timeout_seconds:
+                        status = "watchdog_timeout"
+                        failure = {
+                            "code": "icsquartz_execution_stalled",
+                            "message": f"Native execution count did not advance for {progress_timeout_seconds:g} seconds",
+                            "log_tail_path": self.relative_artifact(stats_file),
+                        }
+                        break
+                    if now >= deadline:
+                        status = "budget_completed"
+                        break
+                    time.sleep(min(self.config.observer_poll_interval_ms / 1000, (deadline - now) / 1e9))
+                online_end = time.monotonic_ns()
+                # A dead respawner can leave its broker alive until the budget.
+                # Its stderr need not be redirected to fuzzer_log. Snapshot all
+                # streams before our stop signal, excluding shutdown-induced logs.
+                pre_stop_stdout = run_dir / "container.pre-stop.stdout.log"
+                pre_stop_stderr = run_dir / "container.pre-stop.stderr.log"
+                _write_container_logs(runtime, container_name, pre_stop_stdout, pre_stop_stderr)
+                for log_path in (fuzzer_log, pre_stop_stdout, pre_stop_stderr):
+                    log_failure = _fuzzer_log_failure(log_path, unrecoverable_only=True)
+                    if log_failure is not None:
+                        status = "online_crashed"
+                        failure = {
+                            "code": "icsquartz_client_fatal_log",
+                            "message": log_failure,
+                            "log_tail_path": self.relative_artifact(log_path),
+                        }
+                        break
+        finally:
+            # Also runs after startup/observer/inspect errors and KeyboardInterrupt.
+            # Cleanup failures are recorded without masking the original exception.
+            cleanup = _cleanup_container(runtime, container_name, run_dir)
+
+        observe_findings()  # Keep evidence flushed during shutdown; label it late.
+        container_stdout = run_dir / "container.stdout.log"
+        if fuzzer_log.stat().st_size == 0 and container_stdout.is_file():
+            shutil.copyfile(container_stdout, fuzzer_log)
+        elapsed = (online_end - t0) / 1_000_000_000
+        online_elapsed = min(elapsed, float(self.config.online_budget_seconds))
         metrics = self.collect_metrics(target, run_dir, observer.events)
+        # Stats can advance while logs are captured or stop waits for the broker.
+        # Those later values are diagnostics, never the online throughput numerator.
+        metrics["tool_specific_metrics"]["shutdown_total_executions"] = metrics.get("total_executions")
+        metrics["tool_specific_metrics"]["shutdown_execs_per_sec"] = metrics.get("execs_per_sec")
         metrics.update(
             {
                 "t0_monotonic_ns": t0,
-                "online_elapsed_seconds": float(self.config.online_budget_seconds) if timed_out else elapsed,
-                "cleanup_inclusive_elapsed_seconds": elapsed,
-                "run_status": "budget_completed" if timed_out else (
-                    "early_completed_with_finding" if metrics["finding_found"] else "early_completed_no_finding"
-                ),
+                "online_elapsed_seconds": online_elapsed,
+                "total_executions": online_executions,
+                "total_executions_window": "last_native_report_observed_within_online_budget",
+                "execs_per_sec": online_executions / online_elapsed
+                if online_executions is not None and online_elapsed > 0 else None,
+                "cleanup_inclusive_elapsed_seconds": (time.monotonic_ns() - t0) / 1e9,
+                "run_status": status,
             }
         )
-        if not timed_out and exit_code not in (0, None):
-            metrics["run_status"] = "online_crashed"
+        if failure is not None:
+            metrics["failure_reason"] = failure
+        metrics["tool_specific_metrics"]["container_cleanup"] = cleanup
+        if not cleanup["removed"]:
+            cleanup["prior_run_status"] = status
+            cleanup["prior_failure_reason"] = failure
+            metrics["run_status"] = "runner_error"
             metrics["failure_reason"] = {
-                "code": "icsquartz_container_exited_nonzero",
-                "message": f"ICSQuartz container exited with code {exit_code}",
-                "log_tail_path": self.relative_artifact(run_dir / "container.stderr.log"),
+                "code": "icsquartz_container_cleanup_failed",
+                "message": "Container removal failed; stop the remaining container before any further experiment",
+                "log_tail_path": self.relative_artifact(run_dir / "container-cleanup.json"),
             }
         return metrics
 
@@ -449,14 +588,11 @@ class ICSQuartzAdapter(BaseAdapter):
         latest = _last_json_line(run_dir / "tool-artifacts" / "fuzzer_stats.json")
         if latest:
             metrics["execs_per_sec"] = _safe_float(latest.get("exec_sec"))
-            metrics["total_executions"] = _safe_int(latest.get("executions"))
+            metrics["total_executions"] = _latest_total_executions(run_dir / "tool-artifacts" / "fuzzer_stats.json")
+            active_client = _active_client_stats(latest)
             try:
-                metrics["total_executions"] = max(
-                    metrics["total_executions"] or 0,
-                    int(latest["client_stats"][1]["user_monitor"]["executions_"]["value"]["Number"]),
-                )
                 metrics["tool_specific_metrics"]["state_resets"] = int(
-                    latest["client_stats"][1]["user_monitor"]["stale_state_"]["value"]["Number"]
+                    active_client["user_monitor"]["stale_state_"]["value"]["Number"]
                 )
             except (KeyError, IndexError, TypeError, ValueError):
                 pass
@@ -482,18 +618,9 @@ class ICSQuartzAdapter(BaseAdapter):
         return _safe_float(latest.get("exec_sec")) if latest else None
 
 
-def _compiler_version(target: Target) -> str:
-    value = target.raw.get("icsquartz_compiler", "latest")
-    return str(value or "latest")
-
-
 def _image_tag(prefix: str, compiler: str, target_id: str) -> str:
     safe = re.sub(r"[^a-zA-Z0-9_.-]", "-", target_id).lower()
     return f"{prefix}-{compiler}:{safe}"
-
-
-def _container_name(run_dir: Path) -> str:
-    return "semantist-" + re.sub(r"[^A-Za-z0-9_.-]", "-", str(run_dir)[-80:])
 
 
 def _container_running(runtime: str, name: str) -> bool:
@@ -501,9 +628,12 @@ def _container_running(runtime: str, name: str) -> bool:
         [runtime, "inspect", "-f", "{{.State.Running}}", name],
         text=True,
         stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        timeout=CONTAINER_COMMAND_TIMEOUT_SECONDS,
     )
-    return result.returncode == 0 and result.stdout.strip() == "true"
+    if result.returncode != 0:
+        raise RuntimeError(f"cannot inspect ICSQuartz container {name}: {result.stderr.strip()}")
+    return result.stdout.strip() == "true"
 
 
 def _container_exit_code(runtime: str, name: str) -> int | None:
@@ -512,6 +642,7 @@ def _container_exit_code(runtime: str, name: str) -> int | None:
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
+        timeout=CONTAINER_COMMAND_TIMEOUT_SECONDS,
     )
     if result.returncode != 0:
         return None
@@ -521,12 +652,47 @@ def _container_exit_code(runtime: str, name: str) -> int | None:
         return None
 
 
-def _remove_container_quiet(runtime: str, name: str) -> None:
-    subprocess.run(
-        [runtime, "rm", "--force", name],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+def _cleanup_container(runtime: str, name: str, run_dir: Path) -> dict[str, Any]:
+    """Bound every cleanup operation and preserve evidence before removal.
+
+    Do not mask an in-flight observer error or KeyboardInterrupt. The caller
+    rejects otherwise successful runs when removal cannot be confirmed.
+    """
+    cleanup: dict[str, Any] = {"container": name, "removed": False}
+    try:
+        stopped = subprocess.run(
+            [runtime, "stop", "--time", "5", name],
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=CONTAINER_COMMAND_TIMEOUT_SECONDS,
+        )
+        cleanup["stop_returncode"] = stopped.returncode
+        if stopped.returncode != 0:
+            cleanup["stop_error"] = stopped.stderr[-2000:]
+    except Exception as error:
+        cleanup["stop_error"] = repr(error)
+    try:
+        _write_container_logs(runtime, name, run_dir / "container.stdout.log", run_dir / "container.stderr.log")
+    except Exception as error:
+        cleanup["logs_error"] = repr(error)
+    try:
+        removed = subprocess.run(
+            [runtime, "rm", "--force", name],
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=CONTAINER_COMMAND_TIMEOUT_SECONDS,
+        )
+        cleanup["remove_returncode"] = removed.returncode
+        cleanup["removed"] = removed.returncode == 0 or "no such container" in removed.stderr.lower()
+        if not cleanup["removed"]:
+            cleanup["remove_error"] = removed.stderr[-2000:]
+    except Exception as error:
+        cleanup["remove_error"] = repr(error)
+    try:
+        (run_dir / "container-cleanup.json").write_text(
+            json.dumps(cleanup, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+    except OSError as error:
+        cleanup["diagnostic_error"] = repr(error)
+    return cleanup
 
 
 def _write_container_logs(runtime: str, name: str, stdout_path: Path, stderr_path: Path) -> None:
@@ -535,9 +701,12 @@ def _write_container_logs(runtime: str, name: str, stdout_path: Path, stderr_pat
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        timeout=CONTAINER_COMMAND_TIMEOUT_SECONDS,
     )
     stdout_path.write_text(result.stdout, encoding="utf-8")
     stderr_path.write_text(result.stderr, encoding="utf-8")
+    if result.returncode != 0:
+        raise RuntimeError(f"cannot collect ICSQuartz container logs: {result.stderr.strip()}")
 
 
 def _input_for_metadata(metadata_path: Path) -> Path | None:
@@ -577,6 +746,13 @@ def _asan_options(asan_alt: bool) -> str:
     return ":".join(f"{key}={value}" for key, value in options.items())
 
 
+def _launcher_core_spec(assigned_cpus: list[int]) -> str:
+    """Map a singleton host affinity mask to LibAFL's visible-core ordinal."""
+    if len(assigned_cpus) != 1:
+        raise ValueError("the comparison ICSQuartz client requires exactly one CPU slot")
+    return "0"
+
+
 def _last_json_line(path: Path) -> dict[str, Any] | None:
     if not path.is_file():
         return None
@@ -596,6 +772,54 @@ def _last_json_line(path: Path) -> dict[str, Any] | None:
     return None
 
 
+def _fuzzer_log_failure(path: Path, *, unrecoverable_only: bool = False) -> str | None:
+    if not path.is_file():
+        return None
+    text = path.read_text(encoding="utf-8", errors="replace")
+    # These terminate the sole client's respawner/launcher rather than an
+    # individual target child. A generic panic alone can be recovered by LibAFL.
+    markers = (
+        "Fuzzer-respawner: Storing state in crashed fuzzer instance did not work",
+        "Target received SIGKILL!. This could indicate the target crashed due to OOM",
+        "Failed to run launcher:",
+    )
+    if not unrecoverable_only:
+        markers += ("fatal runtime error:", "thread '<unnamed>' panicked at")
+    for marker in markers:
+        if marker in text:
+            return f"ICSQuartz client log contains fatal marker: {marker}"
+    return None
+
+
+def _active_client_stats(stats: dict[str, Any]) -> dict[str, Any]:
+    clients = stats.get("client_stats")
+    if not isinstance(clients, list):
+        return {}
+    candidates = [client for client in clients if isinstance(client, dict) and client.get("enabled")]
+    if not candidates:
+        candidates = [client for client in clients if isinstance(client, dict)]
+    return max(candidates, key=lambda client: _safe_int(client.get("executions")) or 0, default={})
+
+
+def _latest_total_executions(path: Path) -> int | None:
+    latest = _last_json_line(path)
+    if not latest:
+        return None
+    values = [_safe_int(latest.get("executions"))]
+    client = _active_client_stats(latest)
+    values.append(_safe_int(client.get("executions")))
+    values.append(_client_reported_executions(client))
+    measured = [value for value in values if value is not None and value >= 0]
+    return max(measured) if measured else None
+
+
+def _client_reported_executions(client: dict[str, Any]) -> int | None:
+    try:
+        return _safe_int(client["user_monitor"]["executions_"]["value"]["Number"])
+    except (KeyError, TypeError):
+        return None
+
+
 def _safe_int(value: object) -> int | None:
     try:
         return int(str(value))
@@ -608,3 +832,23 @@ def _safe_float(value: object) -> float | None:
         return float(str(value))
     except (TypeError, ValueError):
         return None
+
+
+def _filtered_semantist_env(env: dict[str, str]) -> dict[str, str]:
+    keep = {
+        "CARGO_TARGET_DIR",
+        "HARNESS_OUT",
+        "OUT_LL",
+        "PREPARED_LL",
+        "PYTHONDONTWRITEBYTECODE",
+        "PYTHONPATH",
+        "RUSTY_STDLIB_OUT",
+        "SEMANTIST_ARTIFACT_DIR",
+        "SEMANTIST_BUILD_ARTIFACT_DIR",
+        "SEMANTIST_COMPATIBILITY_MANIFEST",
+        "SEMANTIST_HARNESS_SOURCE",
+        "SEMANTIST_PROGRAM_FILE",
+        "SEMANTIST_PUBLIC_API_EXTRA",
+        "SEMANTIST_SEMANTIC_INSTRUMENTATION",
+    }
+    return {key: value for key, value in env.items() if key in keep}

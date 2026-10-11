@@ -15,9 +15,11 @@ sys.path.insert(0, str(ROOT))
 from experiments.comparison.adapters import ADAPTERS
 from experiments.comparison.adapters.base import ExperimentConfig
 from experiments.comparison.analysis.compare_tools import compare, load_runs
+from experiments.comparison.analysis.validate_complete import validate as validate_complete
 from experiments.comparison.analysis.replay import merge_replay_results, replay_seed
 from experiments.comparison.lib.metrics import CONTRACT, FindingObserver, paper_metrics, read_events, reported_executions
 from experiments.comparison.lib.process import run_with_budget
+from experiments.comparison.lib import process as process_module
 from experiments.comparison.lib.schema import run_result_template, write_json
 from experiments.comparison.run_tool import runner_arguments
 from experiments.comparison.run_full_comparison import parse_args
@@ -131,6 +133,34 @@ class IndependentExperimentTests(unittest.TestCase):
             self.assertEqual(len(result["events"]), 1)
             self.assertTrue((root / "measurement-events.jsonl").is_file())
 
+    def test_observer_exception_terminates_running_child(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch(
+                "experiments.comparison.lib.process._terminate_process",
+                wraps=process_module._terminate_process,
+            ) as terminate:
+                with self.assertRaisesRegex(RuntimeError, "observer race"):
+                    run_with_budget(
+                        [sys.executable, "-c", "import time; time.sleep(30)"],
+                        cwd=root, env=None, stdout_path=root / "stdout",
+                        stderr_path=root / "stderr", budget_seconds=2,
+                        poll_interval_ms=10,
+                        scan_findings=lambda: (_ for _ in ()).throw(RuntimeError("observer race")),
+                    )
+            terminate.assert_called_once()
+
+    def test_semantist_scanner_ignores_disappearing_report(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            adapter = ADAPTERS["semantist_full"](config(Path(tmp)))
+            target = SimpleNamespace(target_id="target", suite="suite")
+            run_dir = adapter.run_dir(target, 1)
+            report = run_dir / "findings" / "fuzzing" / "report.json"
+            report.parent.mkdir(parents=True)
+            report.write_text('{"kind":"asan","executions":1}', encoding="utf-8")
+            with patch.object(Path, "read_text", side_effect=FileNotFoundError):
+                self.assertEqual(adapter.scan_finding_events(target, run_dir), [])
+
     def test_native_metadata_not_misidentified_as_crash(self):
         for tool, relative in (("icsquartz_full", "tool-artifacts/crashes"),):
             with self.subTest(tool=tool), tempfile.TemporaryDirectory() as tmp:
@@ -224,6 +254,11 @@ class IndependentExperimentTests(unittest.TestCase):
             path = save_independent(b, other)
             with self.assertRaisesRegex(ValueError, "online_budget_seconds"):
                 compare([a, b], root / "out")
+            other["online_budget_seconds"] = 10
+            other["rng_seed_requested"] = 999
+            save_independent(b, other)
+            with self.assertRaisesRegex(ValueError, "paired RNG seeds"):
+                compare([a, b], root / "out")
             with self.assertRaisesRegex(ValueError, "duplicate"):
                 load_runs([a, a])
             path.unlink()
@@ -252,12 +287,48 @@ class IndependentExperimentTests(unittest.TestCase):
             self.assertEqual(row["crash_trials"], 0)
             self.assertIsNone(row["success_rate_among_valid_trials"])
 
+    def test_strict_completion_rejects_failed_or_unmeasured_supported_trial(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            failed = run_record()
+            failed.update(
+                run_status="runner_error",
+                failure_reason={"code": "test", "message": "test"},
+            )
+            failed["paper_metrics"] = paper_metrics(failed)
+            (root / "schedule.jsonl").write_text(
+                json.dumps({
+                    "run_key": failed["run_key"],
+                    "tool": failed["tool"],
+                    "target_id": failed["target_id"],
+                    "trial_id": failed["trial_id"],
+                }) + "\n",
+                encoding="utf-8",
+            )
+            (root / "raw-runs.jsonl").write_text(json.dumps(failed) + "\n", encoding="utf-8")
+            (root / "support-matrix.csv").write_text(
+                "tool,target_id,support_status\nsemantist_full,target,supported\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(validate_complete(root), [])
+            errors = validate_complete(root, require_valid_runs=True)
+            self.assertTrue(any("did not complete" in error for error in errors))
+            self.assertTrue(any("valid_run" in error for error in errors))
+
+            completed = run_record()
+            completed["total_executions"] = None
+            completed["paper_metrics"] = paper_metrics(completed)
+            (root / "raw-runs.jsonl").write_text(json.dumps(completed) + "\n", encoding="utf-8")
+            errors = validate_complete(root, require_valid_runs=True)
+            self.assertTrue(any("total_executions_reported" in error for error in errors))
+
     def test_single_tool_entry_keeps_analysis_offline(self):
         args = parse_args(runner_arguments(["--tool", "semantist", "--run-id", "new", "--fuzz-time", "12"]))
         self.assertEqual(args.tools, "semantist_full")
         self.assertEqual(args.fuzz_time, 12)
-        self.assertTrue(args.serial)
+        self.assertFalse(args.serial)
         self.assertTrue(args.skip_aggregate)
+        self.assertTrue(args.require_valid_runs)
         self.assertFalse(args.with_replay)
         self.assertFalse(args.with_coverage)
         with self.assertRaises(SystemExit), patch("sys.stderr", new=io.StringIO()):

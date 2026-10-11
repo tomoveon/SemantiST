@@ -7,13 +7,21 @@ import argparse
 import csv
 import json
 import statistics
+import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
+ROOT = Path(__file__).resolve().parents[3]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from experiments.comparison.lib.metrics import paper_metrics, valid_native_run
+
 
 CSV_FIELDS = [
     "tool",
+    "configuration_id",
     "suite",
     "target_id",
     "kind",
@@ -94,6 +102,7 @@ def write_raw_csv(path: Path, runs: list[dict[str, Any]]) -> None:
             writer.writerow(
                 {
                     "tool": run.get("tool"),
+                    "configuration_id": run.get("configuration_id"),
                     "suite": run.get("suite"),
                     "target_id": run.get("target_id"),
                     "kind": run.get("kind"),
@@ -154,12 +163,10 @@ def common_finding_summary(
             continue
         targets = {run["target_id"] for run in group}
         supported = [run for run in group if _analysis_eligible(run)]
-        finding_runs = [run for run in supported if run.get("common_oracle_finding_found")]
-        times = [
-            _first_value(run, "observed_elapsed_seconds", "tool_reported_time_seconds")
-            for run in finding_runs
-        ]
-        execs = [_first_value(run, "execution_ordinal") for run in finding_runs]
+        finding_runs = [run for run in supported if paper_metrics(run)["crash_found"]]
+        finding_metrics = [paper_metrics(run) for run in finding_runs]
+        times = [metrics["first_crash_time_seconds"] for metrics in finding_metrics]
+        execs = [metrics["first_crash_executions"] for metrics in finding_metrics]
         result.append(
             {
                 "tool": tool,
@@ -177,9 +184,7 @@ def common_finding_summary(
                 ),
                 "median_first_common_finding_time_seconds": _median([t for t in times if t is not None]),
                 "median_first_common_finding_executions": _median([e for e in execs if e is not None]),
-                "censored_trials": len(
-                    [run for run in supported if not run.get("common_oracle_finding_found")]
-                ),
+                "censored_trials": len(supported) - len(finding_runs),
             }
         )
     return result
@@ -189,7 +194,8 @@ def semantist_semantic_summary(runs: list[dict[str, Any]]) -> list[dict[str, Any
     semantist_runs = [run for run in runs if run["tool"] == "semantist_full"]
     result = []
     for suite, group in sorted(_group_by(semantist_runs, "suite").items()):
-        semantic_runs = [run for run in group if run.get("semantic_objective_found")]
+        eligible = [run for run in group if _analysis_eligible(run)]
+        semantic_runs = [run for run in eligible if run.get("semantic_objective_found")]
         events = [
             event
             for run in semantic_runs
@@ -201,7 +207,7 @@ def semantist_semantic_summary(runs: list[dict[str, Any]]) -> list[dict[str, Any
         ratios_total = []
         state_total = 0
         cycle_total = 0
-        for run in group:
+        for run in eligible:
             metrics = run.get("tool_specific_metrics") or {}
             if metrics.get("mapped_semantic_coverage_ratio") is not None:
                 ratios_mapped.append(metrics["mapped_semantic_coverage_ratio"])
@@ -214,6 +220,8 @@ def semantist_semantic_summary(runs: list[dict[str, Any]]) -> list[dict[str, Any
                 "suite": suite,
                 "target_count": len({run["target_id"] for run in group}),
                 "trial_count": len(group),
+                "valid_trial_count": len(eligible),
+                "excluded_trial_count": len(group) - len(eligible),
                 "semantic_objective_trials": len(semantic_runs),
                 "semantic_objective_targets": len({run["target_id"] for run in semantic_runs}),
                 "initial_ingress_findings": phases.get("initial_ingress", 0),
@@ -238,6 +246,9 @@ def coverage_summary(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "suite": run.get("suite"),
                 "target_id": run.get("target_id"),
                 "trial_id": run.get("trial_id"),
+                "configuration_id": run.get("configuration_id"),
+                "run_status": run.get("run_status"),
+                "valid_run": valid_native_run(run),
                 "covered_slots": coverage.get("covered_slots"),
                 "covered_slots_sha256": coverage.get("covered_slots_sha256"),
                 "total_executions": run.get("total_executions"),
@@ -265,8 +276,9 @@ def performance_summary(
         if not group:
             continue
         eligible = [run for run in group if _analysis_eligible(run)]
-        execs = [run.get("total_executions") for run in eligible if run.get("total_executions") is not None]
-        eps = [run.get("execs_per_sec") for run in eligible if run.get("execs_per_sec") is not None]
+        metrics = [paper_metrics(run) for run in eligible]
+        execs = [row["total_executions_reported"] for row in metrics]
+        eps = [row["execs_per_sec"] for row in metrics]
         result.append(
             {
                 "tool": tool,
@@ -350,21 +362,8 @@ def _common_supported_targets_from_runs(
     }
 
 
-_NON_ELIGIBLE_STATUSES = {
-    "unsupported",
-    "preprocessing_failed",
-    "online_start_failed",
-    "watchdog_timeout",
-    "runner_error",
-    "missing",
-}
-
-
 def _analysis_eligible(run: dict[str, Any]) -> bool:
-    return (
-        run.get("support_status") == "supported"
-        and run.get("run_status") not in _NON_ELIGIBLE_STATUSES
-    )
+    return valid_native_run(run)
 
 
 def _group_by(rows: list[dict[str, Any]], *keys: str) -> dict[Any, list[dict[str, Any]]]:

@@ -17,6 +17,7 @@ htmlcov/
 # Rust/Cargo build output
 target/
 artifacts/
+/tmp/
 
 # SemantiST generated runtime/build outputs
 # Keep this root-anchored: fuzzer/corpus/ contains required source code.

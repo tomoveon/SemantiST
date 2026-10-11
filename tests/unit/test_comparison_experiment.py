@@ -4,6 +4,7 @@ import os
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -12,8 +13,17 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from experiments.comparison.adapters import ADAPTERS, DEFAULT_TOOL_ORDER  # noqa: E402
-from experiments.comparison.adapters.aflplusplus import AFLPlusPlusAdapter  # noqa: E402
+from experiments.comparison.adapters.aflplusplus import (  # noqa: E402
+    AFLPlusPlusAdapter,
+    _afl_artifact_files,
+    _parse_afl_name,
+)
 from experiments.comparison.adapters.base import ExperimentConfig, PreprocessingResult  # noqa: E402
+from experiments.comparison.adapters.icsquartz import (  # noqa: E402
+    _fuzzer_log_failure,
+    _launcher_core_spec,
+    _latest_total_executions,
+)
 from experiments.comparison.adapters.semantist import SemantiSTAdapter  # noqa: E402
 from experiments.baselines import build_images  # noqa: E402
 from experiments.comparison.analysis import coverage as coverage_analysis  # noqa: E402
@@ -33,7 +43,13 @@ from experiments.comparison.lib.schema import (  # noqa: E402
     run_result_template,
     validate_run_result,
 )
-from experiments.comparison.run_full_comparison import make_base_result, write_schedule, write_support_matrix  # noqa: E402
+from experiments.comparison.run_full_comparison import (  # noqa: E402
+    make_base_result,
+    parse_args,
+    validate_execution_environment,
+    write_schedule,
+    write_support_matrix,
+)
 
 
 def comparison_config(artifact_root: Path, runtime: str = "podman") -> ExperimentConfig:
@@ -59,6 +75,102 @@ def comparison_config(artifact_root: Path, runtime: str = "podman") -> Experimen
 
 
 class ComparisonExperimentTests(unittest.TestCase):
+    @patch("experiments.comparison.run_full_comparison.container_image_id", return_value=None)
+    def test_execution_environment_rejects_missing_images(self, _image_id):
+        with self.assertRaisesRegex(SystemExit, "required container image"):
+            validate_execution_environment(
+                "docker", "docker info succeeded", ["icsquartz_full"],
+                "semantist:test", None,
+            )
+
+    @patch("experiments.comparison.run_full_comparison.subprocess.run")
+    @patch("experiments.comparison.run_full_comparison.container_run_command", return_value=["probe"])
+    @patch("experiments.comparison.run_full_comparison.container_image_id", return_value="sha256:test")
+    def test_execution_environment_probes_current_semantist_cli(
+        self, _image_id, _command, run
+    ):
+        run.return_value = SimpleNamespace(returncode=0, stdout="--ablation <PROFILE>", stderr="")
+        validate_execution_environment(
+            "docker", "docker info succeeded", ["semantist_full"],
+            "semantist:test", None,
+        )
+        run.return_value = SimpleNamespace(returncode=0, stdout="old help", stderr="")
+        with self.assertRaisesRegex(SystemExit, "current experiment CLI"):
+            validate_execution_environment(
+                "docker", "docker info succeeded", ["semantist_full"],
+                "semantist:test", None,
+            )
+
+    def test_comparison_disables_semantist_only_state_trace_by_default(self):
+        self.assertFalse(parse_args([]).semantist_fb_state_trace)
+        self.assertTrue(parse_args(["--semantist-fb-state-trace"]).semantist_fb_state_trace)
+
+    def test_semantist_ablation_is_recorded_per_trial(self):
+        target = SimpleNamespace(
+            target_id="target", suite="suite", kind="FUNCTION_BLOCK", function="FB",
+            st_file_sha256="source", fixture_hashes={"harness.c": "harness"},
+        )
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            config = replace(
+                comparison_config(Path(raw_tmp)),
+                semantist_ablation="no_multicycle_guidance",
+            )
+            adapter = SemantiSTAdapter(config)
+            result = make_base_result(
+                {"run_key": "exp|semantist_full|suite|target|trial_01",
+                 "tool": "semantist_full", "trial_id": 1, "rng_seed": 123},
+                target, adapter, "supported",
+            )
+        self.assertEqual(result["configuration_id"], "no_multicycle_guidance")
+        self.assertEqual(result["execution_model"], "stateful_semantic_sequence")
+
+    def test_afl_artifacts_and_counters_survive_windows_colon_encoding(self):
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            root = Path(raw_tmp)
+            encoded = root / "id\uf03a000000,sig\uf03a06,time\uf03a260,execs\uf03a10,op\uf03ahavoc"
+            encoded.write_bytes(b"crash")
+            (root / "README.txt").write_text("metadata", encoding="utf-8")
+            self.assertEqual(_afl_artifact_files(root), [encoded])
+            self.assertEqual(_parse_afl_name(encoded.name), (0.26, 10))
+
+    def test_icsquartz_progress_reads_active_client_counter(self):
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            stats = Path(raw_tmp) / "fuzzer_stats.json"
+            stats.write_text(
+                json.dumps(
+                    {
+                        "executions": 2,
+                        "client_stats": [
+                            {"enabled": False, "executions": 0},
+                            {
+                                "enabled": True,
+                                "executions": 37,
+                                "user_monitor": {
+                                    "executions_": {"value": {"Number": 100}}
+                                },
+                            },
+                        ],
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(_latest_total_executions(stats), 100)
+
+    def test_icsquartz_uses_visible_core_ordinal_inside_singleton_cpuset(self):
+        self.assertEqual(_launcher_core_spec([7]), "0")
+        with self.assertRaisesRegex(ValueError, "exactly one CPU"):
+            _launcher_core_spec([7, 8])
+
+    def test_icsquartz_fatal_client_log_is_not_a_clean_early_exit(self):
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            log = Path(raw_tmp) / "fuzzer_log"
+            log.write_text(
+                "Fuzzer-respawner: Storing state in crashed fuzzer instance did not work\n",
+                encoding="utf-8",
+            )
+            self.assertIsNotNone(_fuzzer_log_failure(log))
+
     def test_parse_cpus_supports_ranges_and_commas(self):
         self.assertEqual(parse_cpus("1-3,5,3"), [1, 2, 3, 5])
 
@@ -260,7 +372,7 @@ class ComparisonExperimentTests(unittest.TestCase):
             )
         self.assertEqual(result["rng_seed_status"], "applied")
         self.assertEqual(result["initial_seed_provider"], "aflplusplus_adapter")
-        self.assertEqual(result["initial_seed_policy"], "single_zero_byte_seed")
+        self.assertEqual(result["initial_seed_policy"], "icsquartz_aflplusplus_echo_1_seed")
 
     def test_replay_seed_feeds_testcase_on_stdin(self):
         with tempfile.TemporaryDirectory() as raw_tmp:
@@ -325,7 +437,10 @@ class ComparisonExperimentTests(unittest.TestCase):
             run_key = f"exp|semantist_full|{target.suite}|{target.target_id}|trial_01"
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0]["run_key"], run_key)
-            self.assertEqual(rows[0]["rng_seed"], rng_seed(run_key))
+            self.assertEqual(
+                rows[0]["rng_seed"],
+                rng_seed(f"exp|{target.suite}|{target.target_id}|trial_01"),
+            )
             self.assertEqual(
                 rows[0]["sort_key"],
                 sha256_text(f"exp|schedule|semantist_full|{target.suite}|{target.target_id}|1"),
@@ -334,6 +449,31 @@ class ComparisonExperimentTests(unittest.TestCase):
                 json.loads((tmp_path / "schedule.jsonl").read_text(encoding="utf-8"))["run_key"],
                 run_key,
             )
+
+    def test_schedule_pairs_rng_seed_across_tools_and_experiment_directories(self):
+        manifest = load_manifest(ROOT / "benchmarks" / "external" / "manifest.json", ROOT)
+        target = manifest.targets[0]
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp_path = Path(raw_tmp)
+            (tmp_path / "first").mkdir()
+            (tmp_path / "second").mkdir()
+            first = write_schedule(
+                tmp_path / "first",
+                "sem-run",
+                ["semantist_full", "aflplusplus_full"],
+                [target],
+                1,
+                seed_namespace="campaign",
+            )
+            second = write_schedule(
+                tmp_path / "second",
+                "ics-run",
+                ["icsquartz_full"],
+                [target],
+                1,
+                seed_namespace="campaign",
+            )
+        self.assertEqual({row["rng_seed"] for row in [*first, *second]}, {first[0]["rng_seed"]})
 
     def test_support_matrix_counts_for_full_adapter_set(self):
         manifest = load_manifest(ROOT / "benchmarks" / "external" / "manifest.json", ROOT)

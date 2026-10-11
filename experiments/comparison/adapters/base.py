@@ -37,7 +37,7 @@ class ExperimentConfig:
     container_runtime_status: str
     container_platform: str | None
     semantist_image: str
-    reuse_preprocessing: bool = False
+    semantist_ablation: str = "full"
 
 
 @dataclass(frozen=True)
@@ -185,7 +185,10 @@ class BaseAdapter:
     ) -> Path:
         run_dir = self.run_dir(target, trial_id)
         if run_dir.exists():
-            shutil.rmtree(run_dir)
+            raise AdapterError(
+                "trial_directory_exists",
+                f"trial directory already exists: {run_dir}; use a new experiment ID",
+            )
         for child in (
             "events",
             "corpus",

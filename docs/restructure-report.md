@@ -1,5 +1,30 @@
 # Restructure Report
 
+> Historical record, reviewed on **2026-10-09**. The line counts and test results
+> below belong to the earlier repository restructure; they are not a current
+> acceptance result. The repository does not link those historical checks to a
+> retained log or exact commit here. Current usage and verification procedures
+> are in [architecture](architecture.md), [reproducibility](reproducibility.md)
+> and the [server runbook](server_experiment_runbook_zh.md).
+
+## Current status (2026-10-09)
+
+The package/workspace layout remains in use. Since the restructure, the tree
+has gained the controlled experiment layer under `experiments/`, external
+benchmark fixtures under `benchmarks/external/`, and the thin root
+`run_experiment.py` entry with `main` and `smoke` presets. Several Rust
+responsibility files have changed and `fuzzer/corpus/generation.rs` plus
+`fuzzer/semantic/io.rs` are also included by the engine. The historical file
+line counts below should not be used to describe today's source size.
+
+The current Rust workspace still contains the engine and STG crates, and the
+installed Python command list below still matches `pyproject.toml`. The new
+root experiment script is an intentional supported entry, so the old statement
+about removing root wrappers applies only to the legacy compiler/pipeline
+wrappers. Current test results, where available, are recorded separately in
+[algorithm validation](algorithm_validation_20261008_zh.md); server acceptance
+must still be performed for the deployed source and image.
+
 ## Result
 
 ```text
@@ -23,7 +48,8 @@ The complete old-to-new path table is in [migration.md](migration.md).
 
 ## Rust Split
 
-The former 6048-line `src/main.rs` is now a 1124-line engine entry assembled
+At the time of the restructure, the former 6048-line `src/main.rs` became a
+1124-line engine entry assembled
 from responsibility files:
 
 - `fuzzer/engine/src/config.rs` and `cli.rs`;

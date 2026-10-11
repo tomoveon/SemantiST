@@ -13,6 +13,7 @@ htmlcov
 
 target
 artifacts
+tmp
 
 # Runtime corpus at the build-context root.  The explicit exceptions protect
 # the fuzzer/corpus package, which is required by both the Python pipeline and

@@ -38,6 +38,11 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def normalized_text_sha256(data: bytes) -> str:
+    """Hash source text independent of the host Git CRLF checkout policy."""
+    return hashlib.sha256(data.replace(b"\r\n", b"\n")).hexdigest()
+
+
 def git_head_sha(path: Path) -> str | None:
     rel = path.relative_to(ROOT).as_posix()
     result = subprocess.run(
@@ -83,6 +88,19 @@ def check_files(targets) -> dict:
         files = {name: (d / name).exists() for name in BENCHMARK_FIXTURE_FILES}
         current = sha256(Path(t.st_file))
         head = git_head_sha(Path(t.st_file))
+        current_normalized = normalized_text_sha256(Path(t.st_file).read_bytes())
+        rel = Path(t.st_file).relative_to(ROOT).as_posix()
+        head_blob = subprocess.run(
+            ["git", "show", f"HEAD:{rel}"],
+            cwd=ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+        head_normalized = (
+            normalized_text_sha256(head_blob.stdout)
+            if head_blob.returncode == 0
+            else None
+        )
         current_oid = git_blob_oid(Path(t.st_file))
         head_oid = git_blob_oid(Path(t.st_file), "HEAD")
         results[t.id] = {
@@ -90,9 +108,11 @@ def check_files(targets) -> dict:
             "files": files,
             "target_head_sha256": head,
             "target_current_sha256": current,
+            "target_head_normalized_sha256": head_normalized,
+            "target_current_normalized_sha256": current_normalized,
             "target_head_git_oid": head_oid,
             "target_current_git_oid": current_oid,
-            "target_matches_head": head_oid is not None and current_oid == head_oid,
+            "target_matches_head": head_normalized is not None and current_normalized == head_normalized,
             "oscat_pou_equivalent": meta.get(t.id, {}).get("oscat_pou_equivalent"),
         }
     return results

@@ -23,6 +23,10 @@ struct StSeedMetadata {
     semantic_coverage: BTreeMap<String, serde_json::Value>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     covered_target_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    ordered_target_ids: Vec<String>,
+    #[serde(default)]
+    ordered_trace_complete: bool,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     covered_targets_by_cycle: BTreeMap<String, Vec<String>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -73,6 +77,8 @@ impl StSeedMetadata {
             covered_target: None,
             semantic_coverage: BTreeMap::new(),
             covered_target_ids: vec![],
+            ordered_target_ids: vec![],
+            ordered_trace_complete: false,
             covered_targets_by_cycle: BTreeMap::new(),
             cycle_ids: vec![],
             state_signatures: vec![],
@@ -181,6 +187,10 @@ struct TargetContext {
     goal_expression_id: Option<String>,
     goal_expression: Option<serde_json::Value>,
     value_definitions: BTreeMap<String, serde_json::Value>,
+    // Precomputed controllable inputs read by each state transfer. The hot
+    // mutation path need not walk the semantic JSON graph on every attempt.
+    #[serde(default)]
+    transition_seed_fields: Vec<Vec<ControllableSeedField>>,
     controllable_seed_fields: Vec<ControllableSeedField>,
     hazard_prerequisites: Vec<String>,
     modeling_status: Option<String>,
@@ -190,18 +200,25 @@ struct TargetContext {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, SerdeAny, Serialize)]
-struct CoverageProgressMetadata {
-    epoch: u64,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, SerdeAny, Serialize)]
 struct SemanticCoverageMetadata {
+    #[serde(default)]
+    last_interesting: bool,
     offset: u64,
     runtime_trace_offset: u64,
     state_trace_offset: u64,
     seen_targets: HashSet<String>,
-    seen_state_signatures: HashSet<String>,
+    seen_state_signatures: HashSet<u64>,
     last_covered_target_ids: Vec<String>,
+    #[serde(default)]
+    last_ordered_target_ids: Vec<String>,
+    #[serde(default)]
+    last_ordered_trace_complete: bool,
+    #[serde(default)]
+    last_scan_count: u32,
+    #[serde(default)]
+    last_telemetry_truncated: bool,
+    #[serde(default)]
+    last_new_state_signatures: Vec<String>,
     last_new_branch_sides: Vec<String>,
     last_new_state_transitions: Vec<String>,
     last_covered_target: Option<String>,

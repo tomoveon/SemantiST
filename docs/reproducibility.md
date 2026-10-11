@@ -1,7 +1,27 @@
 # Reproducing SemantiST Experiments
 
+Checked against the working tree on 2026-10-09. This is the current procedure;
+dated validation reports describe their own tested snapshots.
+
 This document describes the expected setup for reproducing the SemantiST
 benchmark experiments.
+
+The routine entry is `python run_experiment.py --experiment main`; choose
+`--experiment smoke` for a short check.
+`smoke` selects three representative targets for 20 seconds and one trial;
+`main` selects all 90 targets for 300 seconds and five trials. Both default to
+SemantiST, AFL++ and ICSQuartz. Set a new `--run-id` and the server's available
+`--cpus`; explicit `--tools`, `--target-id`, `--fuzz-time` and `--fuzz-trials`
+override the preset. See the [server runbook](server_experiment_runbook_zh.md)
+for source transfer, building, checks and offline analysis. `--help-all`
+lists advanced options.
+
+Run this script from the repository checkout on the host, not as an installed
+console command inside a trial container. It uses
+`experiments/comparison/run_full_comparison.py`; the earlier comparison
+scripts remain compatibility entries. `--experiment-id` and `--trials` are
+aliases of `--run-id` and `--fuzz-trials`. Explicit target selections replace
+the preset targets, and the actual configuration is saved with the results.
 
 ## Benchmark Suites
 
@@ -16,12 +36,22 @@ benchmark groups are:
 Generated run outputs should stay under `artifacts/` and should not be checked
 into Git.
 
+Use a fresh, exclusive run ID for every invocation, including preflight. The
+runner rejects existing experiment/preprocessing/trial directories; resume,
+preprocessing reuse, and overwrite modes are removed. Preserve failed output,
+fix the cause, and manually rerun the selected group under a new ID.
+
 ## Timing Policy
 
-The main comparison profile uses a fixed 5-minute online budget per target.
+The main comparison profile uses a fixed 5-minute online budget per target
+and trial.
 A 10-minute profile, when run, is a separate sensitivity experiment and must
 not be merged with the 5-minute trials. Online time does not include static
-preprocessing.
+preprocessing. The host timer starts before tool launch, so container startup,
+native initialization and calibration are inside the online budget. Shutdown
+does not extend the nominal budget. Native total counters are last reported
+values; see the [measurement standard](experiment_standard.md) for the
+different reporting windows and execution models.
 
 For SemantiST, preprocessing includes STG extraction, semantic IR
 instrumentation, compilation, harness generation, and semantic task-plan
@@ -53,10 +83,22 @@ For each supported target, run each tool with:
 
 - 5 independent trials.
 - A 5-minute online budget for the main profile; keep any 10-minute profile separate.
-- One fuzzing worker per trial. Reserve two CPU slots for ICSQuartz (broker plus
-  one client) and one CPU slot for the other default tools, and record this
-  resource difference.
+- One fuzzing worker per trial, constrained to one logical CPU. ICSQuartz keeps
+  its Launcher broker/respawner and one client inside that same CPU set; the
+  broker is management overhead, not a second fuzz worker.
 - A fresh output directory per trial.
+
+The unified entry and compatibility entries schedule trials within `--cpus` by default;
+`--serial` selects one trial at a time. Separate runner processes must have
+disjoint CPU pools. SemantiST defaults to a 256-cycle limit, shared across
+generation, mutation, and harness execution; keep it fixed across profiles.
+State trace is optional diagnostic output; abstract shared-memory state
+feedback does not depend on it.
+
+Runtime ablations retain the same runner and output contract. Select one of
+the seven named profiles through the [ablation entries](../experiments/ablations/README.md),
+keep targets and budgets paired, and interpret each configuration separately.
+The main cross-tool comparison accepts only the SemantiST `full` profile.
 
 Record at least:
 
@@ -113,6 +155,25 @@ semantist \
 
 The image stores Rust build products in `/opt`, so mounting
 `/work/SemantiST/artifacts` cannot hide the prebuilt tools.
+
+The comparison adapters instead mount the host checkout at `/repo` and use
+the image's `/opt` binaries. Freeze both at the same revision and rebuild all
+SemantiST targets after telemetry ABI changes. ICSQuartz needs only the
+checked-in fixtures and pinned baseline image; optional ICSFuzz still needs
+its external CODESYS layout and calibration. A destination-server cold build
+is required; a short acceptance run over all 90 targets is recommended for
+the first deployment. Local unit tests do not establish server readiness.
+Main-image APT and Python build dependencies are not fully
+locked; record the built image IDs for the campaign.
+
+Online entries collect raw results and export per-trial metrics after strict
+validation, without automatic comparative analysis. Run main offline
+comparison explicitly using SemantiST `full`; each ablation directory also
+contains its own exports for manual interpretation. Ctrl+C may wait for
+the active trial batch to finish; after interrupting compilation, check for
+leftover containers before restarting. Rootful Docker may leave root-owned
+artifacts, so handle their ownership after all writers have stopped. See the
+[server runbook](server_experiment_runbook_zh.md) for the manual workflow.
 
 ## GitHub Release Checklist
 

@@ -16,6 +16,7 @@ from fuzzer.semantic.planning import (
     build_seed_profile,
     choose_active_path,
     defer_task,
+    effort_components,
     guide_target,
     rank_tasks,
     refresh_task_runtime,
@@ -443,6 +444,25 @@ def test_count_dr_multicycle_state_and_mod_hazard_prerequisite():
     assert transfer["writes"] == ["COUNT_DR.CNT", "COUNT_DR.last_up"]
 
 
+def test_parallel_temporal_requirements_do_not_double_count_scan_cycles():
+    task = {
+        "task_id": "state-task",
+        "terminal_target_id": "terminal",
+        "ordered_waypoints": ["terminal"],
+        "candidate_paths": [],
+        "control_obligations": [],
+        "data_dependencies": [],
+        "state_transfer_chains": [],
+        "temporal_requirements": [
+            {"minimum_cycles": 2},
+            {"minimum_cycles": 2},
+        ],
+        "hazard_prerequisites": [],
+    }
+    assert effort_components({"completed_temporal_steps": 0}, task)["et"] == 1.0
+    assert effort_components({"completed_temporal_steps": 1}, task)["et"] == 0.0
+
+
 def test_semantic_task_plan_defaults_to_compact_json(tmp_path, monkeypatch):
     monkeypatch.delenv("SEMANTIST_SEMANTIC_PLAN_PRETTY", raising=False)
     model, runtime_ids = semantic_fixture()
@@ -635,3 +655,104 @@ def test_multiple_paths_scc_ranking_decay_and_deferred_reactivation():
     )
     assert runtime.status == "ready"
     assert asdict(seed)["content_hash"] == "seed"
+
+
+def test_path_expansion_budget_bounds_unreachable_branching_search():
+    layers = [[f"layer-{depth}-{index}" for index in range(6)] for depth in range(8)]
+    graph = {
+        "nodes": [{"id": node} for node in ["entry", "unreachable", *sum(layers, [])]],
+        "edges": [
+            {"id": f"{source}:{destination}", "from": source, "to": destination}
+            for before, after in zip([["entry"], *layers], layers)
+            for source in before
+            for destination in after
+        ],
+    }
+    diagnostics = {}
+    assert bounded_paths(
+        graph, "entry", "unreachable", max_expansions=37, diagnostics=diagnostics
+    ) == []
+    assert diagnostics["expansion_count"] == 37
+    assert diagnostics["queue_peak"] <= 37
+    assert diagnostics["truncated"]
+    assert diagnostics["truncation_reasons"] == ["expansion_budget"]
+
+
+def test_path_search_reports_path_and_depth_limits_separately():
+    graph = {
+        "nodes": [{"id": node} for node in ("entry", "left", "right", "end")],
+        "edges": [
+            {"id": edge, "from": source, "to": destination}
+            for edge, source, destination in (
+                ("z-first", "entry", "left"), ("a-last", "left", "end"),
+                ("y-first", "entry", "right"), ("b-last", "right", "end"),
+            )
+        ],
+    }
+    diagnostics = {}
+    paths = bounded_paths(graph, "entry", "end", max_paths=1, diagnostics=diagnostics)
+    assert paths[0]["edge_ids"] == ["z-first", "a-last"]
+    assert diagnostics["truncation_reasons"] == ["path_limit"]
+    assert bounded_paths(graph, "entry", "end", max_nodes=2, diagnostics=diagnostics) == []
+    assert diagnostics["truncation_reasons"] == ["node_limit"]
+    assert len(bounded_paths(graph, "entry", "end", diagnostics=diagnostics)) == 2
+    assert not diagnostics["truncated"]
+    assert diagnostics["truncation_reasons"] == []
+
+
+def test_path_search_collects_destination_at_exact_expansion_budget():
+    graph = {
+        "nodes": [{"id": node} for node in ("entry", "middle", "end")],
+        "edges": [
+            {"id": "first", "from": "entry", "to": "middle"},
+            {"id": "second", "from": "middle", "to": "end"},
+        ],
+    }
+    diagnostics = {}
+    assert bounded_paths(graph, "entry", "end", max_expansions=2, diagnostics=diagnostics) == [
+        {"node_ids": ["entry", "middle", "end"], "edge_ids": ["first", "second"]}
+    ]
+    assert diagnostics["expansion_count"] == 2
+    assert not diagnostics["truncated"]
+
+
+def test_plan_retains_search_truncation_in_blocked_task():
+    model, runtime_ids = semantic_fixture()
+    plan = SemanticTaskPlanner(model, runtime_ids, path_expansion_budget=1).build()
+    task = next(task for task in plan["tasks"] if task["terminal_target_id"] == "f.property")
+    assert task["candidate_paths"] == []
+    assert task["initial_state"] == "blocked"
+    assert task["path_search"]["expansion_count"] == 1
+    assert task["path_search"]["truncation_reasons"] == ["expansion_budget"]
+
+
+def test_candidate_edges_preserve_each_branch_program_order_for_transfer_selection():
+    edges = [
+        {"id": edge_id, "from": source, "to": destination, "kind": "flow", "transfer": {
+            "reads": ["P.INPUT"], "writes": ["P.STATE"], "modeling": "exact",
+            "operations": [{"kind": "assign", "target_symbol": "P.STATE", "reads": [f"P.{branch}"]}],
+        }}
+        for edge_id, source, destination, branch in (
+            ("z-left-first", "entry", "left", "left"),
+            ("a-left-last", "left", "end", "left"),
+            ("y-right-first", "entry", "right", "right"),
+            ("b-right-last", "right", "end", "right"),
+        )
+    ]
+    item = pou(
+        "P", [{"id": node} for node in ("entry", "left", "right", "end")], edges,
+        [target("terminal", "end", "property_violation")],
+        dependencies={"terminal": ["P.STATE", "P.INPUT"]}, persistent=["P.STATE"],
+    )
+    model = {"schema_version": "semantist.stg/1.2.0", "pous": [item]}
+    runtime_ids = {"schema_version": "semantist.runtime-ids/1.0.0", "entries": [
+        {"stable_id": "terminal", "runtime_id": 1},
+    ]}
+    task = SemanticTaskPlanner(model, runtime_ids).build()["tasks"][0]
+    assert [path["edge_ids"] for path in task["candidate_paths"]] == [
+        ["z-left-first", "a-left-last"], ["y-right-first", "b-right-last"],
+    ]
+    transfers = {transfer["edge_id"]: transfer for transfer in task["state_transfer_chains"]}
+    for path, branch in zip(task["candidate_paths"], ("left", "right")):
+        selected = [transfers[edge_id] for edge_id in path["edge_ids"]]
+        assert [transfer["operations"][0]["reads"] for transfer in selected] == [[f"P.{branch}"]] * 2

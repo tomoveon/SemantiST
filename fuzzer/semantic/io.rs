@@ -146,21 +146,22 @@ fn read_state_signature_window(path: &Path, offset: u64) -> (u64, Vec<String>) {
 }
 
 fn read_text_window(path: &Path, offset: u64) -> (u64, String) {
-    let end_offset = fs::metadata(path)
-        .map(|metadata| metadata.len())
-        .unwrap_or(offset);
-    let Ok(bytes) = fs::read(path) else {
-        return (end_offset, String::new());
+    let Ok(mut file) = fs::File::open(path) else {
+        return (offset, String::new());
     };
-    let start = usize::try_from(offset)
-        .unwrap_or(bytes.len())
-        .min(bytes.len());
-    let end = usize::try_from(end_offset)
-        .unwrap_or(bytes.len())
-        .min(bytes.len())
-        .max(start);
-    (
-        end_offset,
-        String::from_utf8_lossy(&bytes[start..end]).into_owned(),
-    )
+    let Ok(metadata) = file.metadata() else {
+        return (offset, String::new());
+    };
+    let end_offset = metadata.len();
+    // A truncated/recreated trace starts at zero. Read only the new window,
+    // never the whole growing debug log on every fuzz execution.
+    let start = if offset <= end_offset { offset } else { 0 };
+    if file.seek(SeekFrom::Start(start)).is_err() {
+        return (offset, String::new());
+    }
+    let mut bytes = Vec::new();
+    if file.take(end_offset - start).read_to_end(&mut bytes).is_err() {
+        return (offset, String::new());
+    }
+    (end_offset, String::from_utf8_lossy(&bytes).into_owned())
 }

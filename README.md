@@ -42,9 +42,21 @@ Docker 镜像包含 Python、Rust 1.90.0、LLVM 21、AFL++、固定提交并应�
 
 论文对照实验使用的 AFL++、ICSQuartz 和 ICSFuzz 环境由
 `experiments/baselines/` 中的独立 Dockerfile 构建。该目录只保存固定版本的
-构建配方和校验值，不把第三方工具源码复制到 SemantiST 仓库中。当前阶段只
-构建并验证基线环境，不运行正式实验；详见
+构建配方和校验值，不把第三方工具源码复制到 SemantiST 仓库中。构建说明见
 [`experiments/baselines/README.md`](experiments/baselines/README.md)。
+
+对照实验统一使用根目录的 `run_experiment.py`。完成镜像构建后，在服务器宿主机执行：
+
+```bash
+python run_experiment.py --experiment smoke --run-id smoke_01 --cpus 2-9
+python run_experiment.py --experiment main --run-id main_01 --cpus 2-9
+```
+
+CPU 列表须替换为服务器可用的核。`smoke` 为三工具、三个代表目标、20 秒一次；
+`main` 为三工具、全部 90 个目标、300 秒五次。成功后自动导出逐次指标，
+比较分析可在结束后手动执行。完整部署及操作见
+[服务器实验手册](docs/server_experiment_runbook_zh.md)，参数见
+[实验入口说明](experiments/comparison/README.md)。
 
 ## 容器快速开始
 

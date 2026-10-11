@@ -39,6 +39,8 @@ fn print_usage() {
         "  --fuzz-iterations N          stop after N LibAFL iterations (useful for smoke tests)"
     );
     println!("  --seed N                     initialize the SemantiST LibAFL RNG deterministically");
+    println!("  --ablation NAME              full, no_semantic_init, no_targeted_mutation, queue_havoc,");
+    println!("                               no_transition_guidance, no_prefix_growth, no_multicycle_guidance");
 }
 
 // fuzzer 启动前创建输出目录。
