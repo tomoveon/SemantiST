@@ -47,9 +47,10 @@ def config_fixture(root):
 class FailingBatchAdapter(BaseAdapter):
     tool_name = "semantist_full"
 
-    def __init__(self, config, first_batch):
+    def __init__(self, config, first_batch, *, local_failure=False):
         super().__init__(config)
         self.first_batch = first_batch
+        self.local_failure = local_failure
         self.started = []
         self.barrier = threading.Barrier(2, timeout=5)
 
@@ -59,9 +60,19 @@ class FailingBatchAdapter(BaseAdapter):
         if trial in self.first_batch:
             self.barrier.wait()
         if trial == self.first_batch[0]:
+            if self.local_failure:
+                return {
+                    "run_status": "runner_error", "online_elapsed_seconds": 20.0,
+                    "total_executions": 100, "candidate_findings": [],
+                    "candidate_collection_complete": False,
+                    "failure_reason": {"code": "synthetic_collection_failure", "message": "Unreadable log after confirmed cleanup"},
+                    "tool_specific_metrics": {"cleanup_confirmed": True, "infrastructure_failure": False},
+                }
             raise RuntimeError("synthetic adapter failure")
         return {"run_status": "budget_completed", "online_elapsed_seconds": 20.0,
-                "total_executions": 100}
+                "total_executions": 100, "candidate_findings": [],
+                "candidate_collection_complete": True,
+                "tool_specific_metrics": {"cleanup_confirmed": True, "infrastructure_failure": False}}
 
 
 class ExperimentRunnerSafetyTests(unittest.TestCase):
@@ -95,7 +106,6 @@ class ExperimentRunnerSafetyTests(unittest.TestCase):
             ("--trials", "0"), ("--fuzz-time", "-1"), ("--timeout-ms", "0"),
             ("--semantic-task-budget", "0"), ("--semantist-fb-max-cycles", "0"),
             ("--semantist-fb-max-cycles", "10001"), ("--semantist-fb-stale-threshold", "-1"),
-            ("--observer-poll-interval-ms", "0"), ("--observer-poll-interval-ms", "11"),
             ("--analysis-timeout", "0"), ("--analysis-timeout", "nan"),
             ("--analysis-timeout", "inf"),
         ]
@@ -104,6 +114,13 @@ class ExperimentRunnerSafetyTests(unittest.TestCase):
                 with self.assertRaises(SystemExit) as error:
                     runner.parse_args([option, value])
                 self.assertEqual(error.exception.code, 2)
+
+    def test_obsolete_poll_option_is_retained_but_does_not_enable_online_collection(self):
+        for value in ("0", "10", "11", "1000"):
+            with self.subTest(value=value):
+                args = runner.parse_args(["--observer-poll-interval-ms", value])
+                self.assertEqual(args.observer_poll_interval_ms_requested, int(value))
+                self.assertEqual(args.observer_poll_interval_ms, 0)
 
     def test_invalid_target_limit_is_rejected_without_creating_experiment(self):
         for value in ("0", "-1"):
@@ -136,6 +153,7 @@ class ExperimentRunnerSafetyTests(unittest.TestCase):
             self.assertTrue(args.skip_aggregate)
             self.assertTrue(args.require_valid_runs)
             self.assertFalse(args.serial)
+            self.assertEqual(args.observer_poll_interval_ms, 0)
         self.assertTrue(runner.parse_args(run_tool.runner_arguments(
             ["--tool", "semantist", "--run-id", "fresh", "--serial"])).serial)
 
@@ -190,7 +208,7 @@ class ExperimentRunnerSafetyTests(unittest.TestCase):
                 self.assertEqual(unsupported["support_status"], "unsupported")
                 self.assertEqual(unsupported["support_reason"], "synthetic unsupported target")
 
-    def test_runner_error_saves_current_parallel_batch_and_stops_later_batches(self):
+    def test_unhandled_error_without_cleanup_evidence_stops_later_batches(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             target = target_fixture(root)
@@ -203,7 +221,7 @@ class ExperimentRunnerSafetyTests(unittest.TestCase):
             pair = (adapter.tool_name, target.target_id)
             preprocessing = PreprocessingResult("completed", root / "prep", 1, 2)
             with redirect_stdout(io.StringIO()):
-                with self.assertRaisesRegex(SystemExit, "remaining batches were not started"):
+                with self.assertRaisesRegex(RuntimeError, "remaining batches were not started"):
                     runner.run_online_matrix(directory, schedule, [target], {adapter.tool_name: adapter},
                                              {pair: SupportResult.supported()}, {pair: preprocessing}, [0, 1])
             self.assertCountEqual(adapter.started, first_batch)
@@ -211,9 +229,39 @@ class ExperimentRunnerSafetyTests(unittest.TestCase):
                        for trial in first_batch]
             self.assertEqual([run["run_status"] for run in results], ["runner_error", "budget_completed"])
             self.assertEqual(results[0]["failure_reason"]["code"], "adapter_unhandled_exception")
+            self.assertTrue(results[0]["tool_specific_metrics"]["infrastructure_failure"])
+            self.assertFalse(results[0]["tool_specific_metrics"]["cleanup_confirmed"])
             self.assertFalse(results[0]["paper_metrics"]["valid_run"])
             self.assertTrue(results[1]["paper_metrics"]["valid_run"])
             self.assertFalse(adapter.run_dir(target, schedule[2]["trial_id"]).exists())
+
+    def test_local_collection_error_with_confirmed_cleanup_allows_later_batches(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = target_fixture(root)
+            config = config_fixture(root)
+            directory = root / config.experiment_id
+            directory.mkdir()
+            schedule = runner.write_schedule(directory, config.experiment_id, ["semantist_full"], [target], 3)
+            first_batch = [row["trial_id"] for row in schedule[:2]]
+            adapter = FailingBatchAdapter(config, first_batch, local_failure=True)
+            pair = (adapter.tool_name, target.target_id)
+            preprocessing = PreprocessingResult("completed", root / "prep", 1, 2)
+            with redirect_stdout(io.StringIO()):
+                runner.run_online_matrix(directory, schedule, [target], {adapter.tool_name: adapter},
+                                         {pair: SupportResult.supported()}, {pair: preprocessing}, [0, 1])
+            self.assertCountEqual(adapter.started, [row["trial_id"] for row in schedule])
+            failed = json.loads((adapter.run_dir(target, first_batch[0]) / "run-result.json").read_text(encoding="utf-8"))
+            self.assertEqual(failed["run_status"], "runner_error")
+            self.assertEqual(failed["failure_reason"]["code"], "synthetic_collection_failure")
+            self.assertEqual(failed["online_elapsed_seconds"], 20)
+            self.assertEqual(failed["total_executions"], 100)
+            self.assertTrue(failed["tool_specific_metrics"]["cleanup_confirmed"])
+            self.assertFalse(failed["tool_specific_metrics"]["infrastructure_failure"])
+            self.assertFalse(failed["paper_metrics"]["valid_run"])
+            last = json.loads((adapter.run_dir(target, schedule[2]["trial_id"]) / "run-result.json").read_text(encoding="utf-8"))
+            self.assertEqual(last["run_status"], "budget_completed")
+            self.assertTrue(last["paper_metrics"]["valid_run"])
 
     def test_single_tool_failure_does_not_load_or_export_metrics(self):
         with patch.object(runner, "main", return_value=1), \

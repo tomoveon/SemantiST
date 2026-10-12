@@ -6,19 +6,29 @@ per-trial measurement, CPU scheduling and validation remain in the existing
 runner. Deployment and offline interpretation stay manual. Full server steps:
 [Chinese runbook](../../docs/server_experiment_runbook_zh.md).
 
+The 2026-10-12 change switches collection to `post_run`. It has only been
+edited and reviewed as source; no tests, smoke runs, builds or validation
+experiments were executed for this change. Short runs are optional, not a
+required step before starting a new main campaign.
+
 ## Setup and routine commands
 
 Build the SemantiST image from the same clean revision as the host checkout,
 and build the AFL++ / ICSQuartz images using the
 [baseline instructions](../baselines/README.md). Export `SEMANTIST_IMAGE` with
 the built image ID if it differs from the default `semantist:0.1.0`.
+For this experiment-script-only update, reuse the existing toolchain and
+baseline images after syncing the host source. New runs still prepare targets
+and build per-target ICSQuartz images. The runbook includes the Windows commit
+and push steps, a clean Linux checkout update, and the existing server image ID.
 
 Run from the repository root on the Linux host. Choose CPU IDs allowed by the
 server affinity mask; `2-9` below is only an example.
 
 ```bash
-python run_experiment.py --experiment smoke --run-id smoke_01 --cpus 2-9
-python run_experiment.py --experiment main --run-id main_01 --cpus 2-9
+python run_experiment.py --experiment main --run-id main_postrun_01 --cpus 2-9
+# Optional preset, only when a short run is wanted.
+python run_experiment.py --experiment smoke --run-id smoke_postrun_01 --cpus 2-9
 ```
 
 | Preset | Tools | Targets | Online seconds | Trials | Default CPUs |
@@ -30,7 +40,7 @@ Smoke targets are `oscat_basic_charname`, `icsfuzz_bf_mcpy_1`, and
 `scan_cycle_aircraft_oobw_4`. Explicit options override the preset:
 
 ```bash
-# First-server acceptance over all targets, with a short budget.
+# Optional all-target run with a short budget; not a main-run prerequisite.
 python run_experiment.py --experiment main --run-id acceptance_01 \
   --fuzz-time 20 --fuzz-trials 1 --cpus 2-9
 
@@ -60,9 +70,8 @@ pools; there is no global CPU reservation. Avoid concurrent heavy builds and
 online measurements. Ctrl+C may wait for the current batch; after interrupting
 preprocessing, check for residual build containers before starting again.
 
-A first-server short run over all targets is recommended before a long run.
-A successful smoke checks the interface; it need not find a crash and is not
-a tool ranking. ICSQuartz uses checked-in fixtures and a pinned image, with
+If requested separately, a successful smoke checks the interface; it need not
+find a crash and is not a tool ranking. ICSQuartz uses checked-in fixtures and a pinned image, with
 no external checkout. Optional ICSFuzz still needs CODESYS artifacts and
 calibration.
 
@@ -109,21 +118,28 @@ ICSQuartz function blocks run a single cycle per testcase. Report execution
 models with results, especially for function blocks. A normal main run does
 not require rewriting those native interfaces to be identical.
 
-Collectors fail closed. AFL++ native `saved_crashes`/`saved_hangs` counters
-must match the artifacts visible to the host. ICSQuartz retains its upstream
-Launcher so an in-process crash can be recorded and its one client restarted.
-Liveness checks use native counters with a conservative window that allows
-stage-boundary reporting and per-input timeouts. A stalled counter is recorded
-as `watchdog_timeout`; fatal logs are also checked before accepting budget
-completion. Short smoke budgets may end before that window and cannot prove
-long-run liveness. These checks protect the
-raw trial records and do not attempt to decide whether two artifacts are the
-same bug.
+Collection uses `collection_mode=post_run`. The online budget has no recurring
+candidate, stats or log collection and no native-counter watchdog. Each tool
+runs until it exits or its budget expires; after stopping and confirming
+cleanup, the adapter reads its native counters, candidates and metadata.
+`--observer-poll-interval-ms` remains a compatibility argument, but its value
+is ignored and the effective value is `0`.
+
+AFL++ native `saved_crashes`/`saved_hangs` counters must match the final
+artifacts visible to the host. ICSQuartz retains its upstream Launcher so an
+in-process crash can be recorded and its one client restarted. Final counters
+and logs are checked after stopping; sparse native reporting no longer causes
+an online `watchdog_timeout`. Collected inputs remain candidates, not unique
+bugs. An incomplete collection is recorded explicitly rather than reported
+as a successful run with no findings.
 
 ## Outputs and offline comparison
 
-Successful online runs automatically export per-trial metrics after strict
-validation. Preflight and failed validation do not export a success table.
+After every stopped batch, the runner persists available trial records and
+exports per-trial metrics, including failure and validity fields. A table's
+existence is not evidence of successful validation. Invalid or interrupted
+campaigns retain partial records and return a nonzero exit status; optional
+aggregation remains gated by successful validation.
 The selected preset is saved as `experiment` in the manifest and environment;
 resolved targets and actual budgets remain recorded separately.
 
@@ -133,16 +149,44 @@ artifacts/experiments/<run-id>/
   experiment-manifest.json
   support-matrix.csv
   schedule.jsonl
+  campaign-status.json        # completed, failed and not_started run keys
   runs/<tool>/<suite>/<target>/trial_XX/
     run-result.json             # authoritative trial record and paper_metrics
-    measurement-events.jsonl   # newly observed findings and metadata updates
+    process-result.json        # process lifecycle evidence, when provided
+    post-run-findings.json     # candidate snapshot collected after stopping
     ...native inputs, reports, commands, stdout/stderr...
-  raw-runs.jsonl
+  raw-runs.jsonl               # partial until all scheduled rows are recorded
   metrics.jsonl
   metrics.csv
 ```
 
-Metrics include native crash detection, first-crash count/time/input, reported total executions, throughput, sources and validity. A valid trial requires supported execution, full budget completion, no failure reason, and a positive native execution count. Early exits remain recorded but are invalid for the fixed-budget comparison. Missing measurements stay null (empty CSV cells). First-crash time is the runner's first observation, including polling/write delays. Total counts are last reported values, not guaranteed exact stop counters. Execution models remain explicit because one testcase can contain multiple PLC cycles.
+The measurement contract is `semantist.independent-tool-metrics/2`. Do not
+combine these post-run records with legacy `/1` online-observation campaigns.
+Native crash candidates, associated execution counts and inputs, final
+reported executions, throughput, sources and validity are still collected.
+A valid trial requires supported execution, full budget completion, complete
+candidate collection, no failure reason, and a positive native execution
+count. Early exits remain recorded but are invalid for the fixed-budget
+comparison. Missing measurements stay null (empty CSV cells); an empty
+candidate list with `candidate_collection_complete=false` does not establish
+that no crash occurred.
+
+All tools now use `native_stop_snapshot_may_include_shutdown_tail` for the
+finding and total-execution windows. The snapshot can include work performed
+during stopping, and native reports can lag actual execution. Neither counts
+nor candidates imply an exact host-budget cutoff. Unified host-observed
+`first_crash_time_seconds` is null because no online observation was made.
+Native candidate times, when present, remain separate in
+`first_crash_native_time_seconds` with `first_crash_native_time_origin`.
+The first candidate is selected by native execution count only when every
+crash candidate has that count; otherwise its order stays unknown. Execution
+models remain explicit because one testcase can contain multiple PLC cycles.
+
+A trial-level tool or collection failure continues to later batches when
+cleanup is confirmed. Infrastructure failure, unconfirmed cleanup or inability
+to persist a trustworthy result stops subsequent batches. Campaign status
+retains completed, failed and not-started rows; there is no automatic retry or
+resume, and an invalid matrix is not silently aggregated as a successful one.
 
 After all runs finish:
 
@@ -178,11 +222,12 @@ analysis accept both runtimes; `auto` probes Docker first and then Podman.
 
 Rerun offline comparison afterwards to refresh exports. Replay uses stdin or a file argument according to the tool. Unsupported conversion/history remains unverified. The current ICSQuartz adapter does not supply a standalone replay binary; persistent scan history is not reconstructed. Replay never erases the original discovery count/time. Native coverage is diagnostic, not a cross-tool score.
 
-Fresh synthetic regression tests (no prior experiment data):
+Optional regression commands for a separately requested validation task
+(not executed for this change):
 
 ```bash
 python -m unittest discover -s tests/unit -p test_comparison_experiment.py
 python -m unittest discover -s tests/unit -p test_independent_experiments.py
 ```
 
-`run_full_comparison.py`, `run_complete_comparison.py`, `run_smoke_comparison.py`, and `run_tool.py` remain compatibility entries using the same runner. Routine commands use `run_experiment.py`. A clean server image build and online acceptance still need validation on the destination server; local interface tests do not replace them.
+`run_full_comparison.py`, `run_complete_comparison.py`, `run_smoke_comparison.py`, and `run_tool.py` remain compatibility entries using the same runner. Routine commands use `run_experiment.py`. This source change has not been accepted through a server run; historical local interface tests do not cover the new collection mode.

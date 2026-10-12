@@ -13,8 +13,15 @@ import time
 from pathlib import Path
 from typing import Any
 
-CONTRACT = "semantist.independent-tool-metrics/1"
+CONTRACT = "semantist.independent-tool-metrics/2"
 CRASH_ORACLES = {"asan", "ubsan", "target_signal"}
+
+
+class FindingCollectionError(RuntimeError):
+    """A stopped run has unreadable findings; retain the readable candidates."""
+    def __init__(self, message: str, events: list[dict[str, Any]]):
+        super().__init__(message)
+        self.events = events
 
 
 def number(value: Any) -> float | None:
@@ -48,6 +55,7 @@ def valid_native_run(run: dict[str, Any]) -> bool:
         and budget is not None and budget > 0
         and elapsed is not None and elapsed >= budget
         and total is not None and total > 0
+        and run.get("candidate_collection_complete", True)
     )
 
 
@@ -93,6 +101,22 @@ def metadata_for(seed: Path) -> dict[str, Any]:
         return {}
 
 
+def post_run_events(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep native evidence without inventing an online observation time."""
+    events = []
+    for candidate in candidates:
+        event = dict(candidate)
+        event.update({
+            "collection_phase": "post_run",
+            "observed_monotonic_ns": None,
+            "observed_elapsed_seconds": None,
+            "observed_after_budget": None,
+            "time_source": "unmeasured_post_run",
+        })
+        events.append(event)
+    return events
+
+
 class FindingObserver:
     """Timestamp first visibility and retain later metadata without retiming.
 
@@ -132,6 +156,8 @@ class FindingObserver:
 
 
 def paper_metrics(run: dict[str, Any]) -> dict[str, Any]:
+    if run.get("collection_mode") == "post_run":
+        return _post_run_metrics(run)
     crashes = [e for e in run.get("candidate_findings", []) if e.get("oracle") in CRASH_ORACLES]
     budget = number(run.get("online_budget_seconds"))
     timely = [e for e in crashes if not e.get("observed_after_budget", False)
@@ -156,7 +182,7 @@ def paper_metrics(run: dict[str, Any]) -> dict[str, Any]:
     unknown_replay = [e for e in timely if (e.get("common_replay") or {}).get("status")
                       not in {"confirmed", "not_reproduced"}]
     return {
-        "contract": CONTRACT,
+        "contract": "semantist.independent-tool-metrics/1",
         "valid_run": valid_native_run(run),
         "execution_unit": "native_executor_testcase",
         "execution_model": run.get("execution_model", "unknown"),
@@ -180,4 +206,54 @@ def paper_metrics(run: dict[str, Any]) -> dict[str, Any]:
         "total_executions_window": run.get("total_executions_window", "native_stop_snapshot_may_include_shutdown_tail"),
         "execs_per_sec": total / elapsed if total is not None and elapsed else None,
         "throughput_basis": "last_native_report_divided_by_online_wall_time",
+    }
+
+
+def _post_run_metrics(run: dict[str, Any]) -> dict[str, Any]:
+    """Describe the final native snapshot, including the shutdown boundary.
+
+    Native timestamps retain their own origins. They are not silently mixed
+    with the old runner-first-observed timing contract or used to manufacture
+    an exact host-budget cutoff that was not measured.
+    """
+    crashes = [e for e in run.get("candidate_findings", []) if e.get("oracle") in CRASH_ORACLES]
+    complete = run.get("candidate_collection_complete", False)
+    counts_available = bool(crashes) and all(execution_count(e.get("execution_ordinal")) is not None for e in crashes)
+    first = min(crashes, key=lambda e: execution_count(e["execution_ordinal"])) if counts_available else None
+    count = execution_count(first.get("execution_ordinal")) if first else None
+    elapsed = number(run.get("online_elapsed_seconds"))
+    total = execution_count(run.get("total_executions"))
+    confirmed = [e for e in crashes if (e.get("common_replay") or {}).get("confirmed")]
+    unknown_replay = [e for e in crashes if (e.get("common_replay") or {}).get("status")
+                      not in {"confirmed", "not_reproduced"}]
+    return {
+        "contract": CONTRACT,
+        "collection_mode": "post_run",
+        "valid_run": valid_native_run(run),
+        "execution_unit": "native_executor_testcase",
+        "execution_model": run.get("execution_model", "unknown"),
+        "initialization_in_online_budget": True,
+        "candidate_collection_complete": complete,
+        "finding_window": "native_stop_snapshot_may_include_shutdown_tail",
+        "crash_found": True if crashes else False if complete else None,
+        "crash_artifact_count": len(crashes) if complete else None,
+        "late_crash_artifact_count": None,
+        "unmeasured_crash_artifact_count": len(crashes),
+        "first_crash_candidate_id": first.get("candidate_id") if first else None,
+        "first_crash_time_seconds": None,
+        "first_crash_time_source": "unavailable_without_online_observation",
+        "first_crash_native_time_seconds": first.get("native_time_to_find_seconds") if first else None,
+        "first_crash_native_time_origin": first.get("native_time_origin") if first else None,
+        "first_crash_executions": count,
+        "first_crash_execution_source": first.get("execution_count_source", "unavailable") if first else None,
+        "first_crash_order_source": "native_execution_counter" if first else "unavailable",
+        "first_crash_count_status": "recorded" if count is not None else "no_crash" if complete and not crashes else "unavailable",
+        "first_crash_input": (first.get("reproducer_artifact_path") or first.get("artifact_path")) if first else None,
+        "replay_confirmed_crash_found": True if confirmed else None if unknown_replay or not complete else False,
+        "unverified_crash_count": len(unknown_replay),
+        "total_executions_reported": total,
+        "total_executions_status": "last_native_report_not_exact_stop_count" if total is not None else "unavailable",
+        "total_executions_window": run.get("total_executions_window", "native_stop_snapshot_may_include_shutdown_tail"),
+        "execs_per_sec": total / elapsed if total is not None and elapsed else None,
+        "throughput_basis": "native_stop_snapshot_divided_by_online_wall_time",
     }

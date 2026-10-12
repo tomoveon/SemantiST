@@ -16,7 +16,7 @@ from experiments.comparison.adapters.base import (
 )
 from experiments.comparison.lib.hashing import sha256_file
 from experiments.comparison.lib.manifest import Target
-from experiments.comparison.lib.metrics import CRASH_ORACLES, read_events, execution_count, reported_executions
+from experiments.comparison.lib.metrics import CRASH_ORACLES, FindingCollectionError, read_events, execution_count, reported_executions
 from experiments.comparison.lib.process import (
     container_cpu_bound_command,
     container_run_command,
@@ -282,14 +282,9 @@ class SemantiSTAdapter(BaseAdapter):
             poll_interval_ms=self.config.observer_poll_interval_ms,
             scan_findings=lambda: self.scan_finding_events(target, run_dir),
         )
-        metrics = self.collect_metrics(target, run_dir, result["events"])
-        metrics.update(
-            {
-                "t0_monotonic_ns": result["t0_monotonic_ns"],
-                "online_elapsed_seconds": result["elapsed_seconds"],
-                "run_status": _status_from_process(result, metrics["finding_found"]),
-            }
-        )
+        metrics = self.collect_stopped_metrics(target, run_dir, result)
+        if metrics["run_status"] == "runner_error":
+            return metrics
         if not result["started"]:
             metrics["failure_reason"] = {
                 "code": "semantist_online_start_failed",
@@ -306,16 +301,17 @@ class SemantiSTAdapter(BaseAdapter):
 
     def scan_finding_events(self, target: Target, run_dir: Path) -> list[dict[str, Any]]:
         events: list[dict[str, Any]] = []
+        errors: list[str] = []
         trial_id = int(run_dir.name.rsplit("_", 1)[-1])
         runtime = None
         for json_path in sorted((run_dir / "findings").rglob("*.json")):
             try:
                 raw = json.loads(json_path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                # A report can be replaced between directory enumeration and
-                # reading, especially across Docker Desktop's host mount.
+            except (OSError, json.JSONDecodeError) as error:
+                errors.append(f"{json_path.name}: {error}")
                 continue
             if not isinstance(raw, dict) or not (raw.get("kind") or raw.get("finding_kind")):
+                errors.append(f"{json_path.name}: missing finding kind")
                 continue
             executions = execution_count(raw.get("executions"))
             count_source = "finding_record"
@@ -340,7 +336,8 @@ class SemantiSTAdapter(BaseAdapter):
                     discovery_phase=_phase_from_source(str(raw.get("source") or raw.get("finding_source") or "fuzzing")),
                     execution_ordinal=executions,
                 )
-            except OSError:
+            except OSError as error:
+                errors.append(f"{json_path.name}: {error}")
                 continue
             event["execution_count_source"] = count_source
             event["tool_reported_unix_time_seconds"] = raw.get("unix_time_seconds")
@@ -355,9 +352,11 @@ class SemantiSTAdapter(BaseAdapter):
                 try:
                     event["seed_sha256"] = sha256_file(reproducer_path)
                     event["reproducer_artifact_path"] = self.relative_artifact(reproducer_path)
-                except OSError:
-                    pass  # The report is retained; a later poll can add the reproducer.
+                except OSError as error:
+                    errors.append(f"{json_path.name}: reproducer unavailable: {error}")
             events.append(event)
+        if errors:
+            raise FindingCollectionError("; ".join(errors), events)
         return events
 
     def collect_metrics(self, target: Target, run_dir: Path, observed_events: list[dict[str, Any]]) -> dict[str, Any]:
@@ -387,7 +386,12 @@ class SemantiSTAdapter(BaseAdapter):
             "findings": self.relative_artifact(run_dir / "findings"),
             "seed_manifest": self.relative_artifact(run_dir / "seed-manifest.json"),
         }
-        metrics["tool_specific_metrics"] = _semantic_coverage_metrics(run_dir)
+        try:
+            metrics["tool_specific_metrics"] = _semantic_coverage_metrics(run_dir)
+        except (OSError, ValueError) as error:
+            # Optional semantic coverage must not discard the native execution
+            # count and crash reports already collected from the stopped run.
+            metrics["tool_specific_metrics"] = {"semantic_coverage_collection_error": repr(error)}
         return metrics
 
     def _container_command(

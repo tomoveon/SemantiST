@@ -17,7 +17,10 @@ from experiments.comparison.adapters.base import ExperimentConfig
 from experiments.comparison.analysis.compare_tools import compare, load_runs
 from experiments.comparison.analysis.validate_complete import validate as validate_complete
 from experiments.comparison.analysis.replay import merge_replay_results, replay_seed
-from experiments.comparison.lib.metrics import CONTRACT, FindingObserver, paper_metrics, read_events, reported_executions
+from experiments.comparison.lib.metrics import (
+    CONTRACT, FindingCollectionError, FindingObserver, paper_metrics,
+    post_run_events, read_events, reported_executions,
+)
 from experiments.comparison.lib.process import run_with_budget
 from experiments.comparison.lib import process as process_module
 from experiments.comparison.lib.schema import run_result_template, write_json
@@ -42,16 +45,23 @@ def crash(candidate="first", count=7, elapsed=0.2, **extra):
                 artifact_path=f"inputs/{candidate}", **extra)
 
 
-def run_record(tool="semantist_full", events=None, target_id="target"):
+def run_record(tool="semantist_full", events=None, target_id="target", *, post_run=False):
     result = run_result_template(
         experiment_id=tool, run_key=f"{tool}|{tool}|suite|{target_id}|trial_01", tool=tool,
         target=SimpleNamespace(suite="suite", target_id=target_id, kind="FUNCTION", function="TEST"),
         trial_id=1, rng_seed_requested=1, rng_seed_applied=1, rng_seed_status="applied",
         online_budget_seconds=10, per_execution_timeout_ms=1000,
         execution_timeout_model="per_process", support_status="supported")
-    result.update(measurement_contract=CONTRACT, run_status="budget_completed",
+    # Existing timing tests exercise the historical observed-time contract.
+    # New snapshots explicitly opt in and never inherit synthetic host times.
+    if not post_run:
+        result.pop("collection_mode")
+        result["observer_poll_interval_ms"] = 10
+    result.update(measurement_contract=CONTRACT if post_run else "semantist.independent-tool-metrics/1",
+                  candidate_collection_complete=True, run_status="budget_completed",
                   st_file_sha256="synthetic_source", benchmark_fixture_sha256={"harness.c": "synthetic_harness"},
                   cpu_slots=1, online_elapsed_seconds=10, total_executions=100)
+    events = post_run_events(events or []) if post_run else events
     result["candidate_findings"] = events or []
     result["finding_found"] = bool(events)
     result["common_oracle_finding_found"] = bool(events)
@@ -98,6 +108,33 @@ class IndependentExperimentTests(unittest.TestCase):
         self.assertFalse(result["crash_found"])
         self.assertEqual(result["unmeasured_crash_artifact_count"], 1)
 
+    def test_post_run_snapshot_counts_crashes_without_fabricated_host_timing(self):
+        result = paper_metrics(run_record(events=[crash(elapsed=None)], post_run=True))
+        self.assertTrue(result["valid_run"])
+        self.assertTrue(result["crash_found"])
+        self.assertEqual(result["crash_artifact_count"], 1)
+        self.assertIsNone(result["late_crash_artifact_count"])
+        self.assertIsNone(result["first_crash_time_seconds"])
+        self.assertEqual(result["first_crash_executions"], 7)
+        self.assertEqual(result["contract"], CONTRACT)
+        self.assertEqual(result["collection_mode"], "post_run")
+
+    def test_incomplete_empty_post_run_collection_is_unknown_not_no_crash(self):
+        run = run_record(post_run=True)
+        run["candidate_collection_complete"] = False
+        result = paper_metrics(run)
+        self.assertFalse(result["valid_run"])
+        self.assertIsNone(result["crash_found"])
+        self.assertIsNone(result["crash_artifact_count"])
+
+    def test_post_run_preserves_native_time_without_using_it_as_host_time(self):
+        result = paper_metrics(run_record(events=[crash(
+            native_time_to_find_seconds=3.5, native_time_origin="libafl_state_start_time",
+        )], post_run=True))
+        self.assertIsNone(result["first_crash_time_seconds"])
+        self.assertEqual(result["first_crash_native_time_seconds"], 3.5)
+        self.assertEqual(result["first_crash_native_time_origin"], "libafl_state_start_time")
+
     def test_reported_total_is_read_not_inferred_from_speed(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "new-stdout.log"
@@ -120,7 +157,7 @@ class IndependentExperimentTests(unittest.TestCase):
             observer.observe([dict(crash(count=None), execution_count_source="unavailable")])
             self.assertEqual(observer.events[0]["execution_count_source"], "synthetic_test")
 
-    def test_real_subprocess_produces_new_observed_evidence(self):
+    def test_real_subprocess_evidence_is_collected_after_exit(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             marker = root / "new-crash"
@@ -131,26 +168,42 @@ class IndependentExperimentTests(unittest.TestCase):
                 scan_findings=lambda: [crash()] if marker.exists() else [])
             self.assertEqual(result["returncode"], 0)
             self.assertEqual(len(result["events"]), 1)
-            self.assertTrue((root / "measurement-events.jsonl").is_file())
+            self.assertTrue((root / "post-run-findings.json").is_file())
+            self.assertFalse((root / "measurement-events.jsonl").exists())
+            self.assertIsNone(result["events"][0]["observed_elapsed_seconds"])
+            self.assertTrue(result["collection_complete"])
+            self.assertTrue(result["cleanup_confirmed"])
 
-    def test_observer_exception_terminates_running_child(self):
+    def test_post_run_collection_error_preserves_stopped_lifecycle_and_readable_events(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             with patch(
                 "experiments.comparison.lib.process._terminate_process",
                 wraps=process_module._terminate_process,
             ) as terminate:
-                with self.assertRaisesRegex(RuntimeError, "observer race"):
-                    run_with_budget(
-                        [sys.executable, "-c", "import time; time.sleep(30)"],
-                        cwd=root, env=None, stdout_path=root / "stdout",
-                        stderr_path=root / "stderr", budget_seconds=2,
-                        poll_interval_ms=10,
-                        scan_findings=lambda: (_ for _ in ()).throw(RuntimeError("observer race")),
-                    )
+                result = run_with_budget(
+                    [sys.executable, "-c", "import time; time.sleep(30)"],
+                    cwd=root, env=None, stdout_path=root / "stdout",
+                    stderr_path=root / "stderr", budget_seconds=2,
+                    poll_interval_ms=10,
+                    scan_findings=lambda: (_ for _ in ()).throw(
+                        FindingCollectionError("post-run parse failure", [crash()])
+                    ),
+                )
             terminate.assert_called_once()
+            self.assertTrue(result["timed_out"])
+            self.assertGreaterEqual(result["elapsed_seconds"], 2)
+            self.assertTrue(result["cleanup_confirmed"])
+            self.assertFalse(result["infrastructure_failure"])
+            self.assertFalse(result["collection_complete"])
+            self.assertIn("post-run parse failure", result["collection_error"])
+            self.assertEqual(result["events"][0]["candidate_id"], "first")
+            self.assertIsNone(result["events"][0]["observed_elapsed_seconds"])
+            persisted = json.loads((root / "process-result.json").read_text(encoding="utf-8"))
+            self.assertEqual(persisted["elapsed_seconds"], result["elapsed_seconds"])
+            self.assertTrue(persisted["cleanup_confirmed"])
 
-    def test_semantist_scanner_ignores_disappearing_report(self):
+    def test_semantist_post_run_scanner_reports_missing_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             adapter = ADAPTERS["semantist_full"](config(Path(tmp)))
             target = SimpleNamespace(target_id="target", suite="suite")
@@ -159,7 +212,23 @@ class IndependentExperimentTests(unittest.TestCase):
             report.parent.mkdir(parents=True)
             report.write_text('{"kind":"asan","executions":1}', encoding="utf-8")
             with patch.object(Path, "read_text", side_effect=FileNotFoundError):
-                self.assertEqual(adapter.scan_finding_events(target, run_dir), [])
+                with self.assertRaises(FindingCollectionError) as failure:
+                    adapter.scan_finding_events(target, run_dir)
+            self.assertEqual(failure.exception.events, [])
+
+    def test_semantist_collection_error_preserves_other_readable_reports(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            adapter = ADAPTERS["semantist_full"](config(Path(tmp)))
+            target = SimpleNamespace(target_id="target", suite="suite")
+            run_dir = adapter.run_dir(target, 1)
+            folder = run_dir / "findings" / "fuzzing"
+            folder.mkdir(parents=True)
+            (folder / "good.json").write_text('{"kind":"asan","executions":1}', encoding="utf-8")
+            (folder / "partial.json").write_text('{"kind":', encoding="utf-8")
+            with self.assertRaises(FindingCollectionError) as failure:
+                adapter.scan_finding_events(target, run_dir)
+            self.assertEqual(len(failure.exception.events), 1)
+            self.assertEqual(failure.exception.events[0]["execution_ordinal"], 1)
 
     def test_native_metadata_not_misidentified_as_crash(self):
         for tool, relative in (("icsquartz_full", "tool-artifacts/crashes"),):

@@ -7,7 +7,9 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -15,16 +17,18 @@ from benchmarks.lib.st_extract import extract_pou_text, strip_pou
 from experiments.comparison.adapters.base import AdapterError, BaseAdapter, PreprocessingResult, SupportResult
 from experiments.comparison.lib.hashing import sha256_file
 from experiments.comparison.lib.manifest import Target
-from experiments.comparison.lib.metrics import FindingObserver, execution_count, metadata_for, native_inputs
+from experiments.comparison.lib.metrics import execution_count, metadata_for, native_inputs
 from experiments.comparison.lib.process import (
     container_cpu_bound_command,
     container_image_id,
     container_run_command,
     run_capture,
 )
+from experiments.comparison.lib.schema import write_json
 
 CONTAINER_COMMAND_TIMEOUT_SECONDS = 10
 CONTAINER_START_TIMEOUT_SECONDS = 30
+STATS_TAIL_BYTES = 256 * 1024
 
 
 class ICSQuartzAdapter(BaseAdapter):
@@ -363,13 +367,6 @@ class ICSQuartzAdapter(BaseAdapter):
             "min_input_generation": "128",
             "timeout_ms": str(self.config.per_execution_timeout_ms),
         }
-        # Pinned LibAFL reports at stage boundaries, at least 15 seconds apart;
-        # StdMutationalStage can execute 128 inputs before reporting again.
-        # Allow two reporting intervals plus a whole worst-case timeout stage.
-        execution_timeout_seconds = self.config.per_execution_timeout_ms / 1000
-        progress_timeout_seconds = 30.0 + 128 * execution_timeout_seconds
-        # The native generator executes ten initial inputs before the fuzz loop.
-        startup_grace_seconds = 30.0 + 10 * execution_timeout_seconds
         inner_command = [
             "/out/icsfuzz-demo",
             "--seed",
@@ -421,12 +418,8 @@ class ICSQuartzAdapter(BaseAdapter):
                 "assigned_cpus": assigned_cpus,
                 "container_runtime": runtime,
                 "icsquartz_args": icsquartz_args,
-                "execution_progress_timeout_seconds": progress_timeout_seconds,
-                "execution_startup_grace_seconds": startup_grace_seconds,
-                "progress_check_note": (
-                    "Short budgets may end before the conservative stagnation window; "
-                    "a positive native execution count is still required."
-                ),
+                "measurement_mode": "post_run_native_artifacts",
+                "progress_check_note": "No online findings, statistics, or container-state polling; native counters are collected after stopping.",
                 "initial_seed_note": (
                     "ICSQuartz forcibly evaluates its native ten-input initial generator "
                     "before entering the fuzz loop."
@@ -437,12 +430,9 @@ class ICSQuartzAdapter(BaseAdapter):
         deadline = t0 + self.config.online_budget_seconds * 1_000_000_000
         status = "online_start_failed"
         failure = None
-        last_executions: int | None = None
-        online_executions: int | None = None
-        observer = FindingObserver(t0, run_dir / "measurement-events.jsonl")
-
-        def observe_findings() -> None:
-            observer.observe(self.scan_finding_events(target, run_dir), after_budget=time.monotonic_ns() > deadline)
+        warnings: list[dict[str, Any]] = []
+        infrastructure_failure = False
+        started = False
 
         try:
             start = subprocess.run(
@@ -457,92 +447,108 @@ class ICSQuartzAdapter(BaseAdapter):
                     "message": start.stderr.strip() or start.stdout.strip(),
                     "log_tail_path": self.relative_artifact(run_dir / "stderr.log"),
                 }
-                online_end = time.monotonic_ns()
             else:
-                started_ns = last_progress_ns = time.monotonic_ns()
-                while True:
-                    observe_findings()
-                    running = _container_running(runtime, container_name)
-                    current_executions = _latest_total_executions(stats_file)
-                    now = time.monotonic_ns()
-                    if now <= deadline and current_executions is not None:
-                        online_executions = current_executions
-                        if current_executions > (last_executions or 0):
-                            last_executions = current_executions
-                            last_progress_ns = now
-                    if not running:
-                        exit_code = _container_exit_code(runtime, container_name)
-                        status = "online_crashed"
-                        failure = {
-                            "code": "icsquartz_exited_before_budget",
-                            "message": f"ICSQuartz exited before the runner stopped it (exit code {exit_code})",
-                            "log_tail_path": self.relative_artifact(fuzzer_log),
-                        }
-                        break
-                    no_executions = not online_executions
-                    if no_executions and (
-                        now >= deadline or (now - started_ns) / 1e9 >= startup_grace_seconds
-                    ):
-                        status = "watchdog_timeout"
-                        failure = {
-                            "code": "icsquartz_execution_count_missing",
-                            "message": "ICSQuartz reported no positive native execution count before the budget/startup grace ended",
-                            "log_tail_path": self.relative_artifact(stats_file),
-                        }
-                        break
-                    if not no_executions and (now - last_progress_ns) / 1e9 >= progress_timeout_seconds:
-                        status = "watchdog_timeout"
-                        failure = {
-                            "code": "icsquartz_execution_stalled",
-                            "message": f"Native execution count did not advance for {progress_timeout_seconds:g} seconds",
-                            "log_tail_path": self.relative_artifact(stats_file),
-                        }
-                        break
-                    if now >= deadline:
-                        status = "budget_completed"
-                        break
-                    time.sleep(min(self.config.observer_poll_interval_ms / 1000, (deadline - now) / 1e9))
-                online_end = time.monotonic_ns()
-                # A dead respawner can leave its broker alive until the budget.
-                # Its stderr need not be redirected to fuzzer_log. Snapshot all
-                # streams before our stop signal, excluding shutdown-induced logs.
-                pre_stop_stdout = run_dir / "container.pre-stop.stdout.log"
-                pre_stop_stderr = run_dir / "container.pre-stop.stderr.log"
-                _write_container_logs(runtime, container_name, pre_stop_stdout, pre_stop_stderr)
-                for log_path in (fuzzer_log, pre_stop_stdout, pre_stop_stderr):
-                    log_failure = _fuzzer_log_failure(log_path, unrecoverable_only=True)
-                    if log_failure is not None:
-                        status = "online_crashed"
-                        failure = {
-                            "code": "icsquartz_client_fatal_log",
-                            "message": log_failure,
-                            "log_tail_path": self.relative_artifact(log_path),
-                        }
-                        break
+                started = True
+                # Let the native fuzzer own its run. There is no observation,
+                # counter watchdog, or container inspect in the online window.
+                threading.Event().wait(max(0.0, (deadline - time.monotonic_ns()) / 1e9))
+                status = "budget_completed"
+        except Exception as error:
+            status = "runner_error"
+            failure = {"code": "icsquartz_online_launch_failed", "message": repr(error), "log_tail_path": self.relative_artifact(run_dir / "stderr.log")}
+            infrastructure_failure = isinstance(error, OSError) and not isinstance(error, subprocess.SubprocessError)
         finally:
-            # Also runs after startup/observer/inspect errors and KeyboardInterrupt.
-            # Cleanup failures are recorded without masking the original exception.
-            cleanup = _cleanup_container(runtime, container_name, run_dir)
+            # Stop before inspecting state or collecting any native artifacts.
+            # KeyboardInterrupt propagates only after bounded cleanup.
+            stop_result = _stop_container(runtime, container_name, run_dir)
+            cleanup = _cleanup_container(runtime, container_name, run_dir, stop_result=stop_result)
 
-        observe_findings()  # Keep evidence flushed during shutdown; label it late.
+        online_elapsed = (cleanup["stop_requested_monotonic_ns"] - t0) / 1e9
+        stop_failed = cleanup.get("stop_returncode") != 0 and cleanup.get("kill_returncode") != 0
+        infrastructure_failure = (
+            infrastructure_failure or not cleanup["removed"] or bool(cleanup.get("diagnostic_error"))
+            or (stop_failed and started)
+            or (cleanup.get("state_after_stop") or {}).get("Running") is True
+            or bool(cleanup.get("artifact_io_error"))
+        )
+        lifecycle = {
+            "started": started, "timed_out": status == "budget_completed", "returncode": None,
+            "t0_monotonic_ns": t0, "elapsed_seconds": online_elapsed,
+            "stop_request_monotonic_ns": cleanup["stop_requested_monotonic_ns"],
+            "stop_request_elapsed_seconds": online_elapsed,
+            "cleanup_inclusive_elapsed_seconds": (time.monotonic_ns() - t0) / 1e9,
+            "cleanup_confirmed": cleanup["removed"], "infrastructure_failure": infrastructure_failure,
+            "container_stop": cleanup, "collection_mode": "post_run", "collection_complete": False,
+            "events": [],
+        }
+        write_json(run_dir / "process-result.json", lifecycle)
+        events: list[dict[str, Any]] = []
+        candidate_collection_complete = True
+        try:
+            if not cleanup["removed"]:
+                raise RuntimeError("Candidate collection skipped because container cleanup is unconfirmed")
+            events = self.scan_finding_events(target, run_dir)
+        except Exception as error:
+            candidate_collection_complete = False
+            warnings.append({"code": "icsquartz_post_run_collection_failed", "message": repr(error)})
+            if failure is None:
+                status = "runner_error"
+                failure = {"code": "icsquartz_post_run_collection_failed", "message": repr(error), "log_tail_path": None}
+        if status == "budget_completed":
+            state = cleanup.get("state_after_stop") or {}
+            finished = _container_time(state.get("FinishedAt"))
+            requested = _container_time(cleanup.get("logs_until"))
+            if finished is not None and requested is not None and finished < requested:
+                status = "online_crashed"
+                failure = {"code": "icsquartz_exited_before_budget", "message": f"Container had exited before the stop request (exit code {state.get('ExitCode')})", "log_tail_path": self.relative_artifact(run_dir / "container-cleanup.json")}
+            elif finished is None or state.get("Running") is not False:
+                status = "runner_error"
+                failure = {"code": "icsquartz_exit_state_unavailable", "message": "Post-stop container state could not establish the native lifecycle", "log_tail_path": self.relative_artifact(run_dir / "container-cleanup.json")}
+        if status not in {"online_start_failed", "runner_error"}:
+            # Timestamp-filtered container streams and the pre-stop byte prefix
+            # distinguish native failures from errors induced by our SIGTERM.
+            for log_path, limit in (
+                (fuzzer_log, cleanup.get("fuzzer_log_online_bytes", 0)),
+                (run_dir / "container.pre-stop.stdout.log", None),
+                (run_dir / "container.pre-stop.stderr.log", None),
+            ):
+                try:
+                    log_failure = _fuzzer_log_failure(log_path, unrecoverable_only=True, max_bytes=limit)
+                except OSError as error:
+                    status = "runner_error"
+                    failure = {"code": "icsquartz_online_log_read_failed", "message": repr(error), "log_tail_path": self.relative_artifact(log_path)}
+                    break
+                if log_failure is not None:
+                    status = "online_crashed"
+                    failure = {"code": "icsquartz_client_fatal_log", "message": log_failure, "log_tail_path": self.relative_artifact(log_path)}
+                    break
+        if status == "budget_completed" and (cleanup.get("online_logs_error") or cleanup.get("log_boundary_error")):
+            status = "runner_error"
+            failure = {"code": "icsquartz_online_logs_incomplete", "message": "Online client liveness evidence could not be fully collected; retained metrics require review", "log_tail_path": self.relative_artifact(run_dir / "container-cleanup.json")}
         container_stdout = run_dir / "container.stdout.log"
-        if fuzzer_log.stat().st_size == 0 and container_stdout.is_file():
-            shutil.copyfile(container_stdout, fuzzer_log)
-        elapsed = (online_end - t0) / 1_000_000_000
-        online_elapsed = min(elapsed, float(self.config.online_budget_seconds))
-        metrics = self.collect_metrics(target, run_dir, observer.events)
-        # Stats can advance while logs are captured or stop waits for the broker.
-        # Those later values are diagnostics, never the online throughput numerator.
-        metrics["tool_specific_metrics"]["shutdown_total_executions"] = metrics.get("total_executions")
-        metrics["tool_specific_metrics"]["shutdown_execs_per_sec"] = metrics.get("execs_per_sec")
+        try:
+            if fuzzer_log.stat().st_size == 0 and container_stdout.is_file():
+                shutil.copyfile(container_stdout, fuzzer_log)
+        except OSError as error:
+            warnings.append({"code": "icsquartz_fuzzer_log_copy_failed", "message": repr(error)})
+        lifecycle.update({"events": events, "collection_complete": candidate_collection_complete})
+        write_json(run_dir / "process-result.json", lifecycle)
+        metrics = self.collect_stopped_metrics(target, run_dir, lifecycle)
+        if metrics["run_status"] == "runner_error":
+            status = "runner_error"
+            failure = failure or metrics.get("failure_reason")
+            candidate_collection_complete = metrics["candidate_collection_complete"]
+        if status == "budget_completed" and not metrics.get("total_executions"):
+            status = "runner_error"
+            failure = {"code": "native_execution_count_missing", "message": "Post-run artifacts contain no positive native execution count", "log_tail_path": self.relative_artifact(stats_file)}
         metrics.update(
             {
                 "t0_monotonic_ns": t0,
                 "online_elapsed_seconds": online_elapsed,
-                "total_executions": online_executions,
-                "total_executions_window": "last_native_report_observed_within_online_budget",
-                "execs_per_sec": online_executions / online_elapsed
-                if online_executions is not None and online_elapsed > 0 else None,
+                "total_executions_window": "native_stop_snapshot_may_include_shutdown_tail",
+                "measurement_mode": "post_run_native_artifacts",
+                "collection_mode": "post_run",
+                "candidate_collection_complete": candidate_collection_complete,
                 "cleanup_inclusive_elapsed_seconds": (time.monotonic_ns() - t0) / 1e9,
                 "run_status": status,
             }
@@ -550,6 +556,10 @@ class ICSQuartzAdapter(BaseAdapter):
         if failure is not None:
             metrics["failure_reason"] = failure
         metrics["tool_specific_metrics"]["container_cleanup"] = cleanup
+        metrics["tool_specific_metrics"]["cleanup_confirmed"] = cleanup["removed"]
+        metrics["tool_specific_metrics"]["measurement_warnings"] = warnings
+        metrics["tool_specific_metrics"]["infrastructure_failure"] = infrastructure_failure
+        metrics["tool_specific_metrics"]["stop_request_elapsed_seconds"] = online_elapsed
         if not cleanup["removed"]:
             cleanup["prior_run_status"] = status
             cleanup["prior_failure_reason"] = failure
@@ -576,6 +586,11 @@ class ICSQuartzAdapter(BaseAdapter):
                 execution_ordinal=executions,
             )
             event["execution_count_source"] = "libafl_testcase_metadata" if executions is not None else "unavailable"
+            event["time_source"] = "unmeasured_post_run"
+            event["collection_phase"] = "post_run"
+            event["native_time_to_find_seconds"] = _native_time_to_find_seconds(raw)
+            event["native_time_origin"] = "libafl_state_start_time"
+            event["native_time_alignment"] = "not_aligned_to_runner_launch"
             if raw:
                 event["metadata_artifact_path"] = self.relative_artifact(seed_path.with_name(f".{seed_path.name}.metadata"))
             events.append(
@@ -604,7 +619,11 @@ class ICSQuartzAdapter(BaseAdapter):
         metrics["first_common_finding"] = events[0] if events else None
         metrics["crash_count_raw"] = len(events)
         corpus_dir = run_dir / "tool-artifacts" / "corpus"
-        metrics["corpus_count"] = len(native_inputs(corpus_dir))
+        try:
+            metrics["corpus_count"] = len(native_inputs(corpus_dir))
+        except OSError as error:
+            metrics["corpus_count"] = None
+            metrics["tool_specific_metrics"]["corpus_collection_error"] = repr(error)
         metrics["artifact_paths"] = {
             "fuzzer_stats": self.relative_artifact(run_dir / "tool-artifacts" / "fuzzer_stats.json"),
             "crashes": self.relative_artifact(run_dir / "tool-artifacts" / "crashes"),
@@ -623,9 +642,9 @@ def _image_tag(prefix: str, compiler: str, target_id: str) -> str:
     return f"{prefix}-{compiler}:{safe}"
 
 
-def _container_running(runtime: str, name: str) -> bool:
+def _container_state(runtime: str, name: str) -> dict[str, Any]:
     result = subprocess.run(
-        [runtime, "inspect", "-f", "{{.State.Running}}", name],
+        [runtime, "inspect", "-f", "{{json .State}}", name],
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -633,47 +652,98 @@ def _container_running(runtime: str, name: str) -> bool:
     )
     if result.returncode != 0:
         raise RuntimeError(f"cannot inspect ICSQuartz container {name}: {result.stderr.strip()}")
-    return result.stdout.strip() == "true"
+    value = json.loads(result.stdout)
+    if not isinstance(value, dict):
+        raise RuntimeError("container inspect returned no state object")
+    return value
 
 
-def _container_exit_code(runtime: str, name: str) -> int | None:
-    result = subprocess.run(
-        [runtime, "inspect", "-f", "{{.State.ExitCode}}", name],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        timeout=CONTAINER_COMMAND_TIMEOUT_SECONDS,
-    )
-    if result.returncode != 0:
+def _container_time(value: object) -> datetime | None:
+    if not isinstance(value, str) or value.startswith("0001-"):
         return None
     try:
-        return int(result.stdout.strip())
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo is not None else None
     except ValueError:
         return None
 
 
-def _cleanup_container(runtime: str, name: str, run_dir: Path) -> dict[str, Any]:
+def _stop_container(runtime: str, name: str, run_dir: Path) -> dict[str, Any]:
+    """Request the budget stop without collecting logs on the deadline path."""
+    result: dict[str, Any] = {
+        "stop_requested_monotonic_ns": time.monotonic_ns(),
+        "logs_until": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
+    }
+    try:
+        result["fuzzer_log_online_bytes"] = (run_dir / "tool-artifacts" / "fuzzer_log").stat().st_size
+    except OSError as error:
+        result["log_boundary_error"] = repr(error)
+    try:
+        stopped = subprocess.run(
+            [runtime, "stop", "--time", "2", name],
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=CONTAINER_COMMAND_TIMEOUT_SECONDS,
+        )
+        result["stop_returncode"] = stopped.returncode
+        if stopped.returncode != 0:
+            result["stop_error"] = stopped.stderr[-2000:]
+    except Exception as error:
+        result["stop_error"] = repr(error)
+    if result.get("stop_returncode") != 0:
+        # A failed graceful stop must not leave the target running while logs
+        # are read. Force removal below remains the final cleanup guarantee.
+        try:
+            killed = subprocess.run(
+                [runtime, "kill", name], text=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                timeout=CONTAINER_COMMAND_TIMEOUT_SECONDS,
+            )
+            result["kill_returncode"] = killed.returncode
+            if killed.returncode != 0:
+                result["kill_error"] = killed.stderr[-2000:]
+        except Exception as error:
+            result["kill_error"] = repr(error)
+    return result
+
+
+def _cleanup_container(
+    runtime: str, name: str, run_dir: Path, *, stop_result: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Bound every cleanup operation and preserve evidence before removal.
 
     Do not mask an in-flight observer error or KeyboardInterrupt. The caller
     rejects otherwise successful runs when removal cannot be confirmed.
     """
-    cleanup: dict[str, Any] = {"container": name, "removed": False}
-    try:
-        stopped = subprocess.run(
-            [runtime, "stop", "--time", "5", name],
-            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            timeout=CONTAINER_COMMAND_TIMEOUT_SECONDS,
-        )
-        cleanup["stop_returncode"] = stopped.returncode
-        if stopped.returncode != 0:
-            cleanup["stop_error"] = stopped.stderr[-2000:]
-    except Exception as error:
-        cleanup["stop_error"] = repr(error)
-    try:
-        _write_container_logs(runtime, name, run_dir / "container.stdout.log", run_dir / "container.stderr.log")
-    except Exception as error:
-        cleanup["logs_error"] = repr(error)
+    cleanup: dict[str, Any] = {
+        "container": name, "removed": False,
+        **(stop_result if stop_result is not None else _stop_container(runtime, name, run_dir)),
+    }
+    stopped = cleanup.get("stop_returncode") == 0 or cleanup.get("kill_returncode") == 0
+    if stopped:
+        try:
+            cleanup["state_after_stop"] = _container_state(runtime, name)
+        except Exception as error:
+            cleanup["state_inspection_error"] = repr(error)
+        try:
+            _write_container_logs(
+                runtime, name,
+                run_dir / "container.pre-stop.stdout.log", run_dir / "container.pre-stop.stderr.log",
+                until=cleanup["logs_until"],
+            )
+        except Exception as error:
+            cleanup["online_logs_error"] = repr(error)
+            if isinstance(error, OSError):
+                cleanup["artifact_io_error"] = repr(error)
+        try:
+            _write_container_logs(runtime, name, run_dir / "container.stdout.log", run_dir / "container.stderr.log")
+        except Exception as error:
+            cleanup["logs_error"] = repr(error)
+            if isinstance(error, OSError):
+                cleanup["artifact_io_error"] = repr(error)
+    else:
+        # Do not postpone the final force removal to collect diagnostics while
+        # the target might still be executing beyond its budget.
+        cleanup["online_logs_error"] = "Stop and kill could not be confirmed; force removal takes priority"
     try:
         removed = subprocess.run(
             [runtime, "rm", "--force", name],
@@ -695,18 +765,22 @@ def _cleanup_container(runtime: str, name: str, run_dir: Path) -> dict[str, Any]
     return cleanup
 
 
-def _write_container_logs(runtime: str, name: str, stdout_path: Path, stderr_path: Path) -> None:
-    result = subprocess.run(
-        [runtime, "logs", name],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=CONTAINER_COMMAND_TIMEOUT_SECONDS,
-    )
-    stdout_path.write_text(result.stdout, encoding="utf-8")
-    stderr_path.write_text(result.stderr, encoding="utf-8")
+def _write_container_logs(
+    runtime: str, name: str, stdout_path: Path, stderr_path: Path, *, until: str | None = None,
+) -> None:
+    command = [runtime, "logs"]
+    if until is not None:
+        command.extend(["--until", until])
+    command.append(name)
+    # Stream to files instead of buffering the entire container history in
+    # memory. TimeoutExpired kills/reaps the CLI but keeps its partial output.
+    with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
+        result = subprocess.run(
+            command, stdout=stdout, stderr=stderr,
+            timeout=CONTAINER_COMMAND_TIMEOUT_SECONDS,
+        )
     if result.returncode != 0:
-        raise RuntimeError(f"cannot collect ICSQuartz container logs: {result.stderr.strip()}")
+        raise RuntimeError(f"cannot collect ICSQuartz container logs (exit {result.returncode}); see {stderr_path}")
 
 
 def _input_for_metadata(metadata_path: Path) -> Path | None:
@@ -715,6 +789,25 @@ def _input_for_metadata(metadata_path: Path) -> Path | None:
         return None
     candidate = metadata_path.with_name(name[1 : -len(".metadata")])
     return candidate if candidate.is_file() else None
+
+
+def _native_time_to_find_seconds(metadata: dict[str, Any]) -> float | None:
+    """Retain the native Duration without inventing alignment to host launch."""
+    pending: list[Any] = [metadata]
+    values: list[float] = []
+    while pending:
+        value = pending.pop()
+        if isinstance(value, dict):
+            duration = value.get("time_to_find")
+            if isinstance(duration, dict):
+                seconds = execution_count(duration.get("secs"))
+                nanos = execution_count(duration.get("nanos"))
+                if seconds is not None and nanos is not None and nanos < 1_000_000_000:
+                    values.append(seconds + nanos / 1e9)
+            pending.extend(value.values())
+        elif isinstance(value, list):
+            pending.extend(value)
+    return values[0] if len(values) == 1 else None
 
 
 def _asan_options(asan_alt: bool) -> str:
@@ -756,26 +849,30 @@ def _launcher_core_spec(assigned_cpus: list[int]) -> str:
 def _last_json_line(path: Path) -> dict[str, Any] | None:
     if not path.is_file():
         return None
-    previous = ""
-    current = ""
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        if line.strip():
-            previous = current
-            current = line
-    for candidate in (current, previous):
-        if not candidate:
-            continue
+    with path.open("rb") as handle:
+        size = handle.seek(0, os.SEEK_END)
+        start = max(0, size - STATS_TAIL_BYTES)
+        handle.seek(start)
+        data = handle.read(STATS_TAIL_BYTES)
+    if start:
+        # The first bytes may be the middle of a record; never parse them.
+        data = data.partition(b"\n")[2]
+    candidates = [line for line in data.decode("utf-8", errors="replace").splitlines() if line.strip()]
+    for candidate in reversed(candidates[-2:]):
         try:
-            return json.loads(candidate)
+            result = json.loads(candidate)
+            if isinstance(result, dict):
+                return result
         except json.JSONDecodeError:
             continue
     return None
 
 
-def _fuzzer_log_failure(path: Path, *, unrecoverable_only: bool = False) -> str | None:
+def _fuzzer_log_failure(
+    path: Path, *, unrecoverable_only: bool = False, max_bytes: int | None = None,
+) -> str | None:
     if not path.is_file():
         return None
-    text = path.read_text(encoding="utf-8", errors="replace")
     # These terminate the sole client's respawner/launcher rather than an
     # individual target child. A generic panic alone can be recovered by LibAFL.
     markers = (
@@ -785,9 +882,23 @@ def _fuzzer_log_failure(path: Path, *, unrecoverable_only: bool = False) -> str 
     )
     if not unrecoverable_only:
         markers += ("fatal runtime error:", "thread '<unnamed>' panicked at")
-    for marker in markers:
-        if marker in text:
-            return f"ICSQuartz client log contains fatal marker: {marker}"
+    # Scan incrementally and, for the native fuzzer log, only inspect bytes
+    # present before our stop request. Shutdown panics are not online failures.
+    overlap = max(map(len, markers)) - 1
+    previous = b""
+    remaining = max_bytes
+    with path.open("rb") as handle:
+        while remaining is None or remaining > 0:
+            data = handle.read(65536 if remaining is None else min(65536, remaining))
+            if not data:
+                break
+            if remaining is not None:
+                remaining -= len(data)
+            text = previous + data
+            for marker in markers:
+                if marker.encode() in text:
+                    return f"ICSQuartz client log contains fatal marker: {marker}"
+            previous = text[-overlap:]
     return None
 
 

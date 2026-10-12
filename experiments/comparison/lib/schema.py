@@ -51,7 +51,7 @@ def run_result_template(
     per_execution_timeout_ms: int | None,
     execution_timeout_model: str,
     support_status: str,
-    observer_poll_interval_ms: int = 10,
+    observer_poll_interval_ms: int = 0,
 ) -> dict[str, Any]:
     # Keep the execution contract explicit in every row.  The ordinary
     # RuSTy/byte-level harnesses execute one isolated cycle; the scan-cycle
@@ -83,7 +83,9 @@ def run_result_template(
         "preprocessing_time_seconds": None,
         "online_budget_seconds": online_budget_seconds,
         "t0_monotonic_ns": None,
-        "observer_poll_interval_ms": observer_poll_interval_ms,
+        "observer_poll_interval_ms": 0,
+        "collection_mode": "post_run",
+        "candidate_collection_complete": False,
         "online_elapsed_seconds": None,
         "per_execution_timeout_ms": per_execution_timeout_ms,
         "execution_timeout_model": execution_timeout_model,
@@ -144,8 +146,9 @@ def validate_run_result(value: dict[str, Any]) -> None:
             raise ValueError(f"{field} must be JSON type {expected_type}")
 
     poll_interval = value.get("observer_poll_interval_ms")
-    if not isinstance(poll_interval, int) or isinstance(poll_interval, bool) or not 1 <= poll_interval <= 10:
-        raise ValueError("observer_poll_interval_ms must be an integer in [1, 10]")
+    if (not isinstance(poll_interval, int) or isinstance(poll_interval, bool)
+            or not (poll_interval == 0 if value.get("collection_mode") == "post_run" else 1 <= poll_interval <= 10)):
+        raise ValueError("observer_poll_interval_ms must be 0 for post_run collection, or [1, 10] for legacy runs")
     candidates = value.get("candidate_findings")
     if not isinstance(candidates, list) or any(not isinstance(item, dict) for item in candidates):
         raise ValueError("candidate_findings must be an array of objects")

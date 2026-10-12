@@ -44,7 +44,8 @@ def load_runs(directories: list[Path]) -> list[dict[str, Any]]:
                 raise ValueError(f"missing run result; finish or repair this run before comparison: {path}")
             run = json.loads(path.read_text(encoding="utf-8"))
             validate_run_result(run)
-            if run.get("measurement_contract") != CONTRACT:
+            expected_contract = CONTRACT if run.get("collection_mode") == "post_run" else "semantist.independent-tool-metrics/1"
+            if run.get("measurement_contract") != expected_contract:
                 raise ValueError(f"measurement contract absent or incompatible: {path}")
             if any(run.get(k) != row[k] for k in ("run_key", "tool", "suite", "target_id", "trial_id")):
                 raise ValueError(f"run identity differs from schedule: {path}")
@@ -56,6 +57,8 @@ def load_runs(directories: list[Path]) -> list[dict[str, Any]]:
             run["result_path"] = str(path)
             run["paper_metrics"] = paper_metrics(run)
             runs.append(run)
+    if len({run["measurement_contract"] for run in runs}) > 1:
+        raise ValueError("online-observer and post-run experiments use different measurement contracts; analyze them separately")
     return runs
 
 
@@ -64,7 +67,10 @@ def export_metrics(runs: list[dict[str, Any]], out: Path) -> list[dict[str, Any]
         "experiment_id", "run_key", "tool", "configuration_id", "suite", "target_id", "trial_id",
         "run_status", "support_status", "online_budget_seconds", "online_elapsed_seconds",
         "per_execution_timeout_ms", "execution_timeout_model", "cpu_slots", "fuzz_workers",
-        "initial_seed_provider", "rng_seed_applied", "result_path")}, **paper_metrics(run)} for run in runs]
+        "initial_seed_provider", "rng_seed_applied", "result_path")},
+        "failure_code": (run.get("failure_reason") or {}).get("code"),
+        "failure_message": (run.get("failure_reason") or {}).get("message"),
+        **paper_metrics(run)} for run in runs]
     out.mkdir(parents=True, exist_ok=True)
     with (out / "metrics.jsonl").open("w", encoding="utf-8") as handle:
         for row in rows:
@@ -152,7 +158,7 @@ def compare(directories: list[Path], out: Path) -> dict[str, Any]:
             "replay_confirmed_trials": sum(m["replay_confirmed_crash_found"] is True for m in valid),
             "replay_unknown_trials": sum(m["replay_confirmed_crash_found"] is None for m in valid),
         })
-    report = {"measurement_contract": CONTRACT, "tools": tools,
+    report = {"measurement_contract": runs[0]["measurement_contract"], "tools": tools,
               "common_supported_targets": [list(k) for k in sorted(common)],
               "comparability_notes": notes, "per_target_tool": summaries}
     export_metrics(runs, out)

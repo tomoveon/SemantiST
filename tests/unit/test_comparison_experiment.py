@@ -243,6 +243,10 @@ class ComparisonExperimentTests(unittest.TestCase):
             "timed_out": True,
             "returncode": None,
             "events": [],
+            "cleanup_confirmed": True,
+            "infrastructure_failure": False,
+            "collection_complete": True,
+            "collection_mode": "post_run",
         }
         target = SimpleNamespace(target_id="target", suite="suite", kind="FUNCTION", function="TARGET")
         with tempfile.TemporaryDirectory() as raw_tmp:
@@ -283,7 +287,7 @@ class ComparisonExperimentTests(unittest.TestCase):
         self.assertEqual(unavailable_cpus([allowed[0]]), [])
         self.assertEqual(unavailable_cpus([max(allowed) + 1]), [max(allowed) + 1])
 
-    def test_budget_runner_timestamps_findings_flushed_at_exit(self):
+    def test_budget_runner_collects_exit_findings_without_inventing_discovery_time(self):
         with tempfile.TemporaryDirectory() as raw_tmp:
             tmp_path = Path(raw_tmp)
             finding_path = tmp_path / "finding"
@@ -312,8 +316,13 @@ class ComparisonExperimentTests(unittest.TestCase):
             )
             self.assertTrue(result["started"])
             self.assertEqual(len(result["events"]), 1)
-            self.assertIsInstance(result["events"][0]["observed_monotonic_ns"], int)
-            self.assertGreaterEqual(result["events"][0]["observed_elapsed_seconds"], 0)
+            self.assertIsNone(result["events"][0]["observed_monotonic_ns"])
+            self.assertIsNone(result["events"][0]["observed_elapsed_seconds"])
+            self.assertIsNone(result["events"][0]["observed_after_budget"])
+            self.assertEqual(result["events"][0]["time_source"], "unmeasured_post_run")
+            self.assertEqual(result["collection_mode"], "post_run")
+            self.assertTrue(result["collection_complete"])
+            self.assertTrue(result["cleanup_confirmed"])
 
     def test_run_result_validation_uses_common_schema_and_consistency_rules(self):
         target = SimpleNamespace(

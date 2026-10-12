@@ -35,6 +35,12 @@
     "failure_reason"
   ],
   "properties": {
+    "collection_mode": {
+      "enum": ["post_run"]
+    },
+    "candidate_collection_complete": {
+      "type": "boolean"
+    },
     "schema_version": {
       "const": "semantist.full-comparison-run/1.0.0"
     },

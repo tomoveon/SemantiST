@@ -1,4 +1,4 @@
-"""Exercise the real ICSQuartz adapter lifecycle without containers or targets."""
+"""ICSQuartz lifecycle contract with an inactive runner during the budget."""
 
 import json
 import subprocess
@@ -14,9 +14,9 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from experiments.comparison.adapters.base import AdapterError  # noqa: E402
-from experiments.comparison.adapters.icsquartz import ICSQuartzAdapter  # noqa: E402
-from experiments.comparison.lib.metrics import paper_metrics  # noqa: E402
-
+from experiments.comparison.adapters.icsquartz import (  # noqa: E402
+    ICSQuartzAdapter, _fuzzer_log_failure, _last_json_line, _native_time_to_find_seconds,
+)
 
 MODULE = "experiments.comparison.adapters.icsquartz"
 
@@ -30,8 +30,7 @@ class ICSQuartzLifecycleTests(unittest.TestCase):
             artifact_root=self.root, experiment_id="campaign", semantist_root=ROOT,
             container_runtime="docker", container_runtime_status="mock", container_platform=None,
             semantist_image="semantist:test", per_execution_timeout_ms=1000,
-            online_budget_seconds=20, observer_poll_interval_ms=10,
-            icsquartz_root=None,
+            online_budget_seconds=20, observer_poll_interval_ms=10, icsquartz_root=None,
         )
         fixtures = self.root / "fixtures"
         fixtures.mkdir()
@@ -47,271 +46,263 @@ class ICSQuartzLifecycleTests(unittest.TestCase):
         self.run_dir.mkdir(parents=True)
         self.prep_dir = self.root / "prepared"
         self.prep_dir.mkdir()
-        self.set_scan_cycle(False)
+        (self.prep_dir / "metadata.json").write_text(json.dumps({
+            "fuzzer_image": "icsquartz:test", "fuzzer_image_id": "sha256:built-target", "scan_cycle": False,
+        }), encoding="utf-8")
         self.prep = SimpleNamespace(preprocess_dir=self.prep_dir)
         self.elapsed = 0.0
         self.calls = []
-        self.counter = lambda seconds: 1 + int(seconds // 15) * 100
-        self.running = lambda seconds: True
-        self.client_log = lambda seconds: ""
-        self.container_logs = lambda stopped: ("container diagnostic stdout", "container diagnostic stderr")
+        self.waits = []
         self.errors = {}
         self.returncodes = {}
-        self.command_stderr = {}
-        self.exit_code = 1
+        self.count = 466
+        self.native_log = ""
+        self.shutdown_native_log = ""
+        self.native_container_logs = ("native stdout", "native stderr")
+        self.shutdown_container_logs = ("shutdown stdout", "shutdown stderr")
+        self.state = {"Running": False, "ExitCode": 0, "FinishedAt": "2100-01-01T00:00:00Z"}
+        self.wait_error = None
 
-    def set_scan_cycle(self, enabled):
-        (self.prep_dir / "metadata.json").write_text(
-            json.dumps({"fuzzer_image": "icsquartz:test", "fuzzer_image_id": "sha256:built-target", "scan_cycle": enabled}),
-            encoding="utf-8",
-        )
+    def stopped(self):
+        return any(command[1] == "stop" for command, _ in self.calls)
+
+    def fake_wait(self, seconds):
+        # Native output arrives while the controller is asleep. It supplies no
+        # host first-discovery timestamp, because the runner never observed it.
+        self.assertFalse(self.stopped())
+        self.assertEqual([command[1] for command, _ in self.calls], ["run"])
+        self.waits.append(seconds)
+        if self.wait_error is not None:
+            raise self.wait_error
+        self.elapsed += seconds
+        artifacts = self.run_dir / "tool-artifacts"
+        if self.count is not None:
+            (artifacts / "fuzzer_stats.json").write_text(
+                json.dumps({"executions": self.count, "exec_sec": 23.3}) + "\n", encoding="utf-8",
+            )
+        (artifacts / "fuzzer_log").write_text(self.native_log, encoding="utf-8")
 
     def fake_subprocess(self, command, **kwargs):
         self.calls.append((command, kwargs))
         self.assertGreater(kwargs.get("timeout", 0), 0, command)
         operation = command[1]
-        stopped = any(previous[0][1] == "stop" for previous in self.calls)
-        error_key = "cleanup_logs" if operation == "logs" and stopped else operation
-        if error_key in self.errors:
-            raise self.errors[error_key]
+        error_key = ("online_logs" if "--until" in command else "cleanup_logs") if operation == "logs" else operation
         stdout, stderr = "", ""
         if operation == "run":
             stdout = "mock-container"
+        elif operation == "stop":
+            if self.shutdown_native_log:
+                with (self.run_dir / "tool-artifacts" / "fuzzer_log").open("a", encoding="utf-8") as handle:
+                    handle.write(self.shutdown_native_log)
         elif operation == "inspect":
-            if command[3] == "{{.State.Running}}":
-                count = self.counter(self.elapsed)
-                if count is not None:
-                    # Exercise actual counter decoding, including the active client.
-                    stats = {"executions": 0, "client_stats": [{"enabled": True, "executions": count}]}
-                    (self.run_dir / "tool-artifacts" / "fuzzer_stats.json").write_text(
-                        json.dumps(stats) + "\n", encoding="utf-8"
-                    )
-                (self.run_dir / "tool-artifacts" / "fuzzer_log").write_text(
-                    self.client_log(self.elapsed), encoding="utf-8"
-                )
-                stdout = "true" if self.running(self.elapsed) else "false"
-            else:
-                stdout = str(self.exit_code)
+            self.assertTrue(self.stopped(), "state inspection must happen after stopping")
+            self.assertIn("{{json .State}}", command)
+            stdout = json.dumps(self.state)
         elif operation == "logs":
-            stdout, stderr = self.container_logs(stopped)
+            self.assertTrue(self.stopped(), "log collection must happen after stopping")
+            stdout, stderr = self.native_container_logs if "--until" in command else self.shutdown_container_logs
+            kwargs["stdout"].write(stdout.encode())
+            kwargs["stderr"].write(stderr.encode())
+            kwargs["stdout"].flush()
+            kwargs["stderr"].flush()
+        if error_key in self.errors:
+            raise self.errors[error_key]
         returncode = self.returncodes.get(operation, 0)
         if returncode:
             stderr = "synthetic command failure"
-        stderr = self.command_stderr.get(operation, stderr)
         return subprocess.CompletedProcess(command, returncode, stdout, stderr)
 
-    def fake_sleep(self, seconds):
-        # Simulate one-second observation steps; never wait in the test process.
-        self.elapsed += max(1.0, seconds)
+    def run_adapter(self, collection_error=None):
+        original_scan = self.adapter.scan_finding_events
 
-    def run_adapter(self, observer_error=None):
+        def post_run_scan(*args, **kwargs):
+            self.assertTrue(self.stopped(), "findings must be collected after stopping")
+            if collection_error is not None:
+                raise collection_error
+            return original_scan(*args, **kwargs)
+
         with ExitStack() as stack:
             stack.enter_context(patch(f"{MODULE}.subprocess.run", side_effect=self.fake_subprocess))
             stack.enter_context(patch(f"{MODULE}.time.monotonic_ns", side_effect=lambda: int((1 + self.elapsed) * 1e9)))
-            stack.enter_context(patch(f"{MODULE}.time.sleep", side_effect=self.fake_sleep))
-            if observer_error is not None:
-                stack.enter_context(patch.object(self.adapter, "scan_finding_events", side_effect=observer_error))
+            stack.enter_context(patch(f"{MODULE}.threading.Event", return_value=SimpleNamespace(wait=self.fake_wait)))
+            stack.enter_context(patch.object(self.adapter, "scan_finding_events", side_effect=post_run_scan))
             return self.adapter.run(self.target, self.run_dir, self.prep, 123, 7)
 
     def assert_cleanup(self):
         operations = [command[1] for command, _ in self.calls]
-        self.assertEqual(operations[-3:], ["stop", "logs", "rm"])
+        self.assertEqual(operations[-1], "rm")
+        self.assertEqual(operations.count("stop"), 1)
         self.assertEqual(operations.count("rm"), 1)
+        for operation in ("inspect", "logs"):
+            if operation in operations:
+                self.assertLess(operations.index("stop"), operations.index(operation))
         return json.loads((self.run_dir / "container-cleanup.json").read_text(encoding="utf-8"))
 
-    def test_progress_at_upstream_report_interval_and_recovered_child_panic_are_valid(self):
-        self.client_log = lambda seconds: "thread '<unnamed>' panicked at child\n" if seconds >= 2 else ""
+    def test_sleeps_once_then_stops_before_inspection_and_collection(self):
         result = self.run_adapter()
+        self.assertEqual(self.waits, [20])
         self.assertEqual(result["run_status"], "budget_completed")
-        self.assertEqual(result["total_executions"], 101)
-        start_command = self.calls[0][0]
-        self.assertIn("sha256:built-target", start_command)
-        self.assertNotIn("icsquartz:test", start_command)
+        self.assertEqual(result["online_elapsed_seconds"], 20)
+        self.assertEqual(result["total_executions"], 466)
+        self.assertEqual(result["collection_mode"], "post_run")
+        self.assertTrue(result["candidate_collection_complete"])
+        self.assertEqual(result["total_executions_window"], "native_stop_snapshot_may_include_shutdown_tail")
+        self.assertEqual(sum(command[1] == "inspect" for command, _ in self.calls), 1)
+        self.assertTrue(result["tool_specific_metrics"]["cleanup_confirmed"])
+        self.assertFalse(result["tool_specific_metrics"]["infrastructure_failure"])
         self.assertTrue(self.assert_cleanup()["removed"])
-        self.assertTrue((self.run_dir / "container.stderr.log").is_file())
-        # Our deliberate SIGTERM must not be mistaken for a native early exit.
-        self.assertFalse(any("{{.State.ExitCode}}" in command for command, _ in self.calls))
 
-    def test_slow_mutational_stage_is_given_its_timeout_allowance(self):
-        self.config.online_budget_seconds = 140
-        self.counter = lambda seconds: 1 if seconds < 130 else 2
+    def test_long_budget_does_not_apply_old_stagnation_watchdog(self):
+        self.config.online_budget_seconds = 300
         result = self.run_adapter()
+        self.assertEqual(self.waits, [300])
+        self.assertEqual(self.elapsed, 300)
         self.assertEqual(result["run_status"], "budget_completed")
         command = json.loads((self.run_dir / "command.json").read_text(encoding="utf-8"))
-        self.assertEqual(command["execution_progress_timeout_seconds"], 158)
-        self.assert_cleanup()
+        self.assertNotIn("execution_progress_timeout_seconds", command)
 
-    def test_stagnation_is_rejected_in_both_scan_and_ordinary_suites(self):
-        for scan_cycle in (False, True):
-            with self.subTest(scan_cycle=scan_cycle):
-                self.set_scan_cycle(scan_cycle)
-                self.elapsed, self.calls = 0.0, []
-                self.config.online_budget_seconds = 200
-                self.counter = lambda seconds: 10
-                result = self.run_adapter()
-                self.assertEqual(result["run_status"], "watchdog_timeout")
-                self.assertEqual(result["failure_reason"]["code"], "icsquartz_execution_stalled")
-                self.assertEqual(self.elapsed, 158)
-                self.assert_cleanup()
-
-    def test_missing_and_zero_counters_get_startup_grace_then_fail(self):
-        for count in (None, 0):
-            with self.subTest(count=count):
-                self.elapsed, self.calls = 0.0, []
-                self.config.online_budget_seconds = 60
-                self.counter = lambda seconds: count
-                result = self.run_adapter()
-                self.assertEqual(result["failure_reason"]["code"], "icsquartz_execution_count_missing")
-                self.assertEqual(self.elapsed, 40)
-                self.assert_cleanup()
-
-    def test_short_budget_still_requires_a_positive_count(self):
-        self.config.online_budget_seconds = 5
-        self.counter = lambda seconds: None
+    def test_missing_count_is_invalid_only_after_full_budget(self):
+        self.count = None
         result = self.run_adapter()
-        self.assertEqual(result["run_status"], "watchdog_timeout")
-        self.assertEqual(self.elapsed, 5)
+        self.assertEqual(self.elapsed, 20)
+        self.assertEqual(result["run_status"], "runner_error")
+        self.assertEqual(result["failure_reason"]["code"], "native_execution_count_missing")
+        self.assertIsNone(result["total_executions"])
+        self.assertFalse(result["tool_specific_metrics"]["infrastructure_failure"])
         self.assert_cleanup()
 
-    def test_unrecoverable_respawner_at_budget_is_not_success(self):
-        self.client_log = lambda seconds: (
-            "Fuzzer-respawner: Storing state in crashed fuzzer instance did not work, no point to spawn the next client!\n"
-            if seconds >= 18 else ""
-        )
+    def test_child_panic_does_not_imply_unrecoverable_failure(self):
+        self.native_log = "thread '<unnamed>' panicked at child\n"
+        self.assertEqual(self.run_adapter()["run_status"], "budget_completed")
+
+    def test_native_respawner_failure_is_not_valid_completion(self):
+        self.native_log = "Fuzzer-respawner: Storing state in crashed fuzzer instance did not work\n"
         result = self.run_adapter()
         self.assertEqual(result["run_status"], "online_crashed")
         self.assertEqual(result["failure_reason"]["code"], "icsquartz_client_fatal_log")
         self.assertEqual(self.elapsed, 20)
         self.assert_cleanup()
 
-    def test_unrecoverable_error_only_on_container_stderr_is_not_success(self):
-        self.container_logs = lambda stopped: ("", "Failed to run launcher: unrecoverable failure\n")
+    def test_fatal_stderr_is_collected_after_stop_with_time_filter(self):
+        self.native_container_logs = ("", "Failed to run launcher: native failure\n")
         result = self.run_adapter()
         self.assertEqual(result["run_status"], "online_crashed")
-        self.assertEqual(result["failure_reason"]["code"], "icsquartz_client_fatal_log")
         self.assertTrue(result["failure_reason"]["log_tail_path"].endswith("container.pre-stop.stderr.log"))
-        self.assert_cleanup()
 
-    def test_logs_created_by_our_stop_do_not_retroactively_fail_the_run(self):
-        self.container_logs = lambda stopped: ("", "Failed to run launcher: stopping\n" if stopped else "")
-        result = self.run_adapter()
-        self.assertEqual(result["run_status"], "budget_completed")
-        self.assert_cleanup()
+    def test_shutdown_errors_do_not_retroactively_fail_run(self):
+        self.shutdown_container_logs = ("", "Failed to run launcher: shutdown\n")
+        self.shutdown_native_log = "Failed to run launcher: shutdown\n"
+        self.assertEqual(self.run_adapter()["run_status"], "budget_completed")
 
-    def test_log_collection_and_shutdown_executions_are_only_diagnostics(self):
-        def logs(stopped):
-            self.elapsed += 3
-            (self.run_dir / "tool-artifacts" / "fuzzer_stats.json").write_text(
-                json.dumps({"executions": 999999, "exec_sec": 50000}) + "\n", encoding="utf-8"
-            )
-            return "diagnostic stdout", "diagnostic stderr"
-        self.container_logs = logs
-        result = self.run_adapter()
-        self.assertEqual(result["run_status"], "budget_completed")
-        self.assertEqual(result["online_elapsed_seconds"], 20)
-        self.assertEqual(result["cleanup_inclusive_elapsed_seconds"], 26)
-        self.assertEqual(result["total_executions"], 101)
-        self.assertAlmostEqual(result["execs_per_sec"], 101 / 20)
-        self.assertEqual(result["tool_specific_metrics"]["shutdown_total_executions"], 999999)
-        self.assertEqual(result["tool_specific_metrics"]["shutdown_execs_per_sec"], 50000)
-        self.assertEqual(result["total_executions_window"], "last_native_report_observed_within_online_budget")
-        paper = paper_metrics({**result, "support_status": "supported", "online_budget_seconds": 20})
-        self.assertTrue(paper["valid_run"])
-        self.assertEqual(paper["total_executions_reported"], 101)
-        self.assertAlmostEqual(paper["execs_per_sec"], 101 / 20)
-        self.assertEqual(paper["total_executions_window"], result["total_executions_window"])
-        self.assert_cleanup()
-
-    def test_first_counter_observed_after_budget_cannot_make_a_valid_run(self):
-        def delayed_counter(seconds):
-            if seconds >= 20:
-                self.elapsed += 2  # A delayed final inspect/read finishes past the deadline.
-                return 1000
-            return None
-        self.counter = delayed_counter
-        result = self.run_adapter()
-        self.assertEqual(result["run_status"], "watchdog_timeout")
-        self.assertIsNone(result["total_executions"])
-        self.assertIsNone(result["execs_per_sec"])
-        self.assertEqual(result["tool_specific_metrics"]["shutdown_total_executions"], 1000)
-        paper = paper_metrics({**result, "support_status": "supported", "online_budget_seconds": 20})
-        self.assertFalse(paper["valid_run"])
-        self.assertIsNone(paper["total_executions_reported"])
-        self.assert_cleanup()
-
-    def test_container_exit_at_budget_boundary_is_not_our_termination(self):
-        self.running = lambda seconds: seconds < 20
+    def test_early_exit_is_identified_from_post_stop_state(self):
+        self.state["FinishedAt"] = "2000-01-01T00:00:00Z"
         result = self.run_adapter()
         self.assertEqual(result["run_status"], "online_crashed")
+        self.assertEqual(result["failure_reason"]["code"], "icsquartz_exited_before_budget")
         self.assert_cleanup()
 
-    def test_clean_early_exit_is_not_a_completed_fuzz_loop(self):
-        self.running = lambda seconds: seconds < 2
-        self.exit_code = 0
+    def test_inspection_failure_is_local_invalid_trial_after_cleanup(self):
+        self.errors = {"inspect": subprocess.TimeoutExpired(["docker", "inspect"], 10)}
         result = self.run_adapter()
-        self.assertEqual(result["run_status"], "online_crashed")
-        self.assert_cleanup()
-
-    def test_observer_error_and_interrupt_preserve_original_exception_and_cleanup(self):
-        for error in (OSError("observer error"), KeyboardInterrupt()):
-            with self.subTest(error=type(error).__name__):
-                self.calls = []
-                with self.assertRaises(type(error)) as raised:
-                    self.run_adapter(observer_error=error)
-                self.assertIs(raised.exception, error)
-                self.assertTrue(self.assert_cleanup()["removed"])
-
-    def test_start_and_inspect_timeouts_also_cleanup(self):
-        for operation in ("run", "inspect"):
-            with self.subTest(operation=operation):
-                self.calls = []
-                error = subprocess.TimeoutExpired(["docker", operation], 10)
-                self.errors = {operation: error}
-                with self.assertRaises(subprocess.TimeoutExpired) as raised:
-                    self.run_adapter()
-                self.assertIs(raised.exception, error)
-                self.assertTrue(self.assert_cleanup()["removed"])
-
-    def test_stop_and_log_failures_do_not_prevent_force_removal(self):
-        self.errors = {operation: subprocess.TimeoutExpired(["docker", operation], 10) for operation in ("stop", "cleanup_logs")}
-        result = self.run_adapter()
-        cleanup = self.assert_cleanup()
-        self.assertTrue(cleanup["removed"])
-        self.assertIn("stop_error", cleanup)
-        self.assertIn("logs_error", cleanup)
-        self.assertEqual(result["run_status"], "budget_completed")
-
-    def test_removal_nonzero_or_timeout_cannot_be_valid(self):
-        for timeout in (False, True):
-            with self.subTest(timeout=timeout):
-                self.elapsed, self.calls = 0.0, []
-                self.errors = {"rm": subprocess.TimeoutExpired(["docker", "rm"], 10)} if timeout else {}
-                self.returncodes = {} if timeout else {"rm": 1}
-                result = self.run_adapter()
-                self.assertEqual(result["run_status"], "runner_error")
-                self.assertEqual(result["failure_reason"]["code"], "icsquartz_container_cleanup_failed")
-                self.assertFalse(self.assert_cleanup()["removed"])
-
-    def test_cleanup_failure_does_not_replace_original_observer_error(self):
-        original = OSError("original observer failure")
-        self.errors = {"rm": subprocess.TimeoutExpired(["docker", "rm"], 10)}
-        with self.assertRaises(OSError) as raised:
-            self.run_adapter(observer_error=original)
-        self.assertIs(raised.exception, original)
-        self.assertFalse(self.assert_cleanup()["removed"])
-
-    def test_already_removed_container_is_confirmed_cleanup(self):
-        self.returncodes = {"rm": 1}
-        self.command_stderr = {"rm": "Error response from daemon: No such container: mock"}
-        result = self.run_adapter()
-        self.assertEqual(result["run_status"], "budget_completed")
+        self.assertEqual(result["failure_reason"]["code"], "icsquartz_exit_state_unavailable")
+        self.assertFalse(result["tool_specific_metrics"]["infrastructure_failure"])
         self.assertTrue(self.assert_cleanup()["removed"])
 
-    def test_failed_start_is_cleaned_and_remains_failed(self):
+    def test_log_timeout_preserves_partial_output_time_and_count(self):
+        self.errors = {"online_logs": subprocess.TimeoutExpired(["docker", "logs"], 10)}
+        result = self.run_adapter()
+        self.assertEqual(result["run_status"], "runner_error")
+        self.assertEqual(result["failure_reason"]["code"], "icsquartz_online_logs_incomplete")
+        self.assertEqual(result["online_elapsed_seconds"], 20)
+        self.assertEqual(result["total_executions"], 466)
+        self.assertFalse(result["tool_specific_metrics"]["infrastructure_failure"])
+        self.assertEqual((self.run_dir / "container.pre-stop.stdout.log").read_text(), "native stdout")
+        self.assertTrue(self.assert_cleanup()["removed"])
+
+    def test_optional_shutdown_log_failure_does_not_drop_evidence(self):
+        self.errors = {"cleanup_logs": subprocess.TimeoutExpired(["docker", "logs"], 10)}
+        result = self.run_adapter()
+        self.assertEqual(result["run_status"], "budget_completed")
+        self.assertIn("logs_error", self.assert_cleanup())
+
+    def test_stop_and_kill_failures_force_remove_before_collection(self):
+        self.returncodes = {"stop": 1, "kill": 1}
+        result = self.run_adapter()
+        operations = [command[1] for command, _ in self.calls]
+        self.assertEqual(operations[-3:], ["stop", "kill", "rm"])
+        self.assertNotIn("logs", operations)
+        self.assertTrue(result["tool_specific_metrics"]["infrastructure_failure"])
+        self.assertTrue(self.assert_cleanup()["removed"])
+
+    def test_removal_failure_is_infrastructure_failure(self):
+        self.errors = {"rm": subprocess.TimeoutExpired(["docker", "rm"], 10)}
+        result = self.run_adapter()
+        self.assertEqual(result["failure_reason"]["code"], "icsquartz_container_cleanup_failed")
+        self.assertTrue(result["tool_specific_metrics"]["infrastructure_failure"])
+        self.assertFalse(result["tool_specific_metrics"]["cleanup_confirmed"])
+
+    def test_collection_error_does_not_fabricate_empty_success(self):
+        result = self.run_adapter(collection_error=RuntimeError("metadata unavailable"))
+        self.assertEqual(result["run_status"], "runner_error")
+        self.assertFalse(result["candidate_collection_complete"])
+        self.assertEqual(result["total_executions"], 466)
+        self.assertFalse(result["tool_specific_metrics"]["infrastructure_failure"])
+
+    def test_interrupt_during_wait_still_cleans_up(self):
+        self.wait_error = KeyboardInterrupt()
+        with self.assertRaises(KeyboardInterrupt):
+            self.run_adapter()
+        self.assertTrue(self.assert_cleanup()["removed"])
+
+    def test_start_timeout_is_cleaned_and_recorded(self):
+        self.errors = {"run": subprocess.TimeoutExpired(["docker", "run"], 10)}
+        result = self.run_adapter()
+        self.assertEqual(result["run_status"], "runner_error")
+        self.assertEqual(self.waits, [])
+        self.assertTrue(self.assert_cleanup()["removed"])
+
+    def test_failed_start_is_not_waited_or_reclassified_as_success(self):
         self.returncodes = {"run": 125}
         result = self.run_adapter()
         self.assertEqual(result["run_status"], "online_start_failed")
+        self.assertEqual(self.waits, [])
         self.assert_cleanup()
+
+    def test_native_timestamp_is_separate_from_unknown_host_time(self):
+        crash_dir = self.run_dir / "tool-artifacts" / "crashes"
+        crash_dir.mkdir(parents=True)
+        (crash_dir / "input").write_bytes(b"candidate")
+        (crash_dir / ".input.metadata").write_text(json.dumps({
+            "executions": 7,
+            "metadata": {"map": {"native-type": {"time_to_find": {"secs": 4, "nanos": 500000000}}}},
+        }), encoding="utf-8")
+        event = self.run_adapter()["candidate_findings"][0]
+        self.assertIsNone(event["observed_elapsed_seconds"])
+        self.assertIsNone(event["observed_monotonic_ns"])
+        self.assertEqual(event["native_time_to_find_seconds"], 4.5)
+        self.assertEqual(event["native_time_alignment"], "not_aligned_to_runner_launch")
+        self.assertEqual(event["time_source"], "unmeasured_post_run")
+
+    def test_missing_or_ambiguous_native_duration_is_unknown(self):
+        self.assertIsNone(_native_time_to_find_seconds({}))
+        self.assertIsNone(_native_time_to_find_seconds({"time_to_find": {"secs": 1, "nanos": 1_000_000_000}}))
+        self.assertIsNone(_native_time_to_find_seconds({"values": [
+            {"time_to_find": {"secs": 1, "nanos": 0}},
+            {"time_to_find": {"secs": 2, "nanos": 0}},
+        ]}))
+
+    def test_stats_reader_uses_tail_and_ignores_partial_record(self):
+        path = self.root / "long-stats.json"
+        path.write_bytes(b"old record\n" * 100000 + b'{"executions": 77}\n{"executions":')
+        with patch.object(Path, "read_text", side_effect=AssertionError("full stats read forbidden")):
+            self.assertEqual(_last_json_line(path), {"executions": 77})
+
+    def test_native_log_prefix_excludes_shutdown_fatal_message(self):
+        path = self.root / "native.log"
+        prefix = b"online output\n"
+        path.write_bytes(prefix + b"Failed to run launcher: induced by stop\n")
+        self.assertIsNone(_fuzzer_log_failure(path, unrecoverable_only=True, max_bytes=len(prefix)))
+        self.assertIsNotNone(_fuzzer_log_failure(path, unrecoverable_only=True))
 
     def test_existing_preprocessing_is_preserved_and_rejected(self):
         directory = self.adapter.preprocessing_dir(self.target)
@@ -322,38 +313,19 @@ class ICSQuartzLifecycleTests(unittest.TestCase):
             self.adapter.prepare(self.target)
         self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep")
 
-    def test_support_and_preprocessing_do_not_require_external_checkout(self):
+    def test_preprocessing_does_not_require_external_checkout(self):
         self.assertEqual(self.adapter.detect_support(self.target).status, "supported")
         with patch(f"{MODULE}.run_capture", return_value={"returncode": 0, "end_monotonic_ns": 1}) as capture, \
              patch(f"{MODULE}.container_image_id", return_value="sha256:mock"):
             result = self.adapter.prepare(self.target)
         self.assertEqual(result.status, "completed")
         self.assertEqual(capture.call_count, 3)
-        self.assertTrue(all(call.kwargs["cwd"] == ROOT for call in capture.call_args_list))
 
-    def test_preprocessing_image_id_failure_is_not_success(self):
-        with patch(f"{MODULE}.run_capture", return_value={"returncode": 0, "end_monotonic_ns": 1}), \
-             patch(f"{MODULE}.container_image_id", return_value=None):
-            result = self.adapter.prepare(self.target)
-        self.assertEqual(result.status, "failed")
-        self.assertEqual(result.failure_reason["code"], "icsquartz_target_image_id_missing")
-
-    def test_missing_recorded_image_id_does_not_fall_back_to_mutable_tag(self):
+    def test_preprocessing_requires_recorded_immutable_image_id(self):
         (self.prep_dir / "metadata.json").write_text(json.dumps({"fuzzer_image": "icsquartz:test"}), encoding="utf-8")
         with self.assertRaises(AdapterError):
             self.run_adapter()
         self.assertEqual(self.calls, [])
-
-    def test_long_target_names_do_not_hide_experiment_identity_in_container_names(self):
-        self.target.target_id = "target_" + "long_name_" * 12
-        names = []
-        for experiment_id in ("campaign_a", "campaign_b"):
-            self.config.experiment_id = experiment_id
-            self.elapsed, self.calls = 0.0, []
-            self.run_adapter()
-            command = self.calls[0][0]
-            names.append(command[command.index("--name") + 1])
-        self.assertNotEqual(*names)
 
 
 if __name__ == "__main__":

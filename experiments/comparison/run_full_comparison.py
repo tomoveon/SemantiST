@@ -11,7 +11,7 @@ import platform
 import shutil
 import subprocess
 import sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +23,7 @@ from experiments.comparison.adapters import ADAPTERS, DEFAULT_TOOL_ORDER  # noqa
 from experiments.comparison.ablations import ABLATION_PROFILES  # noqa: E402
 from experiments.comparison.adapters.base import AdapterError, ExperimentConfig, PreprocessingResult  # noqa: E402
 from experiments.comparison.analysis.aggregate import aggregate_experiment  # noqa: E402
-from experiments.comparison.analysis.compare_tools import export_metrics, load_runs  # noqa: E402
+from experiments.comparison.analysis.compare_tools import export_metrics  # noqa: E402
 from experiments.comparison.analysis.coverage import coverage_experiment, merge_coverage_results  # noqa: E402
 from experiments.comparison.analysis.replay import merge_replay_results, replay_experiment  # noqa: E402
 from experiments.comparison.analysis.validate_complete import validate as validate_complete  # noqa: E402
@@ -138,7 +138,10 @@ def parse_args(argv: list[str] | None = None, *, description: str | None = None)
         help="disable diagnostic state tracing (default)",
     )
     parser.set_defaults(semantist_fb_state_trace=False)
-    add_advanced("--observer-poll-interval-ms", type=int, default=10)
+    add_advanced(
+        "--observer-poll-interval-ms", type=int, default=0,
+        help="deprecated compatibility option; ignored because metrics are collected after each run",
+    )
     add_advanced(
         "--cpus-isolated",
         action="store_true",
@@ -196,8 +199,8 @@ def parse_args(argv: list[str] | None = None, *, description: str | None = None)
         parser.error("--semantist-fb-max-cycles must be in [1, 10000]")
     if args.semantist_fb_stale_threshold < 0:
         parser.error("--semantist-fb-stale-threshold must not be negative")
-    if not 1 <= args.observer_poll_interval_ms <= 10:
-        parser.error("--observer-poll-interval-ms must be in [1, 10]")
+    args.observer_poll_interval_ms_requested = args.observer_poll_interval_ms
+    args.observer_poll_interval_ms = 0
     if not 0 < args.analysis_timeout < float("inf"):
         parser.error("--analysis-timeout must be finite and positive")
     return args
@@ -289,6 +292,7 @@ def main(argv: list[str] | None = None, *, description: str | None = None) -> in
             "trial_count": args.trials,
             "seed_namespace": args.seed_namespace,
             "configuration_id": args.semantist_ablation,
+            "collection_mode": "post_run",
             "targets": [experiment_manifest_entry(target, tools) for target in targets],
         },
     )
@@ -305,48 +309,65 @@ def main(argv: list[str] | None = None, *, description: str | None = None) -> in
     print(
         f"[comparison] prepared schedule: {len(tools)} tools x {len(targets)} targets x {args.trials} trials = {len(schedule)} rows"
     )
+    persist_campaign_state(experiment_dir, schedule, status="prepared")
     unsupported_tools = [tool for tool in tools if not any(
         support[(tool, target.target_id)].status == "supported" for target in targets
     )]
     if unsupported_tools:
-        raise SystemExit("no supported targets for " + ", ".join(unsupported_tools)
-                         + f"; inspect {experiment_dir / 'support-matrix.csv'}")
+        message = ("no supported targets for " + ", ".join(unsupported_tools)
+                   + f"; inspect {experiment_dir / 'support-matrix.csv'}")
+        persist_campaign_state(experiment_dir, schedule, status="failed", stop_reason=message)
+        print(f"[comparison] {message}", file=sys.stderr)
+        return 1
     if args.preflight_only:
         print(f"[comparison] preflight artifacts written to {experiment_dir}")
         return 0
 
-    preprocessing = prepare_supported_targets(tools, targets, adapters, support)
-    update_support_matrix_preprocessing(experiment_dir, preprocessing)
-    run_online_matrix(experiment_dir, schedule, targets, adapters, support, preprocessing, cpus, serial=args.serial)
-    write_raw_runs(experiment_dir, schedule)
-    errors = validate_complete(experiment_dir, require_valid_runs=True)
+    try:
+        preprocessing = prepare_supported_targets(tools, targets, adapters, support)
+        update_support_matrix_preprocessing(experiment_dir, preprocessing)
+        run_online_matrix(experiment_dir, schedule, targets, adapters, support, preprocessing, cpus, serial=args.serial)
+        persist_campaign_state(experiment_dir, schedule, status="validating")
+        errors = validate_complete(experiment_dir, require_valid_runs=True)
+    except (Exception, SystemExit, KeyboardInterrupt) as error:
+        message = f"{type(error).__name__}: {error}"
+        persist_campaign_state(experiment_dir, schedule, status="failed", stop_reason=message)
+        print(f"[comparison] campaign stopped: {message}", file=sys.stderr)
+        return 130 if isinstance(error, KeyboardInterrupt) else 1
     if errors:
+        persist_campaign_state(experiment_dir, schedule, status="invalid", validation_errors=errors)
         for error in errors:
             print(f"[comparison] validation error: {error}", file=sys.stderr)
         return 1
-    if args.with_replay:
-        replay_records = replay_experiment(
-            experiment_dir,
-            args.analysis_timeout,
-            container_runtime=container_runtime,
-            semantist_image=args.semantist_image,
-            container_platform=args.container_platform,
-        )
-        merge_replay_results(experiment_dir, replay_records)
-        write_raw_runs(experiment_dir, schedule)
-    if args.with_coverage:
-        coverage_records = coverage_experiment(
-            experiment_dir,
-            args.analysis_timeout,
-            container_runtime=container_runtime,
-            semantist_image=args.semantist_image,
-            container_platform=args.container_platform,
-        )
-        merge_coverage_results(experiment_dir, coverage_records)
-        write_raw_runs(experiment_dir, schedule)
-    if not args.skip_aggregate:
-        aggregate_experiment(experiment_dir)
-    export_metrics(load_runs([experiment_dir]), experiment_dir)
+    try:
+        if args.with_replay:
+            replay_records = replay_experiment(
+                experiment_dir,
+                args.analysis_timeout,
+                container_runtime=container_runtime,
+                semantist_image=args.semantist_image,
+                container_platform=args.container_platform,
+            )
+            merge_replay_results(experiment_dir, replay_records)
+            persist_campaign_state(experiment_dir, schedule, status="analyzing")
+        if args.with_coverage:
+            coverage_records = coverage_experiment(
+                experiment_dir,
+                args.analysis_timeout,
+                container_runtime=container_runtime,
+                semantist_image=args.semantist_image,
+                container_platform=args.container_platform,
+            )
+            merge_coverage_results(experiment_dir, coverage_records)
+            persist_campaign_state(experiment_dir, schedule, status="analyzing")
+        if not args.skip_aggregate:
+            aggregate_experiment(experiment_dir)
+        persist_campaign_state(experiment_dir, schedule, status="completed")
+    except (Exception, SystemExit, KeyboardInterrupt) as error:
+        message = f"{type(error).__name__}: {error}"
+        persist_campaign_state(experiment_dir, schedule, status="failed", stop_reason=message)
+        print(f"[comparison] analysis stopped: {message}", file=sys.stderr)
+        return 130 if isinstance(error, KeyboardInterrupt) else 1
     print(f"[comparison] experiment artifacts: {experiment_dir}")
     print(f"[comparison] per-trial metrics: {experiment_dir / 'metrics.csv'}")
     return 0
@@ -496,6 +517,8 @@ def write_environment(
         "semantist_fb_stale_threshold": args.semantist_fb_stale_threshold,
         "semantist_fb_state_trace": args.semantist_fb_state_trace,
         "observer_poll_interval_ms": args.observer_poll_interval_ms,
+        "observer_poll_interval_ms_requested": args.observer_poll_interval_ms_requested,
+        "collection_mode": "post_run",
         "cpus": args.cpus,
         "cpus_bound": True,
         "cpus_isolated": args.cpus_isolated,
@@ -701,6 +724,7 @@ def run_online_matrix(
     *,
     serial: bool = False,
 ) -> None:
+    started_run_keys: set[str] = set()
     by_target = {target.target_id: target for target in targets}
     immediate = []
     online = []
@@ -754,6 +778,8 @@ def run_online_matrix(
             )
         write_run_result(run_dir, result)
 
+    persist_campaign_state(experiment_dir, schedule, status="running", started_run_keys=started_run_keys)
+
     print(f"[comparison] online rows: {len(online)}; immediate records: {len(immediate)}", flush=True)
     max_slots_required = max(
         int(getattr(adapters[row["tool"]], "cpu_slots", 1))
@@ -768,29 +794,50 @@ def run_online_matrix(
     batches = ([[(row, cpus[:int(getattr(adapters[row["tool"]], "cpu_slots", 1))])]
                 for row in online] if serial else _cpu_scheduled_batches(online, adapters, cpus))
     for batch in batches:
-        runner_errors = []
-        with ThreadPoolExecutor(max_workers=len(batch)) as executor:
-            futures = []
-            for row, assigned_cpus in batch:
-                target = by_target[row["target_id"]]
-                adapter = adapters[row["tool"]]
-                prep = preprocessing[(row["tool"], target.target_id)]
-                futures.append(
-                    executor.submit(execute_online_row, row, target, adapter, prep, assigned_cpus)
-                )
-            for future in as_completed(futures):
-                row, run_dir, result = future.result()
-                write_run_result(run_dir, result)
-                if result["run_status"] == "runner_error":
-                    runner_errors.append(result["run_key"])
+        infrastructure_errors = []
+        futures = {}
+        try:
+            with ThreadPoolExecutor(max_workers=len(batch)) as executor:
+                for row, assigned_cpus in batch:
+                    target = by_target[row["target_id"]]
+                    adapter = adapters[row["tool"]]
+                    prep = preprocessing[(row["tool"], target.target_id)]
+                    future = executor.submit(execute_online_row, row, target, adapter, prep, assigned_cpus)
+                    futures[future] = row
+                    started_run_keys.add(row["run_key"])
+        finally:
+            # Leaving the executor waits for submitted trials. Retain their
+            # results even if scheduling was interrupted partway through.
+            for future, row in futures.items():
+                if not future.done():
+                    infrastructure_errors.append(f"{row['run_key']}: trial termination is unconfirmed")
+                    continue
+                try:
+                    row, run_dir, result = future.result()
+                    write_run_result(run_dir, result)
+                except (Exception, SystemExit, KeyboardInterrupt) as error:
+                    infrastructure_errors.append(f"{row['run_key']}: {error!r}")
+                    print(f"[comparison] cannot finalize {row['run_key']}: {error!r}", file=sys.stderr)
+                    continue
+                if result.get("tool_specific_metrics", {}).get("infrastructure_failure") is True:
+                    infrastructure_errors.append(result["run_key"])
                 print(
                     f"[comparison] completed {row['tool']} {row['target_id']} trial {row['trial_id']}: {result['run_status']}",
                     flush=True,
                 )
-        if runner_errors:
-            raise SystemExit("runner error; remaining batches were not started. Inspect logs and container cleanup, "
-                             "then rerun the affected target group with a new experiment ID: "
-                             + ", ".join(runner_errors))
+            stop_reason = (
+                "infrastructure failure or unconfirmed cleanup; remaining batches were not started: "
+                + ", ".join(infrastructure_errors)
+            ) if infrastructure_errors else None
+            # The executor has finished this batch before reading run records.
+            persist_campaign_state(
+                experiment_dir, schedule,
+                status="failed" if infrastructure_errors else "running",
+                started_run_keys=started_run_keys,
+                stop_reason=stop_reason,
+            )
+        if infrastructure_errors:
+            raise RuntimeError(stop_reason)
 
 
 def _cpu_scheduled_batches(
@@ -839,19 +886,24 @@ def execute_online_row(
         cpu_arg: int | list[int] = cpus[0] if len(cpus) == 1 else cpus
         updates = adapter.run(target, run_dir, prep, row["rng_seed"], cpu_arg)
         result.update(updates)
+        if "candidate_findings" not in updates:
+            result["candidate_collection_complete"] = False
     except AdapterError as error:
         result.update(
             {
                 "run_status": "runner_error",
-                "online_elapsed_seconds": 0.0,
+                "online_elapsed_seconds": None,
+                "candidate_collection_complete": False,
                 "failure_reason": error.to_failure_reason(),
             }
         )
-    except Exception as error:  # noqa: BLE001 - one failed row must not kill the matrix.
+        recover_process_result(run_dir, result)
+    except Exception as error:  # noqa: BLE001 - preserve the failed row before stopping later batches.
         result.update(
             {
                 "run_status": "runner_error",
-                "online_elapsed_seconds": 0.0,
+                "online_elapsed_seconds": None,
+                "candidate_collection_complete": False,
                 "failure_reason": {
                     "code": "adapter_unhandled_exception",
                     "message": repr(error),
@@ -859,7 +911,41 @@ def execute_online_row(
                 },
             }
         )
+        recover_process_result(run_dir, result)
     return row, run_dir, result
+
+
+def recover_process_result(run_dir: Path, result: dict[str, Any]) -> None:
+    """Recover stopped-process timing and cleanup evidence after collection fails."""
+    result.update({"corpus_count": None, "crash_count_raw": None, "timeout_count_raw": None})
+    lifecycle: dict[str, Any] = {}
+    try:
+        value = json.loads((run_dir / "process-result.json").read_text(encoding="utf-8"))
+        if isinstance(value, dict):
+            lifecycle = value
+    except (OSError, ValueError):
+        pass
+    cleanup_confirmed = lifecycle.get("cleanup_confirmed") is True
+    result["t0_monotonic_ns"] = lifecycle.get("t0_monotonic_ns")
+    result["online_elapsed_seconds"] = lifecycle.get("elapsed_seconds")
+    events = lifecycle.get("events")
+    if isinstance(events, list) and all(isinstance(event, dict) for event in events):
+        common = [event for event in events if event.get("oracle") in {"asan", "ubsan", "target_signal"}]
+        semantic = [event for event in events if event.get("oracle") == "semantic_objective"]
+        result.update({
+            "candidate_findings": events, "finding_found": bool(events),
+            "common_oracle_finding_found": bool(common), "first_common_finding": common[0] if common else None,
+            "semantic_objective_found": bool(semantic), "first_semantic_objective": semantic[0] if semantic else None,
+            "candidate_collection_complete": lifecycle.get("collection_complete") is True,
+            "crash_count_raw": len(common) if lifecycle.get("collection_complete") is True else None,
+            "timeout_count_raw": sum(event.get("oracle") == "testcase_timeout" for event in events)
+            if lifecycle.get("collection_complete") is True else None,
+        })
+    result["tool_specific_metrics"].update({
+        "cleanup_confirmed": cleanup_confirmed,
+        "infrastructure_failure": not cleanup_confirmed or lifecycle.get("infrastructure_failure") is True,
+        "process_result_recovered": bool(lifecycle),
+    })
 
 
 def make_base_result(row: dict[str, Any], target: Any, adapter: Any, support_status: str) -> dict[str, Any]:
@@ -890,6 +976,8 @@ def make_base_result(row: dict[str, Any], target: Any, adapter: Any, support_sta
             "cpu_slots": int(getattr(adapter, "cpu_slots", 1)),
             "fuzz_workers": 1,
             "replay_image": adapter.config.semantist_image,
+            "collection_mode": "post_run",
+            "observer_poll_interval_ms": 0,
         }
     )
     if row["tool"] == "semantist_full":
@@ -905,24 +993,98 @@ def write_run_result(run_dir: Path, result: dict[str, Any]) -> None:
     write_json(run_dir / "run-result.json", result)
 
 
-def write_raw_runs(experiment_dir: Path, schedule: list[dict[str, Any]]) -> None:
+def _run_result_path(experiment_dir: Path, row: dict[str, Any]) -> Path:
+    return (
+        experiment_dir / "runs" / row["tool"] / row["suite"] / row["target_id"]
+        / f"trial_{row['trial_id']:02d}" / "run-result.json"
+    )
+
+
+def write_raw_runs(
+    experiment_dir: Path,
+    schedule: list[dict[str, Any]],
+    *,
+    allow_partial: bool = False,
+    read_errors: list[str] | None = None,
+) -> list[dict[str, Any]]:
     records = []
     for row in schedule:
-        path = (
-            experiment_dir
-            / "runs"
-            / row["tool"]
-            / row["suite"]
-            / row["target_id"]
-            / f"trial_{row['trial_id']:02d}"
-            / "run-result.json"
-        )
+        path = _run_result_path(experiment_dir, row)
         if not path.is_file():
+            if allow_partial:
+                continue
             raise RuntimeError(f"missing run result for {row['run_key']}: {path}")
-        records.append(json.loads(path.read_text(encoding="utf-8")))
-    with (experiment_dir / "raw-runs.jsonl").open("w", encoding="utf-8") as handle:
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(record, dict):
+                raise ValueError("run result must be an object")
+            validate_run_result(record)
+            if any(record.get(key) != row[key] for key in ("run_key", "tool", "suite", "target_id", "trial_id")):
+                raise ValueError("run identity differs from schedule")
+        except (OSError, ValueError, TypeError) as error:
+            if not allow_partial:
+                raise
+            if read_errors is not None:
+                read_errors.append(f"{row['run_key']}: cannot read run result: {error}")
+            continue
+        records.append(record)
+    temporary = experiment_dir / "raw-runs.jsonl.tmp"
+    with temporary.open("w", encoding="utf-8") as handle:
         for record in records:
             handle.write(json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n")
+    temporary.replace(experiment_dir / "raw-runs.jsonl")
+    return records
+
+
+def persist_campaign_state(
+    experiment_dir: Path,
+    schedule: list[dict[str, Any]],
+    *,
+    status: str,
+    started_run_keys: set[str] | None = None,
+    stop_reason: str | None = None,
+    validation_errors: list[str] | None = None,
+) -> None:
+    """Save available rows and their status only between stopped batches."""
+    status_path = experiment_dir / "campaign-status.json"
+    if started_run_keys is None:
+        previous = json.loads(status_path.read_text(encoding="utf-8")) if status_path.is_file() else {}
+        started_run_keys = set(previous.get("started", []))
+    read_errors: list[str] = []
+    records = write_raw_runs(experiment_dir, schedule, allow_partial=True, read_errors=read_errors)
+    by_key = {record["run_key"]: record for record in records}
+    completed = []
+    failed = []
+    not_started = []
+    for row in schedule:
+        key = row["run_key"]
+        record = by_key.get(key)
+        if record is None:
+            (failed if key in started_run_keys or _run_result_path(experiment_dir, row).is_file() else not_started).append(key)
+        elif record.get("run_status") == "unsupported" or paper_metrics(record).get("valid_run") is True:
+            completed.append(key)
+        else:
+            failed.append(key)
+    errors = [*(validation_errors or []), *read_errors]
+    payload = {
+        "schema_version": "semantist.comparison-campaign-status/1.0.0",
+        "status": "failed" if read_errors else status,
+        "collection_mode": "post_run",
+        "scheduled_count": len(schedule),
+        "recorded_count": len(records),
+        "completed": completed,
+        "failed": failed,
+        "not_started": not_started,
+        "started": sorted(started_run_keys),
+        "stop_reason": stop_reason,
+        "validation_errors": errors,
+    }
+    temporary = experiment_dir / "campaign-status.json.tmp"
+    write_json(temporary, payload)
+    temporary.replace(status_path)
+    # Partial campaigns still expose every available trial's validity and
+    # failure status; comparative aggregation remains gated by validation.
+    export_metrics(records, experiment_dir)
 
 
 def _preprocessing_fields(prep: PreprocessingResult | None) -> dict[str, Any]:

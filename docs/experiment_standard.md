@@ -1,12 +1,14 @@
 # SemantiST 对比实验标准
 
-核对日期：2026-10-09。本文规定当前对照实验的运行和测量合同；源码、静态支持清单或本地测试不能替代服务器上的正式实验。已有验证证据另见 [验收记录](algorithm_validation_20261008_zh.md)，不作为本文预设的实验结果。
+更新日期：2026-10-12。本文规定当前对照实验的运行和测量合同。本次最终 `post_run` 版本仅修改和审阅源码与文档，未运行测试、烟测、编译或验证实验，尚未运行验收。已有历史验证证据另见 [验收记录](algorithm_validation_20261008_zh.md)，不覆盖这一版本。
 
 ## 1. 运行方式与统一条件
 
 每条试验独立启动、独立保存结果，全部结束后离线比较。首选入口是根目录 `run_experiment.py`，以 `--experiment smoke|main` 选择配置；默认主实验为三工具、90 目标、300 秒、5 次。入口先准备所有目标，再按 `--cpus` 池调度在线试验；只有显式 `--serial` 才逐条串行。需要分开运行时加 `--tools 工具名`，仍使用同一入口和指标口径。
 
-每次使用新的 `--run-id`，预检也使用单独的新 ID。所有入口均拒绝已有实验目录，已删除 resume、预处理复用和 overwrite 选项。失败后保留原产物，人工处理原因，再用新 ID 重跑选定的一组试验。默认采集原始记录，严格验证成功后导出逐 trial 指标；离线比较、replay（输入重放）/coverage（覆盖率）另行执行。
+每次使用新的 `--run-id`，预检也使用单独的新 ID。所有入口均拒绝已有实验目录，不自动重试、resume、复用预处理或 overwrite。失败后保留原产物，人工处理原因，再用新 ID 重跑选定的一组试验。每批结束保存已有原始记录和逐 trial 指标，包括失败状态；完整性检查失败时仍导出已有数据并返回非零，不能把指标表存在视为有效矩阵。离线比较、replay（输入重放）/coverage（覆盖率）另行执行。
+
+采集模式为 `collection_mode=post_run`。在线预算内不循环扫描候选、统计或日志，不做计数停滞 watchdog；停止并确认清理后再读取原生快照。旧 `--observer-poll-interval-ms` 参数仅兼容解析，传入值被忽略，实际记录为 `0`。
 
 `--experiment-id` 与 `--trials` 保留为 `--run-id` 和 `--fuzz-trials` 的别名。预设由 `experiments/comparison/run_full_comparison.py` 的 `EXPERIMENT_PRESETS` 定义；显式目标列表替换预设列表，显式时间和次数覆盖预设默认值。预设名记录在 `environment.json` 与 `experiment-manifest.json` 的 `experiment` 字段，实际选定目标、预算、配置及排程另行保存。
 
@@ -36,16 +38,17 @@ SemantiST 默认周期上限为 256；比较配置时保持 `--semantist-fb-max-
 
 ## 2. 同一份指标
 
-合同版本：`semantist.independent-tool-metrics/1`。权威文件是逐次试验的 `run-result.json`；通用字段位于 `paper_metrics`。`metrics.jsonl` 和 `metrics.csv` 是导出文件。支持目标的无效试验会使在线入口失败；静态不支持的条目保留原因，不能据“入口成功”推断所有目标均受支持。每个所选工具至少须有有效试验。
+合同版本：`semantist.independent-tool-metrics/2`。权威文件是逐次试验的 `run-result.json`；通用字段位于 `paper_metrics`。`metrics.jsonl` 和 `metrics.csv` 是导出文件。不要将 `/2` 的停止后快照与 `/1` 的在线轮询数据混合比较。支持目标的无效试验会使在线入口最终返回非零；静态不支持的条目保留原因，不能据“入口成功”推断所有目标均受支持。每个所选工具至少须有有效试验。
 
 | 字段 | 定义 |
 | --- | --- |
-| `valid_run` | 支持该目标、完整完成正预算、无失败原因，且有正的原生执行计数；提前退出不算有效 |
-| `crash_found` | 预算内观察到原生崩溃候选；不包含语义目标命中、超时、OOM 或仅有运行器非零退出 |
+| `valid_run` | 支持该目标、完整完成正预算、候选采集完整、无失败原因，且有正的原生执行计数；提前退出不算有效 |
+| `crash_found` | 停止后快照中存在原生崩溃候选；可能含停止尾部，不能断言恰在预算截止前发现；无候选且采集不完整时为 `null` |
 | `first_crash_executions` | 与首次崩溃候选关联的原生执行计数；无可靠计数时为 `null` |
-| `first_crash_time_seconds` | 从启动到采集器首次观察到该候选的单调时钟时间 |
+| `first_crash_time_seconds` | 当前模式没有在线观察，统一宿主机首次发现时间为 `null` |
+| `first_crash_native_time_seconds` / `first_crash_native_time_origin` | 对应候选的原生时间与起点，存在时单独保留；不替代统一宿主机时间 |
 | `first_crash_input` | 对应的实际输入文件；缺失为 `null`，不以日志或报告 JSON 顶替 |
-| `total_executions_reported` | 按 `total_executions_window` 记录的最后原生累计计数，可能落后于停止时刻 |
+| `total_executions_reported` | 停止后读到的最后原生累计计数，可能落后于实际执行，也可能包含停止尾部 |
 | `execs_per_sec` | 上一项除以在线实际耗时，属于基于原生报告的吞吐量 |
 | `replay_confirmed_crash_found` | 独立重放是否确认；尚未验证或无法重放时保留未知状态 |
 
@@ -58,13 +61,15 @@ SemantiST 默认周期上限为 256；比较配置时保持 `--semantist-fb-max-
 - ICSQuartz：读取对应 `.metadata`（输入元数据）中的 LibAFL testcase 执行计数。缺失或未写完整时记为缺失，元数据文件本身不算崩溃输入。
 - 可选 ICSFuzz：现有包装日志无法可靠关联首次崩溃计数和完整状态输入时，保留缺失；不能按平均速率估算。
 
-所有候选计数可用时，用原生累计执行计数确定发现顺序；否则用首次观察顺序，并在 `first_crash_order_source` 标明。计数、时间和输入始终来自同一候选。同一次轮询看到多个文件时，计数可消除文件名字典序造成的错序；无法消除的顺序不确定性不伪装为精确值。
+所有崩溃候选计数可用时，用最小原生累计执行计数确定首次候选，并在 `first_crash_order_source` 标为 `native_execution_counter`。否则首次候选及其计数、输入保留未知，不使用文件名字典序或停止后的读取顺序冒充发现顺序。对应的原生时间、计数和输入来自同一候选。
 
-首次观察时间包括文件写入、轮询、容器检查和调度延迟，是发现时间的观测上界，不承诺毫秒级精确触发时间。首次观察超过预算的候选保留为 `late_crash_artifact_count`，不计入预算内成功。没有观察时间的候选单列为未测量。晚到的元数据可补全已观察候选的计数，但不改写首次观察时间。
+当前模式不记录在线首次观察时间，也无法把停止后看到的候选准确切分为预算内和预算外。`finding_window` 记录 `native_stop_snapshot_may_include_shutdown_tail`，`late_crash_artifact_count=null`。原生工具的时间可能从 worker、client 或引擎开始计时，起点不同，不能直接拼成统一跨工具首次发现时间。
 
-ICSQuartz 总执行数使用预算内最后观测到的原生统计，停止期间的额外执行只保留为诊断。其他工具使用停止后的原生快照，可能含清理尾段。`total_executions_window` 明确区分这两种口径；计数都可能落后于实际执行，吞吐量不能称为预算边界上的精确值。
+所有工具的总执行数均来自停止后的原生快照。`total_executions_window` 使用 `native_stop_snapshot_may_include_shutdown_tail`；吞吐量是该快照计数除以在线耗时，不能称为预算边界上的精确值。原生计数、候选、元数据继续保存；缺失或无法解析的字段保持未知，不估算为零。
 
-`measurement-events.jsonl` 由本次运行在观察到新发现或元数据变化时创建并追加；没有候选事件时可能不存在。它提供实时采集证据，不用于补造历史观察时间。
+`post-run-findings.json` 保存停止后的候选快照，不提供实时首发现证据。旧批次中的 `measurement-events.jsonl` 属于旧口径，不用它补造本次运行的观察时间。`candidate_collection_complete=false` 表示未完成候选采集，不能将空列表解释为已确认没有发现。
+
+每批结束保存 partial `raw-runs.jsonl` 和 `campaign-status.json`，后者列出 `completed`、`failed`、`not_started`。已确认清理的单 trial 工具或采集失败继续后续批次；基础设施失败、清理未确认或结果无法持久化时停止。失败记录和未启动条目保留，最终无效矩阵不会静默聚合。
 
 ## 3. 离线比较与解释
 
@@ -80,8 +85,8 @@ ICSQuartz 总执行数使用预算内最后观测到的原生统计，停止期�
 
 ## 4. Linux 上的执行顺序
 
-命令见 [实验入口说明](../experiments/comparison/README.md) 和 [服务器操作手册](server_experiment_runbook_zh.md)。先检查测试文件并构建镜像，然后运行 `--experiment smoke`：三工具、三个代表目标、各一次短预算。烟测没有发现崩溃是允许的；采集正确性另由人工构造的回归测试检查，不假定任意目标必定触发漏洞。首次服务器部署建议再对全 90 目标进行一次短预算验收。
+命令见 [实验入口说明](../experiments/comparison/README.md) 和 [服务器操作手册](server_experiment_runbook_zh.md)。本次仅更新实验脚本，已有工具链镜像可以复用；Windows 提交推送后，在干净的服务器工作树更新源码，以全新 `main_postrun_...` ID 启动。无需为本次修改强制追加短测，也不把此前的测试记录当作本次验收。
 
-烟测通过后，用新的 run id 启动完整实验，统一预算和重复次数。默认 300 秒、5 次只是起始配置；增加重复次数时各工具同步增加。全部结束后离线比较。本标准不把静态支持清单或本地单元测试标为已完成的 Linux 实验。
+完整实验统一预算和重复次数。默认 300 秒、5 次只是起始配置；增加重复次数时各工具同步增加。`smoke` 预设仍可自行选择，非正式实验的前置条件。全部结束后离线比较。本标准不把源码检查标为已完成的 Linux 实验。
 
 Ctrl+C 可能等待当前批试验完成预算后收尾；预处理构建被中断时，人工检查残留容器再重跑。部署、Git 操作、分析和失败重跑均可按服务器手册手动完成，无需额外自动化。

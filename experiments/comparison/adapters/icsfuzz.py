@@ -227,14 +227,9 @@ class ICSFuzzAdapter(BaseAdapter):
             poll_interval_ms=self.config.observer_poll_interval_ms,
             scan_findings=lambda: self.scan_finding_events(target, run_dir),
         )
-        metrics = self.collect_metrics(target, run_dir, result["events"])
-        metrics.update(
-            {
-                "t0_monotonic_ns": result["t0_monotonic_ns"],
-                "online_elapsed_seconds": result["elapsed_seconds"],
-                "run_status": _status_from_process(result, metrics["finding_found"]),
-            }
-        )
+        metrics = self.collect_stopped_metrics(target, run_dir, result)
+        if metrics["run_status"] == "runner_error":
+            return metrics
         if not result["started"]:
             metrics["failure_reason"] = {
                 "code": "icsfuzz_online_start_failed",

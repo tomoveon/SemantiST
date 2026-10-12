@@ -15,6 +15,7 @@ from typing import Any
 
 from experiments.comparison.lib.hashing import canonical_json_sha256, sha256_file
 from experiments.comparison.lib.manifest import Target
+from experiments.comparison.lib.metrics import CRASH_ORACLES
 from experiments.comparison.lib.schema import failure_reason
 
 
@@ -318,6 +319,58 @@ class BaseAdapter:
             "artifact_paths": {},
         }
 
+    def collect_stopped_metrics(self, target: Target, run_dir: Path, process: dict[str, Any]) -> dict[str, Any]:
+        """Collect once after stopping, retaining lifecycle data on read errors."""
+        events = process.get("events", [])
+        error = process.get("collection_error")
+        try:
+            if process["started"] and not process.get("cleanup_confirmed"):
+                raise RuntimeError("Collection skipped because process/container cleanup is unconfirmed")
+            metrics = self.collect_metrics(target, run_dir, events)
+        except Exception as exception:
+            error = repr(exception)
+            common = [event for event in events if event.get("oracle") in CRASH_ORACLES]
+            semantic = [event for event in events if event.get("oracle") == "semantic_objective"]
+            metrics = {
+                "candidate_findings": events, "finding_found": bool(events),
+                "common_oracle_finding_found": bool(common), "first_common_finding": common[0] if common else None,
+                "semantic_objective_found": bool(semantic), "first_semantic_objective": semantic[0] if semantic else None,
+                "total_executions": None, "execs_per_sec": None,
+                "corpus_count": None, "crash_count_raw": None, "timeout_count_raw": None,
+                "tool_specific_metrics": {}, "artifact_paths": {},
+            }
+        complete = bool(process.get("collection_complete")) and error is None
+        cleaned = bool(process.get("cleanup_confirmed", not process["started"]))
+        infrastructure_failure = bool(process.get("infrastructure_failure", not cleaned))
+        status = ("online_start_failed" if not process["started"] else
+                  "budget_completed" if process["timed_out"] else
+                  "online_crashed" if process["returncode"] not in (0, None) else
+                  "early_completed_with_finding" if metrics["finding_found"] else "early_completed_no_finding")
+        metrics.update({
+            "t0_monotonic_ns": process["t0_monotonic_ns"],
+            "online_elapsed_seconds": process["elapsed_seconds"],
+            "cleanup_inclusive_elapsed_seconds": process.get("cleanup_inclusive_elapsed_seconds"),
+            "stop_request_monotonic_ns": process.get("stop_request_monotonic_ns"),
+            "stop_request_elapsed_seconds": process.get("stop_request_elapsed_seconds"),
+            "run_status": status, "collection_mode": "post_run", "observer_poll_interval_ms": 0,
+            "candidate_collection_complete": complete,
+            "total_executions_window": "native_stop_snapshot_may_include_shutdown_tail",
+        })
+        metrics["tool_specific_metrics"].update({
+            "cleanup_confirmed": cleaned, "infrastructure_failure": infrastructure_failure,
+            "container_cleanup": process.get("container_stop"),
+        })
+        if infrastructure_failure or (process["started"] and (not complete or process.get("error"))):
+            metrics["run_status"] = "runner_error"
+            metrics["failure_reason"] = {
+                "code": "process_cleanup_or_control_failed" if infrastructure_failure else "post_run_collection_failed",
+                "message": str(error or process.get("error") or "Lifecycle/collection could not be confirmed"),
+                "log_tail_path": self.relative_artifact(run_dir / "process-result.json"),
+            }
+        if error:
+            metrics["tool_specific_metrics"]["collection_error"] = error
+        return metrics
+
     def baseline_image(self, key: str) -> str:
         lock_file = self.config.semantist_root / "experiments" / "baselines" / "baselines.lock.json"
         lock = json.loads(lock_file.read_text(encoding="utf-8"))
@@ -343,7 +396,7 @@ class BaseAdapter:
             "discovery_phase": discovery_phase,
             "oracle": oracle,
             "observed_monotonic_ns": None,
-            "observed_elapsed_seconds": elapsed_seconds,
+            "observed_elapsed_seconds": None,
             "tool_reported_time_seconds": elapsed_seconds,
             "tool_reported_unix_time_seconds": None,
             "execution_ordinal": execution_ordinal,

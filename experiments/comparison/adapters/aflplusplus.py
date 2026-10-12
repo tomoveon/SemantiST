@@ -249,14 +249,9 @@ class AFLPlusPlusAdapter(BaseAdapter):
             poll_interval_ms=self.config.observer_poll_interval_ms,
             scan_findings=lambda: self.scan_finding_events(target, run_dir),
         )
-        metrics = self.collect_metrics(target, run_dir, result["events"])
-        metrics.update(
-            {
-                "t0_monotonic_ns": result["t0_monotonic_ns"],
-                "online_elapsed_seconds": result["elapsed_seconds"],
-                "run_status": _status_from_process(result, metrics["finding_found"]),
-            }
-        )
+        metrics = self.collect_stopped_metrics(target, run_dir, result)
+        if metrics["run_status"] == "runner_error":
+            return metrics
         if not result["started"]:
             metrics["failure_reason"] = {
                 "code": "aflplusplus_online_start_failed",
@@ -304,6 +299,9 @@ class AFLPlusPlusAdapter(BaseAdapter):
                     )
                 )
                 events[-1]["execution_count_source"] = "afl_crash_filename" if executions is not None else "unavailable"
+                events[-1]["native_time_to_find_seconds"] = elapsed
+                events[-1]["native_time_origin"] = "afl_fuzzer_start"
+                events[-1]["native_time_alignment"] = "not_aligned_to_runner_launch"
         return events
 
     def collect_metrics(self, target: Target, run_dir: Path, observed_events: list[dict[str, Any]]) -> dict[str, Any]:
@@ -319,7 +317,11 @@ class AFLPlusPlusAdapter(BaseAdapter):
         metrics["crash_count_raw"] = len(common_events)
         metrics["timeout_count_raw"] = len(all_events) - len(common_events)
         queue_dir = run_dir / "tool-artifacts" / "afl" / "default" / "queue"
-        metrics["corpus_count"] = len(_afl_artifact_files(queue_dir))
+        try:
+            metrics["corpus_count"] = len(_afl_artifact_files(queue_dir))
+        except OSError as error:
+            metrics["corpus_count"] = None
+            metrics["tool_specific_metrics"]["corpus_collection_error"] = repr(error)
         metrics["artifact_paths"] = {
             "afl_output": self.relative_artifact(run_dir / "tool-artifacts" / "afl"),
             "inputs": self.relative_artifact(run_dir / "inputs"),

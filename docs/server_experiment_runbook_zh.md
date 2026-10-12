@@ -1,15 +1,52 @@
 # 服务器实验操作手册
 
-核对日期：2026-10-09。这里是当前操作流程；本地历史验证与目标服务器验收分开记录。
+更新日期：2026-10-12。这里是当前操作流程；本地历史验证与目标服务器验收分开记录。本次最终 `post_run` 版本仅作源码修改与审阅，没有运行测试、烟测、编译或验证实验，尚无这一版本的运行验收结果。
 
-日常流程：**固定源码与镜像 → 短测 → 多核正式实验 → 离线分析**。使用仓库根目录的 `run_experiment.py`；Git、部署和结果解释由你手动完成。
+日常流程：**固定源码与镜像 → 多核正式实验 → 离线分析**。使用仓库根目录的 `run_experiment.py`；Git、部署和结果解释由你手动完成。短测预设仍可按需使用，本次更新不要求先跑短测。
 
 | 预设 | 工具 | 目标 | 每目标、每工具 |
 | --- | --- | --- | --- |
 | `smoke` | SemantiST、AFL++、ICSQuartz | 三个代表目标 | 20 秒 × 1 次 |
 | `main`（默认） | 同上 | 全部 90 个目标 | 300 秒 × 5 次 |
 
-显式参数覆盖预设。`--cpus` 决定不同 trial 的并发槽位，每个 trial 仍使用一个 worker、一个 CPU。运行器自动准备目标、记录环境、采集结果、检查预算与原生计数、清理试验容器，并在成功后导出 `metrics.csv` / `metrics.jsonl`。不需要另外粘贴验收函数，也不必重复传入默认的周期、超时、验证参数。
+显式参数覆盖预设。`--cpus` 决定不同 trial 的并发槽位，每个 trial 仍使用一个 worker、一个 CPU。运行器自动准备目标、记录环境，在每条试验停止并确认清理后读取原生统计和候选；每批结束保存已有 `metrics.csv` / `metrics.jsonl`，失败或无效试验也保留状态。结果表存在不等于实验通过完整性检查。
+
+## 0. 本次更新：复用已构建的服务器镜像
+
+本次采集改为 `collection_mode=post_run`：在线预算内不循环扫描统计、候选或日志，也不根据原生计数停止更新触发 watchdog。预算到期后停止并清理，再采集原生执行数、候选输入及元数据。无需重建基础环境镜像；新运行仍会重新准备各目标和 ICSQuartz 每目标镜像。以下命令供手动执行，本次修改没有执行这些操作。
+
+在 Windows PowerShell 的仓库中，仅暂存本次文件；提交前阅读差异。如果当前不在 `main`，先按自己的分支流程合入 `main`，服务器下面固定获取 `origin/main`：
+
+```powershell
+Set-Location -LiteralPath 'D:\docker study\myfuzzer\SemantiST'
+git status --short
+git diff --stat
+git add -- experiments/comparison/run_full_comparison.py experiments/comparison/adapters/base.py experiments/comparison/adapters/aflplusplus.py experiments/comparison/adapters/semantist.py experiments/comparison/adapters/icsfuzz.py experiments/comparison/adapters/icsquartz.py experiments/comparison/lib/process.py experiments/comparison/lib/metrics.py experiments/comparison/lib/schema.py experiments/comparison/metrics_schema.json experiments/comparison/analysis/compare_tools.py experiments/comparison/README.md docs/experiment_standard.md docs/server_experiment_runbook_zh.md tests/unit/test_icsquartz_lifecycle.py tests/unit/test_comparison_experiment.py tests/unit/test_independent_experiments.py tests/unit/test_experiment_runner_safety.py
+git diff --cached
+git commit -m 'Collect experiment metrics after trials stop'
+git push origin main
+git rev-parse HEAD
+```
+
+服务器上，先确保旧实验已停止、当前仓库工作树干净，再在仓库根目录执行。工作树不干净时先保存自己的改动，不使用强制重置：
+
+```bash
+git status --short
+test -z "$(git status --porcelain)" && git fetch origin && git checkout --detach origin/main
+git rev-parse HEAD
+export CONTAINER_RUNTIME=podman
+export SEMANTIST_IMAGE=30decb96791ef98e3c7bee7e37314ddb540fddfeda41568fd0d6f72272c96f6a
+```
+
+该镜像 ID 是本次用户服务器已有的 SemantiST 镜像，其他服务器须替换为自己的镜像 ID。确认上面的更新命令成功后，在原有宿主机 Python 环境中使用全新 ID 启动正式实验；这里沿用该服务器的 CPU `2-9`、300 秒和 5 次重复：
+
+```bash
+python3 -u run_experiment.py --experiment main --run-id "main_postrun_$(date +%Y%m%d_%H%M%S)" --cpus 2-9 --fuzz-time 300 --fuzz-trials 5 --container-runtime podman --semantist-image "$SEMANTIST_IMAGE"
+```
+
+本次指标合同是 `semantist.independent-tool-metrics/2`，不要将这些数据与旧 `/1` 轮询采集批次合并。所有工具使用停止后的原生快照，可能包含停止过程尾部的执行和候选；统一宿主机首次发现时间没有测量，`first_crash_time_seconds=null`。原生元数据中的时间另行保存并标明自己的起点，不冒充统一时间。原生执行数和候选仍然收集；缺失数据保留未知。
+
+每批结束更新 `campaign-status.json` 的 `completed`、`failed`、`not_started` 列表以及 partial `raw-runs.jsonl`。已确认清理的单 trial 工具或采集失败会留下失败记录并继续后续批次；基础设施失败、无法确认清理或无法持久化结果时停止后续批次。最后存在无效或缺失记录会返回非零，已有指标仍可查看，且不会自动把有错矩阵聚合成成功结果。没有自动重试或恢复。
 
 ## 1. 本机保存源码并推送
 
@@ -36,7 +73,8 @@ git diff --stat
 git diff --check
 
 git switch -c codex/server-experiments-20261009
-git add -- README.md run_experiment.py .dockerignore .gitignore benchmarks/check_benchmark_files.py compiler docs experiments fuzzer tests
+# 只暂存本次已审阅的具体文件；本次 post_run 更新使用第 0 节的文件清单。
+# 在这里执行对应的 git add -- 具体文件列表，再继续提交。
 git diff --cached --stat
 git diff --cached --check
 git diff --cached
@@ -52,7 +90,9 @@ git rev-parse HEAD
 `git commit`，退出后到同一个 Windows 仓库执行 `git push -u origin HEAD`；bind mount
 下这仍然是同一个提交。
 
-## 2. 服务器首次准备、构建和测试
+## 2. 服务器首次准备、构建和测试参考
+
+本节适用于首次部署或工具链变更，保留既有流程供以后使用。已有镜像且只同步本次实验脚本时使用第 0 节，不必重建镜像或执行本节测试。
 
 使用 Linux x86_64、宿主机 Python 3.11+、Git、`taskset` 和可访问的 Podman。
 支持 rootless Podman；运行器会为 bind mount 添加 SELinux relabel，并用 `taskset`
@@ -113,7 +153,9 @@ podman run --rm "$SEMANTIST_IMAGE" bash tests/e2e/semantic_ir_e2e.sh \
 
 默认三工具无需外部 ICSQuartz checkout；使用本仓库 fixture 和固定基线镜像。可选 ICSFuzz 的 CODESYS 工件与校准另见基线文档，不属于这里的默认流程。环境镜像只需构建一次；逐目标编译由运行入口完成。实验期间保持源码和镜像不变，避免同时进行重型构建。
 
-### 已有环境镜像：更新 ASan 插桩修复
+### 此前 ASan 插桩修复的更新参考
+
+以下是此前编译流程修复的独立验收步骤，不是本次 `post_run` 更新的前置条件，也未在本次执行。
 
 公共 IR 准备步骤会根据 `SEMANTIST_TARGET_SANITIZERS`，为保留的 ST 函数添加并验证 `sanitize_address` 属性，随后由各工具的 Clang 完成 ASan 插桩。仅向已有 LLVM IR 传入 `-fsanitize=address` 或链接 ASan runtime，不能保证 ST 函数内的读写受保护。该步骤同时用于 SemantiST、AFL++ 和 ICSQuartz，独立于语义插桩开关。
 
@@ -134,7 +176,7 @@ git checkout --detach "$REV"
 
 测试必须实际通过，不能把缺少 LLVM 等依赖造成的 skip 当作验收通过。之后用新的 `--run-id` 运行实验，入口会重新生成目标 IR、对象和可执行文件，并构建 ICSQuartz 每目标镜像；不要复用修复前的目标准备目录或已运行的 trial。记录新源码提交及原环境镜像 ID，不把原镜像的 revision 标签当成此次源码版本。若以后修改 Rust fuzzer、STG 工具、RuSTy 补丁或依赖，则还需更新镜像中的预编译程序。
 
-## 3. 选 CPU，短测，然后正式运行
+## 3. 选 CPU 并正式运行
 
 先检查允许使用的 CPU 和内存：
 
@@ -146,25 +188,10 @@ df -h .
 
 # 示例：必须改成服务器允许且空闲的核，尽量选不同物理核。
 CPUSET='2-9'
-CAMPAIGN="exp_$(date +%Y%m%d_%H%M%S)"
-
-python -u run_experiment.py --experiment smoke \
-  --run-id "${CAMPAIGN}_smoke" --cpus "$CPUSET" --container-runtime podman \
-  2>&1 | tee "artifacts/server-logs/${CAMPAIGN}_smoke.log"
+CAMPAIGN="main_postrun_$(date +%Y%m%d_%H%M%S)"
 ```
 
-`smoke` 固定选取 `oscat_basic_charname`、`icsfuzz_bf_mcpy_1`、`scan_cycle_aircraft_oobw_4`，共 9 条试验。成功退出且生成指标表后继续；不要求短测发现崩溃。失败时查看结果中的 `failure_reason` 和对应日志。
-
-**首次迁移到服务器，或更换编译链后，建议加做一次全目标短验收**，覆盖三个代表目标之外的编译与采集路径；之后同一环境日常实验不必反复执行：
-
-```bash
-python -u run_experiment.py --experiment main \
-  --run-id "${CAMPAIGN}_acceptance" --fuzz-time 20 --fuzz-trials 1 \
-  --cpus "$CPUSET" --container-runtime podman \
-  2>&1 | tee "artifacts/server-logs/${CAMPAIGN}_acceptance.log"
-```
-
-此时计划为 270 条记录。20 秒短测不能证明长期进度正常；若服务器上出现 ICSQuartz 停滞疑问，可用 `--tools icsquartz --experiment smoke --fuzz-time 180 --container-runtime podman` 和新 ID 单独检查。默认超时下原生统计可能较稀疏，不应通过缩短 watchdog 窗口来让检查更激进。
+`smoke` 仍提供三个代表目标、共 9 条短试验的可选预设，不是启动正式实验的必需步骤。本次不追加短测或长时间验证。当前采集模式没有计数停滞 watchdog；在线状态稀疏不会因为宿主机采集轮询而提前结束试验。
 
 正式实验直接一条命令，默认 90 目标 × 3 工具 × 5 次，共 1350 条：
 
@@ -180,7 +207,7 @@ python -u run_experiment.py --experiment main \
 
 ## 4. 实验结束后分析
 
-成功运行已自动验证支持目标的预算完成和正原生计数，并导出逐 trial 指标。静态不支持的目标仍在 `support-matrix.csv` 和逐次记录中标明，不等于有效试验；同时查看支持范围。可以直接查看 `metrics.csv`，需要跨工具汇总时再执行：
+运行过程中每批结束就会导出已有逐 trial 指标；成功退出还要求支持目标完成预算、采集完整且原生计数为正。先查看 `campaign-status.json` 和 `metrics.csv` 的有效性与失败字段。静态不支持的目标仍在 `support-matrix.csv` 和逐次记录中标明，不等于有效试验。完整实验结束后需要跨工具汇总时再执行：
 
 ```bash
 python experiments/comparison/analysis/compare_tools.py \
@@ -212,9 +239,9 @@ python experiments/ablations/run_ablation_suite.py \
 - 在 Windows 本机烟测使用短路径，例如 `--artifact-root artifacts/i8 --run-id s4`。已有长路径导致 AFL++ 文件不可见的记录，不能通过取消计数检查绕过。
 - 常用帮助：`python run_experiment.py --help`；高级参数：`--help-all`。默认周期上限 256、执行超时 1000 ms、关闭文件状态 trace；修改这些条件需在结果中明确区分。
 
-本地先前通过了 9 条三工具 20 秒在线检查和 2 条 ICSQuartz 180 秒检查，证据在 `artifacts/i8/s3`、`artifacts/i8/p3`。这些使用本地验证镜像，不能替代目标服务器的干净构建。算法验证另见 [验收记录](algorithm_validation_20261008_zh.md)。
+本地历史版本先前通过了 9 条三工具 20 秒在线检查和 2 条 ICSQuartz 180 秒检查，证据在 `artifacts/i8/s3`、`artifacts/i8/p3`。这些不覆盖本次 `post_run` 修改，也不能替代目标服务器结果。算法验证另见 [验收记录](algorithm_validation_20261008_zh.md)。
 
-预设入口简化后的 Linux 回归结果为 `176 passed, 112 subtests passed`，日志在 `artifacts/algorithm_validation_20261008/preset-final-tests.log`。其中检查了真实 manifest 的排程、参数覆盖、旧入口兼容和指标导出；本次简化未重新进行完整在线实验。
+此前预设入口简化后的 Linux 回归结果为 `176 passed, 112 subtests passed`，日志在 `artifacts/algorithm_validation_20261008/preset-final-tests.log`。其中检查了当时的 manifest 排程、参数覆盖、旧入口兼容和指标导出；这些历史记录不覆盖本次 `post_run` 变更。
 
 确认任务结束后，连同源码提交号、镜像身份和原始工件备份结果：
 
@@ -223,4 +250,4 @@ tar -czf "../${CAMPAIGN}_artifacts.tar.gz" artifacts
 sha256sum "../${CAMPAIGN}_artifacts.tar.gz" > "../${CAMPAIGN}_artifacts.tar.gz.sha256"
 ```
 
-需要归档工具链时另用 `podman save` 保存环境镜像；它不包含宿主机实验结果。部署、源码保存、短测、正式实验和分析均可按上述阶段分别执行。
+需要归档工具链时另用 `podman save` 保存环境镜像；它不包含宿主机实验结果。部署、源码保存、可选短测、正式实验和分析均可按上述阶段分别执行。

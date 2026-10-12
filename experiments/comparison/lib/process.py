@@ -9,7 +9,8 @@ import subprocess
 import time
 from pathlib import Path
 from typing import Callable
-from experiments.comparison.lib.metrics import FindingObserver
+from experiments.comparison.lib.metrics import post_run_events
+from experiments.comparison.lib.schema import write_json
 
 
 def parse_cpus(text: str) -> list[int]:
@@ -352,10 +353,16 @@ def run_with_budget(
     poll_interval_ms: int,
     scan_findings: Callable[[], list[dict[str, object]]],
 ) -> dict[str, object]:
+    """Wait for exit/deadline without sampling findings or native statistics.
+
+    ``poll_interval_ms`` is retained for callers of the old interface but is
+    unused. Collection happens once, after the process/container has stopped.
+    Persist lifecycle evidence before collection so a parser failure cannot
+    erase the elapsed time or cleanup outcome.
+    """
     stdout_path.parent.mkdir(parents=True, exist_ok=True)
     stderr_path.parent.mkdir(parents=True, exist_ok=True)
     t0 = time.monotonic_ns()
-    observer = FindingObserver(t0, stdout_path.parent / "measurement-events.jsonl")
     stdout = None
     stderr = None
     try:
@@ -393,35 +400,24 @@ def run_with_budget(
         }
 
     deadline = t0 + budget_seconds * 1_000_000_000
-    poll_seconds = poll_interval_ms / 1000
     timed_out = False
     container_stop: dict[str, object] | None = None
-
-    def observe_findings() -> None:
-        observer.observe(scan_findings(), after_budget=time.monotonic_ns() > deadline)
+    control_end = t0
+    process_error: str | None = None
+    cleanup_error: str | None = None
 
     try:
-        while True:
-            now = time.monotonic_ns()
-            observe_findings()
-            if process.poll() is not None:
-                break
-            if now >= deadline:
-                timed_out = True
-                container_stop = _stop_named_container(command)
-                if container_stop is not None:
-                    try:
-                        process.wait(timeout=10)
-                    except subprocess.TimeoutExpired:
-                        _terminate_process(process)
-                else:
-                    _terminate_process(process)
-                break
-            time.sleep(min(poll_seconds, max((deadline - now) / 1_000_000_000, 0)))
-        # Capture artifacts flushed during normal exit or signal handling.
-        observe_findings()
-    except BaseException:
-        # Never leave a fuzzing container running after an observer/host error.
+        try:
+            process.wait(timeout=max(0, (deadline - time.monotonic_ns()) / 1e9))
+        except subprocess.TimeoutExpired:
+            timed_out = True
+        control_end = time.monotonic_ns()
+    except Exception as error:
+        process_error = repr(error)
+        control_end = time.monotonic_ns()
+    finally:
+        # Stop before collecting anything. An exited CLI alone does not prove
+        # that the container has stopped; always confirm its removal.
         try:
             container_stop = _stop_named_container(command)
             if process.poll() is None:
@@ -432,31 +428,60 @@ def run_with_budget(
                         _terminate_process(process)
                 else:
                     _terminate_process(process)
-        except Exception:
-            pass  # Preserve the original observer error if cleanup also fails.
-        raise
-    finally:
-        # A disconnected/exited CLI does not prove the daemon's container has
-        # stopped. Normal --rm completion simply makes this cleanup a no-op.
-        if container_stop is None:
-            container_stop = _stop_named_container(command)
+            parsed = container_name_from_run_command(command)
+            if parsed is not None and process.poll() is not None:
+                # A pending run CLI can create the container after the first
+                # stop/rm saw "no such container". Confirm removal again once
+                # that launcher has exited, before releasing the CPU slot.
+                runtime, name = parsed
+                if container_stop is None:
+                    container_stop = {"runtime": runtime, "name": name}
+                container_stop["remove_succeeded"] = remove_container_quiet(runtime, name)
+        except Exception as error:
+            cleanup_error = repr(error)
         stdout.close()
         stderr.close()
 
-    if container_stop is not None and not container_stop.get("remove_succeeded"):
-        raise RuntimeError(f"container cleanup could not be confirmed: {container_stop}")
     end = time.monotonic_ns()
-    return {
+    cleanup_confirmed = (
+        cleanup_error is None and process.poll() is not None
+        and (container_stop is None or bool(container_stop.get("remove_succeeded")))
+    )
+    result: dict[str, object] = {
         "started": True,
         "t0_monotonic_ns": t0,
         "end_monotonic_ns": end,
-        "elapsed_seconds": float(budget_seconds) if timed_out else (end - t0) / 1_000_000_000,
+        "elapsed_seconds": (control_end - t0) / 1e9,
+        "stop_request_monotonic_ns": control_end,
+        "stop_request_elapsed_seconds": (control_end - t0) / 1e9,
         "cleanup_inclusive_elapsed_seconds": (end - t0) / 1_000_000_000,
         "returncode": process.returncode,
         "timed_out": timed_out,
         "container_stop": container_stop,
-        "events": observer.events,
+        "cleanup_confirmed": cleanup_confirmed,
+        "infrastructure_failure": not cleanup_confirmed or process_error is not None,
+        "collection_complete": False,
+        "collection_mode": "post_run",
+        "events": [],
     }
+    if process_error or cleanup_error:
+        result["error"] = process_error or cleanup_error
+    evidence_path = stdout_path.parent / "process-result.json"
+    write_json(evidence_path, result)
+    if cleanup_confirmed:
+        try:
+            result["events"] = post_run_events(scan_findings())
+            result["collection_complete"] = True
+        except Exception as error:
+            result["events"] = post_run_events(getattr(error, "events", []))
+            result["collection_error"] = repr(error)
+        try:
+            write_json(stdout_path.parent / "post-run-findings.json", result["events"])
+        except OSError as error:
+            result["infrastructure_failure"] = True
+            result["collection_error"] = repr(error)
+    write_json(evidence_path, result)
+    return result
 
 
 def _terminate_process(process: subprocess.Popen[bytes]) -> None:
