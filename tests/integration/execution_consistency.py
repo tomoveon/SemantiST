@@ -19,7 +19,9 @@ Usage:
 
 A target directory holds ``fuzz_target``, ``stg/`` and
 ``semantic-task-plan.json`` (an adapter preprocessing directory, for example).
-``--inprocess NAME:BINARY`` adds the in-process fuzzer of that target.
+``--inprocess NAME:BINARY`` adds the in-process fuzzer of that target. A crash
+ends an in-process dump, so inputs that fail in fork mode run there one at a
+time and must end the process.
 
 OSCAT function blocks read the wall clock (``TIME()``, timers), so two fork
 runs of one input can differ. ``--fixed-clock`` relinks each target from its
@@ -152,7 +154,8 @@ def history_inputs(directories: list[Path], limit: int) -> list[bytes]:
     return inputs
 
 
-def run_dump(engine: Path, target: Target, inputs: list[Path], mode: str, work: Path) -> list[Record]:
+def run_dump(engine: Path, target: Target, inputs: list[Path], mode: str, work: Path,
+             expect_failure: bool = False) -> list[Record]:
     """One engine process executes every input in the given order."""
     if work.exists():
         shutil.rmtree(work)
@@ -186,6 +189,10 @@ def run_dump(engine: Path, target: Target, inputs: list[Path], mode: str, work: 
         "SEMANTIST_PERSISTENT_ITERATIONS": "1000000",
     })
     result = subprocess.run(command, cwd=work, env=env, capture_output=True, text=True, timeout=3600)
+    if expect_failure and result.returncode != 0 and not (dump.exists() and dump.read_text().strip()):
+        observed = {key: None for key in OBSERVED}
+        observed["exit_kind"] = "failed"
+        return [Record(str(inputs[0]), observed, None)]
     if result.returncode != 0:
         raise RuntimeError(f"{target.name} {mode}: engine failed: {result.stderr[-2000:]}")
     rows = [json.loads(line) for line in dump.read_text(encoding="utf-8").splitlines()]
@@ -263,14 +270,14 @@ def check_target(target: Target, engine: Path, modes: list[str], work: Path, arg
             failing = {}
             for name in crashes:
                 path = inputs_dir / name
-                record = run_dump(engine, target, [path], mode, work / f"{mode}-failing-{name}")[0]
-                if record.observed["exit_kind"] != reference[str(path)].observed["exit_kind"]:
+                record = run_dump(engine, target, [path], mode, work / f"{mode}-failing-{name}", expect_failure=True)[0]
+                if record.observed["exit_kind"] not in FAILED_EXITS | {"failed"}:
                     failing[name] = [record.observed["exit_kind"], reference[str(path)].observed["exit_kind"]]
             report["modes"][f"{mode}/failing-alone"] = {"executed": len(crashes), "mismatches": failing}
     return report
 
 
-def link_fixed_clock(target: Target, work: Path, sanitizers: str) -> None:
+def link_fixed_clock(target: Target, work: Path, sanitizers: str, inprocess_lib: Path | None) -> None:
     """Relink the target's own build objects with a constant clock."""
     env = os.environ
     llvm = Path(env.get("SEMANTIST_LLVM_BIN", "/usr/lib/llvm-21/bin"))
@@ -296,6 +303,18 @@ def link_fixed_clock(target: Target, work: Path, sanitizers: str) -> None:
         check=True,
     )
     target.fuzz_target = output.name
+    if target.inprocess is not None and inprocess_lib is not None:
+        # The same link build_target.sh makes for the in-process fuzzer.
+        inprocess_inputs = [inputs[0], inputs[1], str(directory / "target.semantic-runtime-inprocess.o"), inputs[4]]
+        inprocess_inputs += inputs[5:]
+        inprocess = target.inprocess.with_name(target.inprocess.name + ".fixed-clock")
+        subprocess.run(
+            [clang, "-g", "-O1", "-DSEMANTIST_IN_PROCESS", "-fsanitize-coverage=trace-pc-guard", *sanitizers.split(),
+             str(inprocess_lib), *inprocess_inputs, str(clock), "-Wl,--allow-multiple-definition",
+             "-lgcc_s", "-lutil", "-lrt", "-lpthread", "-lm", "-ldl", "-o", str(inprocess)],
+            check=True,
+        )
+        target.inprocess = inprocess
 
 
 def parse_targets(args) -> list[Target]:
@@ -324,6 +343,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", default="semantist-consistency-v1")
     parser.add_argument("--fixed-clock", action="store_true", help="relink targets with a constant clock first")
     parser.add_argument("--sanitizers", default="-fsanitize=address -fno-omit-frame-pointer")
+    parser.add_argument("--inprocess-lib", type=Path, help="libsemantist_inprocess.a, to relink in-process fuzzers")
     parser.add_argument("--work", type=Path, help="keep run directories here (default: temporary)")
     parser.add_argument("--report", type=Path)
     args = parser.parse_args(argv)
@@ -334,7 +354,7 @@ def main(argv: list[str] | None = None) -> int:
         targets = parse_targets(args)
         if args.fixed_clock:
             for target in targets:
-                link_fixed_clock(target, work_root / target.name / "fixed-clock", args.sanitizers)
+                link_fixed_clock(target, work_root / target.name / "fixed-clock", args.sanitizers, args.inprocess_lib)
         reports = [check_target(target, engine, modes, work_root / target.name, args) for target in targets]
     failed = False
     for report in reports:

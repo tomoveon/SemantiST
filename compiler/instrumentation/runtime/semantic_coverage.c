@@ -13,6 +13,13 @@ static uint32_t semantist_semantic_cycle_id;
 static struct semantist_telemetry *semantist_telemetry;
 static const char *semantist_runtime_trace_path;
 
+#ifdef SEMANTIST_IN_PROCESS
+/* The in-process fuzzer owns these buffers and observes them directly; it
+ * sets the map size before the first execution. No shared memory is used. */
+extern unsigned char __semantist_semantic_buffer[];
+extern size_t __semantist_semantic_buffer_size;
+extern struct semantist_telemetry __semantist_telemetry_buffer;
+#else
 static void *semantist_attach(const char *name) {
     const char *text = getenv(name);
     if (!text || !*text) return NULL;
@@ -23,17 +30,23 @@ static void *semantist_attach(const char *name) {
     void *memory = shmat((int)id, NULL, 0);
     return memory == (void *)-1 ? NULL : memory;
 }
+#endif
 
 static void semantist_semantic_initialize(void) {
     if (semantist_semantic_initialized) {
         return;
     }
     semantist_semantic_initialized = 1;
-    semantist_telemetry = semantist_attach("SEMANTIST_TELEMETRY_SHM_ID");
     const char *trace_enabled = getenv("SEMANTIST_SEMANTIC_TRACE_RUNTIME");
     if (trace_enabled && strcmp(trace_enabled, "1") == 0) {
         semantist_runtime_trace_path = getenv("SEMANTIST_SEMANTIC_RUNTIME_TRACE_FILE");
     }
+#ifdef SEMANTIST_IN_PROCESS
+    semantist_semantic_map = __semantist_semantic_buffer;
+    semantist_semantic_map_size = __semantist_semantic_buffer_size;
+    semantist_telemetry = &__semantist_telemetry_buffer;
+#else
+    semantist_telemetry = semantist_attach("SEMANTIST_TELEMETRY_SHM_ID");
 
     const char *size_text = getenv("SEMANTIST_SEMANTIC_MAP_SIZE");
     semantist_semantic_map_size =
@@ -53,6 +66,7 @@ static void semantist_semantic_initialize(void) {
     if (memory != (void *)-1) {
         semantist_semantic_map = (unsigned char *)memory;
     }
+#endif
 }
 
 static void semantist_semantic_trace(uint32_t runtime_id) {

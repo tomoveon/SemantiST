@@ -128,5 +128,39 @@ fi
 
 "$LLVM_CLANG" -g -O1 "${AFL_COVERAGE_FLAGS[@]}" "${TARGET_SANITIZER_FLAGS[@]}" "${LINK_OBJECTS[@]}" -ldl -lpthread -lm -o "$OUT_BIN"
 
+# The in-process fuzzer links the same harness, target object and libraries
+# with the engine library instead of the AFL++ runtime; the engine provides
+# coverage guards and the semantic buffers (see fuzzer/engine/src/inprocess.rs).
+if [[ -n "${SEMANTIST_INPROCESS_LIB:-}" ]]; then
+  if [[ ! -r "$SEMANTIST_INPROCESS_LIB" ]]; then
+    echo "[build_target] missing in-process engine library: $SEMANTIST_INPROCESS_LIB" >&2
+    exit 1
+  fi
+  if [[ "${SEMANTIC_MODE}" != "ir" ]]; then
+    echo "[build_target] in-process fuzzing requires SEMANTIST_SEMANTIC_INSTRUMENTATION=ir" >&2
+    exit 2
+  fi
+  INPROCESS_BIN="${INPROCESS_BIN:-$(dirname "$OUT_BIN")/semantist-inprocess}"
+  INPROCESS_RUNTIME_OBJ="${OUT_OBJ%.o}.semantic-runtime-inprocess.o"
+  "$LLVM_CLANG" -g -O2 -DSEMANTIST_IN_PROCESS -c compiler/instrumentation/runtime/semantic_coverage.c -o "$INPROCESS_RUNTIME_OBJ"
+  INPROCESS_OBJECTS=()
+  for object in "${LINK_OBJECTS[@]}"; do
+    if [[ "$object" != "$AFL_RUNTIME" && "$object" != "${SEMANTIC_RUNTIME_OBJ:-}" ]]; then
+      INPROCESS_OBJECTS+=("$object")
+    fi
+  done
+  # The engine and the RuSTy standard library are both Rust static libraries
+  # from the same toolchain and both define Rust's allocator shim. The engine
+  # comes first so its definition, which keeps Rust allocations out of ASan's
+  # allocator, serves both. LibAFL symbolizes a backtrace for every crash it
+  # catches; without debug sections that takes milliseconds, not tens of them.
+  # Sanitizer reports use module offsets (symbolize=0), and replay uses
+  # $OUT_BIN, which keeps its debug information.
+  "$LLVM_CLANG" -g -O1 -DSEMANTIST_IN_PROCESS "${AFL_COVERAGE_FLAGS[@]}" "${TARGET_SANITIZER_FLAGS[@]}" \
+    "$SEMANTIST_INPROCESS_LIB" "${INPROCESS_OBJECTS[@]}" "$INPROCESS_RUNTIME_OBJ" \
+    -Wl,--allow-multiple-definition -Wl,--strip-debug -lgcc_s -lutil -lrt -lpthread -lm -ldl -o "$INPROCESS_BIN"
+  echo "[build_target] wrote $INPROCESS_BIN"
+fi
+
 echo "[build_target] function: $ST_FUNCTION"
 echo "[build_target] wrote $OUT_BIN"
