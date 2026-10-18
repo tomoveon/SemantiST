@@ -837,6 +837,43 @@ mod tests {
     }
 
     #[test]
+    fn reused_parsed_seeds_mutate_like_fresh_parses() {
+        let inputs = [
+            "0.EN,BOOL,1\n0.X,INT,3\n1.EN,BOOL,0\n1.X,INT,-4\n",
+            "POS,INT,0\nSTR,STRING,A\n",
+            "SHARED,int,1\n0.A,REAL,1.5\n2.A,REAL,-0.5\n",
+            "",
+        ];
+        let contexts = [
+            TargetContext::default(),
+            TargetContext {
+                target_id: Some("target".to_string()),
+                semantic_task_id: Some("task".to_string()),
+                cycle_hint: Some(3),
+                ..TargetContext::default()
+            },
+        ];
+        let new_state = || {
+            let (mut feedback, mut objective) = (SemanticNoveltyFeedback, SemanticNoveltyFeedback);
+            StdState::new(StdRand::with_seed(9), libafl::corpus::InMemoryCorpus::<BytesInput>::new(),
+                libafl::corpus::InMemoryCorpus::<BytesInput>::new(), &mut feedback, &mut objective).unwrap()
+        };
+        let (mut reused_state, mut fresh_state) = (new_state(), new_state());
+        let mut reused = StructuredStMutator::new(SemantiSTAblation::Full);
+        let mut rand = StdRand::with_seed(5);
+        for _ in 0..500 {
+            let original = BytesInput::new(inputs[rand.below_or_zero(inputs.len())].as_bytes().to_vec());
+            let context = &contexts[rand.below_or_zero(contexts.len())];
+            let (mut cached, mut parsed) = (original.clone(), original);
+            reused.mutate_with_context(&mut reused_state, &mut cached, context).unwrap();
+            StructuredStMutator::new(SemantiSTAblation::Full)
+                .mutate_with_context(&mut fresh_state, &mut parsed, context)
+                .unwrap();
+            assert_eq!(cached.as_ref(), parsed.as_ref());
+        }
+    }
+
+    #[test]
     fn fatal_sanitizer_logs_are_checked_only_after_failures() {
         let root = std::env::temp_dir().join(format!("semantist-sanitizer-fatal-{}", current_nanos()));
         let logs = root.join("sanitizer-logs");

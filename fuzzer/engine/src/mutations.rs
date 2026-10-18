@@ -2,6 +2,15 @@
 struct StructuredStMutator {
     name: Cow<'static, str>,
     ablation: SemantiSTAblation,
+    // A mutational stage mutates fresh copies of one corpus input many times
+    // in a row; the records parsed from the last input are reused for it.
+    parsed: Option<(Vec<u8>, ParsedSeed)>,
+}
+
+#[derive(Clone, Debug)]
+enum ParsedSeed {
+    Cycles(CycleAwareSeed),
+    Records(Vec<StRecord>),
 }
 
 const SEMANTIC_MUTATION_PROBABILITY: f64 = 0.70;
@@ -74,7 +83,22 @@ impl StructuredStMutator {
         Self {
             name: Cow::Borrowed("StructuredStMutator"),
             ablation,
+            parsed: None,
         }
+    }
+
+    fn parse(&mut self, input: &[u8]) -> &ParsedSeed {
+        if self.parsed.as_ref().is_none_or(|(bytes, _)| bytes.as_slice() != input) {
+            // LibAFL 的 input 仍然是 BytesInput；这里先把 bytes 当 UTF-8 文本解析成记录。
+            let text = String::from_utf8_lossy(input);
+            let parsed = if has_cycle_record(&text) {
+                ParsedSeed::Cycles(parse_cycle_aware_seed(&text))
+            } else {
+                ParsedSeed::Records(parse_structured_records(&text))
+            };
+            self.parsed = Some((input.to_vec(), parsed));
+        }
+        &self.parsed.as_ref().expect("parsed above").1
     }
 
     fn mutate_with_context<S>(
@@ -86,35 +110,33 @@ impl StructuredStMutator {
     where
         S: HasRand,
     {
-        // LibAFL 的 input 仍然是 BytesInput；这里先把 bytes 当 UTF-8 文本解析成记录。
-        let text = String::from_utf8_lossy(input.as_ref());
-        if has_cycle_record(&text) {
-            let mut seed = parse_cycle_aware_seed(&text);
-            if seed.cycles.is_empty() {
-                seed.cycles.insert(
-                    0,
-                    vec![StRecord {
-                        name: "IN".to_string(),
-                        ty: "INT".to_string(),
-                        value: "0".to_string(),
-                    }],
-                );
+        let mut records = match self.parse(input.as_ref()).clone() {
+            ParsedSeed::Records(records) => records,
+            ParsedSeed::Cycles(mut seed) => {
+                if seed.cycles.is_empty() {
+                    seed.cycles.insert(
+                        0,
+                        vec![StRecord {
+                            name: "IN".to_string(),
+                            ty: "INT".to_string(),
+                            value: "0".to_string(),
+                        }],
+                    );
+                }
+                let use_semantic = self.ablation.targeted_mutation()
+                    && context.target_id.is_some()
+                    && state
+                        .rand_mut()
+                        .coinflip(SEMANTIC_MUTATION_PROBABILITY);
+                if !use_semantic
+                    || !semantic_mutate_cycle_seed(state.rand_mut(), &mut seed, context, self.ablation)
+                {
+                    mutate_cycle_aware_seed(state.rand_mut(), &mut seed);
+                }
+                *input = BytesInput::new(serialize_cycle_aware_seed(&seed).into_bytes());
+                return Ok(MutationResult::Mutated);
             }
-            let use_semantic = self.ablation.targeted_mutation()
-                && context.target_id.is_some()
-                && state
-                    .rand_mut()
-                    .coinflip(SEMANTIC_MUTATION_PROBABILITY);
-            if !use_semantic
-                || !semantic_mutate_cycle_seed(state.rand_mut(), &mut seed, context, self.ablation)
-            {
-                mutate_cycle_aware_seed(state.rand_mut(), &mut seed);
-            }
-            *input = BytesInput::new(serialize_cycle_aware_seed(&seed).into_bytes());
-            return Ok(MutationResult::Mutated);
-        }
-
-        let mut records = parse_structured_records(&text);
+        };
         if records.is_empty() {
             records.push(StRecord {
                 name: "IN".to_string(),
@@ -1534,8 +1556,8 @@ fn serialize_cycle_aware_seed(seed: &CycleAwareSeed) -> String {
 
 fn push_record_line(out: &mut String, cycle: Option<usize>, record: &StRecord) {
     if let Some(cycle) = cycle {
-        out.push_str(&cycle.to_string());
-        out.push('.');
+        use std::fmt::Write as _;
+        let _ = write!(out, "{cycle}.");
     }
     out.push_str(&record.name);
     out.push(',');
