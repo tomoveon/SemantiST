@@ -17,7 +17,8 @@ a number is characterized by a letter "0..9" or "."
 
 *)
 (* @END_DECLARATION := '0' *)
-pt := REF(str) + LEN(str) - 1;
+pt := REF(str);
+pt := pt + LEN(str) - 1;
 FOR pos := LEN(str) TO 1 BY -1 DO;
 	IF (PT^ < 48 AND PT^ <> 46) OR PT^ > 57 THEN
 		FINDB_NONUM := pos;

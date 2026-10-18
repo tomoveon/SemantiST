@@ -22889,7 +22889,8 @@ IF pos < 1 OR pos > LEN(str) THEN
 	CODE := 0;
 	RETURN;
 ELSE
-	PT := REF(STR) + INT_TO_DWORD(pos - 1);
+	PT := REF(STR);
+	PT := PT + INT_TO_DWORD(pos - 1);
 	CODE := pt^;
 END_IF;
 
@@ -23446,7 +23447,8 @@ The lowest order Character will be on the right and the high order Character on 
 
 (* @END_DECLARATION := '0' *)
 (* read output adress to pointer *)
-pt := REF(DWORD_TO_STRH) + 8;
+pt := REF(DWORD_TO_STRH);
+pt := pt + 8;
 (* wirte the closing byte for the string *)
 pt^:= 0;
 
@@ -23923,7 +23925,8 @@ a number is characterized by a letter "0..9" or "."
 
 *)
 (* @END_DECLARATION := '0' *)
-pt := REF(str) + LEN(str) - 1;
+pt := REF(str);
+pt := pt + LEN(str) - 1;
 FOR pos := LEN(str) TO 1 BY -1 DO;
 	IF (PT^ < 48 AND PT^ <> 46) OR PT^ > 57 THEN
 		FINDB_NONUM := pos;
@@ -23973,7 +23976,8 @@ a number is characterized by a letter "0..9" or "."
 
 *)
 (* @END_DECLARATION := '0' *)
-pt := REF(str) + LEN(str) - 1;
+pt := REF(str);
+pt := pt + LEN(str) - 1;
 FOR pos := LEN(str) TO 1 BY -1 DO;
 	IF (PT^ > 47 AND PT^ < 58) OR PT^ = 46 THEN
 		FINDB_NUM := pos;

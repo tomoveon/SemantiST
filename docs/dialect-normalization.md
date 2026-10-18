@@ -56,6 +56,23 @@ and final linker arguments. Reusable vendor profiles live under
 selects and copies them into the derived intake workspace. Library-specific providers remain in
 that workspace rather than becoming global Harness behavior.
 
+## Address Arithmetic
+
+CODESYS `ADR(x)` yields a byte address, so `ADR(x) + n` advances `n` bytes.
+The pinned RuSTy accepts `ADR` only as a value (using it in arithmetic crashes
+the compiler), so rule 4 rewrites it to `REF(x)`; but RuSTy scales arithmetic
+on `REF(x)` by the referenced type, and `REF(str) + 1` on a `STRING[250]`
+advances 251 bytes. Rule 27 therefore rewrites `p := ADR(x) + n;` to
+`p := REF(x); p := p + n;`, which is byte arithmetic when `p` is
+`REF_TO BYTE`. It is `review_required`: the reviewer must confirm the
+destination is a byte pointer. Arithmetic on pointers to wider types
+(`REF_TO DWORD` plus a byte count) still differs between the dialects and has
+to be rewritten by hand.
+
+The OSCAT library in `benchmarks/oscat_basic/source/oscat.st` was converted
+before rule 27 existed; its four `REF(x) + n` sites (`CODE`, `DWORD_TO_STRH`,
+`FINDB_NONUM`, `FINDB_NUM`) were corrected to the same two-statement form.
+
 ## Dependency Precedence
 
 Dependency resolution follows this order:

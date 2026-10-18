@@ -428,7 +428,7 @@ class ComparisonExperimentTests(unittest.TestCase):
         manifest = load_manifest(ROOT / "benchmarks" / "external" / "manifest.json", ROOT)
         self.assertEqual(
             manifest.sha256,
-            "0ab4c3a89c1538fbbda8bb4443b8d72cb336df277850354a4becc8e25d78fce5",
+            "26165651552907599c50d8580e2d7dc3f1a19ac6030211fd257f9a23694abf47",
         )
         self.assertEqual(len(manifest.targets), 90)
         self.assertEqual(sum(target.suite == "oscat_basic" for target in manifest.targets), 61)

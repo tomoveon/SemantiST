@@ -46,6 +46,20 @@ RULES: Dict[int, Dict[str, Any]] = {
         "replacement": _const("REF("),
         "dialects": {"codesys", "twincat", "generic"},
     },
+    27: {
+        "name": "ADR() arithmetic -> byte-pointer arithmetic",
+        "description": (
+            "CODESYS adds byte offsets to ADR(); RuSTy scales REF() arithmetic by the "
+            "referenced type (REF(STRING[250]) + 1 advances 251 bytes). Take the reference "
+            "first, then offset the destination pointer, which must be REF_TO BYTE"
+        ),
+        "pattern": r"\b([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*ADR\s*\(([^;]*?)\)\s*([-+])\s*([^;]*);",
+        "replacement": lambda match: (
+            f"{match.group(1)} := REF({match.group(2)}); "
+            f"{match.group(1)} := {match.group(1)} {match.group(3)} {match.group(4).strip()};"
+        ),
+        "dialects": {"codesys", "twincat", "generic"},
+    },
     5: {
         "name": "Remove VAR_INPUT CONSTANT",
         "description": "Remove CONSTANT from VAR_INPUT CONSTANT",
@@ -208,7 +222,7 @@ RULES: Dict[int, Dict[str, Any]] = {
 # is not generally equivalent to a free FUNCTION and therefore blocks intake.
 for _rule_id, _rule in RULES.items():
     _rule["safety"] = "syntax_alias"
-for _rule_id in {5, 6, 13, 15, 16, 26}:
+for _rule_id in {5, 6, 13, 15, 16, 26, 27}:
     RULES[_rule_id]["safety"] = "review_required"
 RULES[12]["safety"] = "unsupported"
 

@@ -67,7 +67,7 @@ EXPECTED_SOURCE_REVISIONS = {
     "ICSQuartz": "8021bd44f47147776c6394e008bbea23ac993076",
 }
 EXPECTED_INPUT_HASHES = {
-    "SemantiST/benchmarks/external/manifest.json": "0ab4c3a89c1538fbbda8bb4443b8d72cb336df277850354a4becc8e25d78fce5",
+    "SemantiST/benchmarks/external/manifest.json": "26165651552907599c50d8580e2d7dc3f1a19ac6030211fd257f9a23694abf47",
     "ICSQuartz/run_experiment.py": "e8ba6f5683207b4ee6a73e1739fd6adaaeb0f3875bda8c2fc6c64a554e17ae72",
     "ICSQuartz/src/experiments.py": "d78e72690e8dc06c24714a660b264f34be927a58d011b45f3c70e7874cbc5fb4",
     "ICSQuartz/README.md": "60086385313ecf16e2def1590c61a845c4624f4c3f3a5e689554e315f4d4d063",

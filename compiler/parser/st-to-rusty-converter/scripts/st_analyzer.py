@@ -274,6 +274,8 @@ def analyze_file(file_path: Path, rules: Dict[int, Dict[str, Any]]) -> List[Tran
                 )
                 transformations.append(item)
 
+    transformations = drop_contained_spans(transformations)
+
     # Check for unsupported POUs like METHOD (Rule 12) - must run before Rule 13
     pou_transforms = check_unsupported_pou(file_path, content, lines, rules)
     transformations.extend(pou_transforms)
@@ -284,6 +286,28 @@ def analyze_file(file_path: Path, rules: Dict[int, Dict[str, Any]]) -> List[Tran
         transformations.append(missing_end)
 
     return transformations
+
+
+def drop_contained_spans(items: List[TransformationItem]) -> List[TransformationItem]:
+    """Keep a statement-level rewrite instead of the token rules inside it.
+
+    Rule 27 rewrites a whole ``p := ADR(x) + n;`` statement; rule 4 would
+    otherwise also rewrite the ``ADR(`` token inside the same columns.
+    """
+    kept: List[TransformationItem] = []
+    for item in items:
+        contained = any(
+            other is not item
+            and other.file_path == item.file_path
+            and other.line_number == item.line_number
+            and other.column_start <= item.column_start
+            and item.column_end <= other.column_end
+            and (other.column_end - other.column_start) > (item.column_end - item.column_start)
+            for other in items
+        )
+        if not contained:
+            kept.append(item)
+    return kept
 
 
 def generate_checklist(directory: str, st_files: List[Path]) -> Dict[str, List[str]]:
