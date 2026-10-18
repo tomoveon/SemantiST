@@ -101,8 +101,7 @@ impl TargetAwareScheduler {
             })?;
             records.push(b'\n');
         }
-        OpenOptions::new().create(true).append(true).open(path)?.write_all(&records)?;
-        Ok(())
+        append_bytes(path, &records)
     }
 
     fn semantic_next<I, S>(&mut self, state: &mut S) -> Result<Option<CorpusId>, Error>

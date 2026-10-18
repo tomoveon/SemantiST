@@ -1,11 +1,31 @@
+thread_local! {
+    static APPEND_FILES: std::cell::RefCell<HashMap<PathBuf, fs::File>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
+// The engine appends to a few report files for the whole run, so each is
+// opened once: an open costs a journal update, which on the experiment
+// volume took milliseconds while corpus files were being written. Each
+// record is still one unbuffered write, so a killed process keeps it.
+fn append_bytes(path: &Path, bytes: &[u8]) -> Result<(), Error> {
+    APPEND_FILES.with(|files| {
+        let mut files = files.borrow_mut();
+        if !files.contains_key(path) {
+            let file = OpenOptions::new().create(true).append(true).open(path)?;
+            files.insert(path.to_path_buf(), file);
+        }
+        files.get_mut(path).map_or(Ok(()), |file| file.write_all(bytes))?;
+        Ok(())
+    })
+}
+
 // Each record is serialized first and appended with one write: serde_json
 // writes token by token, which into a bare File is one syscall per token.
 fn append_json_line(path: &Path, value: &impl Serialize, what: &str) -> Result<(), Error> {
     let mut line = serde_json::to_vec(value)
         .map_err(|error| Error::serialize(format!("unable to serialize {what}: {error}")))?;
     line.push(b'\n');
-    OpenOptions::new().create(true).append(true).open(path)?.write_all(&line)?;
-    Ok(())
+    append_bytes(path, &line)
 }
 
 fn append_runtime_finding_event(path: &Path, event: &RuntimeFindingEvent) -> Result<(), Error> {
