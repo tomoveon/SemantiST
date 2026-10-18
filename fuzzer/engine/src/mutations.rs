@@ -1941,6 +1941,9 @@ struct RuntimeFindingFeedback {
     // unclaimed; an unchanged, settled directory needs no scan.
     scanned_log_dir: Option<SystemTime>,
     unclaimed_logs: bool,
+    // Every sanitizer report ends its execution, so only a crash or timeout
+    // can leave a new log.
+    logs_only_after_failures: bool,
     pending_semantic: PendingSemanticFindings,
 }
 
@@ -1980,12 +1983,18 @@ impl RuntimeFindingFeedback {
             records_loaded: false,
             scanned_log_dir: None,
             unclaimed_logs: true,
+            logs_only_after_failures: false,
             pending_semantic: PendingSemanticFindings::default(),
         }
     }
 
     fn with_start(mut self, started: std::time::Instant) -> Self {
         self.started = started;
+        self
+    }
+
+    fn with_logs_only_after_failures(mut self, logs_only_after_failures: bool) -> Self {
+        self.logs_only_after_failures = logs_only_after_failures;
         self
     }
 
@@ -2016,6 +2025,9 @@ impl RuntimeFindingFeedback {
     // A sanitizer can report without ending the process (recoverable UBSan),
     // so the log directory is checked after every execution, by its mtime.
     fn sanitizer_logs_may_have_changed(&mut self, exit_kind: &ExitKind) -> bool {
+        if self.logs_only_after_failures && !self.unclaimed_logs && !exit_kind_is_finding(exit_kind) {
+            return false;
+        }
         let modified = fs::metadata(&self.sanitizer_log_dir).and_then(|metadata| metadata.modified()).ok();
         let settled = modified.is_some_and(|modified| {
             SystemTime::now().duration_since(modified).is_ok_and(|age| age >= SANITIZER_LOG_SETTLE)

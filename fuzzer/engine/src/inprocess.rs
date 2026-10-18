@@ -227,7 +227,9 @@ fn run_inprocess() -> Result<(), Error> {
     // Set before launch(): every restarted client is forked from this
     // process, so the start time (time to exposure) stays continuous.
     let started = std::time::Instant::now();
-    let setup = prepare_campaign(Config::from_args()?, started)?;
+    let mut setup = prepare_campaign(Config::from_args()?, started)?;
+    // __ubsan_default_options halts unless UBSAN_OPTIONS overrides it.
+    setup.sanitizer_reports_end_execution = sanitizer_env_flag("UBSAN_OPTIONS", "halt_on_error") != Some(false);
     let config = &setup.config;
     if env::var("ASAN_OPTIONS").map_or(true, |options| !options.contains("log_path")) {
         // Same log directory and file prefix the forkserver engine configures.

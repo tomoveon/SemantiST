@@ -17,9 +17,12 @@ fn main() -> Result<(), Error> {
             config.target.display()
         )));
     }
-    let setup = prepare_campaign(config, started)?;
+    let mut setup = prepare_campaign(config, started)?;
+    set_default_sanitizer_env(&setup.sanitizer_log_dir, setup.config.execution);
+    // ASan reports are fatal; UBSan ones only with halt_on_error.
+    setup.sanitizer_reports_end_execution = setup.config.execution != ExecutionMode::Fork
+        && sanitizer_env_flag("UBSAN_OPTIONS", "halt_on_error") == Some(true);
     let config = &setup.config;
-    set_default_sanitizer_env(&setup.sanitizer_log_dir, config.execution);
 
     // 2. 创建相互独立的 AFL edge map 和 STG semantic map。
     let mut shmem_provider = UnixShMemProvider::new()?;
@@ -831,6 +834,39 @@ mod tests {
         assert!(feedback.take_new_sanitizer_evidence().is_some());
         assert!(!feedback.sanitizer_logs_may_have_changed(&ExitKind::Ok));
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn fatal_sanitizer_logs_are_checked_only_after_failures() {
+        let root = std::env::temp_dir().join(format!("semantist-sanitizer-fatal-{}", current_nanos()));
+        let logs = root.join("sanitizer-logs");
+        fs::create_dir_all(&logs).unwrap();
+        let mut feedback = RuntimeFindingFeedback::new(root.join("findings"), root.join("target"), None,
+            root.join("events.jsonl"), logs.clone())
+        .with_logs_only_after_failures(true);
+        // The first execution still scans the logs left by an earlier run.
+        assert!(feedback.sanitizer_logs_may_have_changed(&ExitKind::Ok));
+        assert!(feedback.take_new_sanitizer_evidence().is_none());
+        let report = b"==1==ERROR: AddressSanitizer: FPE\nSUMMARY: AddressSanitizer: FPE (x)\n";
+        fs::write(logs.join("asan.11"), report).unwrap();
+        fs::write(logs.join("asan.12"), report).unwrap();
+        assert!(!feedback.sanitizer_logs_may_have_changed(&ExitKind::Ok));
+        assert!(feedback.sanitizer_logs_may_have_changed(&ExitKind::Crash));
+        assert!(feedback.take_new_sanitizer_evidence().is_some());
+        // A log left unclaimed by a crash is still claimed by the next execution.
+        assert!(feedback.sanitizer_logs_may_have_changed(&ExitKind::Ok));
+        assert!(feedback.take_new_sanitizer_evidence().is_some());
+        assert!(!feedback.sanitizer_logs_may_have_changed(&ExitKind::Ok));
+        assert!(feedback.sanitizer_logs_may_have_changed(&ExitKind::Timeout));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn sanitizer_option_flags_follow_the_last_setting() {
+        assert_eq!(sanitizer_option_flag("abort_on_error=1:halt_on_error=1:log_path=x", "halt_on_error"), Some(true));
+        assert_eq!(sanitizer_option_flag("halt_on_error=1 halt_on_error=0", "halt_on_error"), Some(false));
+        assert_eq!(sanitizer_option_flag("abort_on_error=1:log_path=x", "halt_on_error"), None);
+        assert_eq!(sanitizer_option_flag("halt_on_error=true", "halt_on_error"), Some(true));
     }
 
     #[test]

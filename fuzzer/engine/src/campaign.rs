@@ -69,6 +69,9 @@ struct CampaignSetup {
     mapped_semantic_targets: HashSet<String>,
     semantic_plan: semantic::SemanticTaskPlan,
     semantic_map_size: usize,
+    // Set by the backend: every sanitizer report ends the execution, so a new
+    // sanitizer log can only follow a crash or timeout.
+    sanitizer_reports_end_execution: bool,
 }
 
 fn prepare_campaign(config: Config, started: std::time::Instant) -> Result<CampaignSetup, Error> {
@@ -106,6 +109,7 @@ fn prepare_campaign(config: Config, started: std::time::Instant) -> Result<Campa
         mapped_semantic_targets,
         semantic_plan,
         semantic_map_size,
+        sanitizer_reports_end_execution: false,
     })
 }
 
@@ -134,7 +138,8 @@ macro_rules! semantist_feedbacks {
             config.events_file.clone(),
             setup.sanitizer_log_dir.clone(),
         )
-        .with_start(setup.started);
+        .with_start(setup.started)
+        .with_logs_only_after_failures(setup.sanitizer_reports_end_execution);
         let semantic_objective = SemanticViolationObjective::new(&semantic_observer, &setup.runtime_ids)
             .with_pending_findings(runtime_findings.pending_semantic_findings());
         // A restarted in-process client resumes the violations already reported.
@@ -407,6 +412,21 @@ fn set_default_sanitizer_env(log_dir: &Path, execution: ExecutionMode) {
         ),
     );
     set_env_if_missing("LSAN_OPTIONS", "detect_leaks=0");
+}
+
+// The last value of a sanitizer option in its environment variable, as the
+// sanitizer runtime parses it; None when the variable does not set it.
+fn sanitizer_env_flag(variable: &str, option: &str) -> Option<bool> {
+    sanitizer_option_flag(&env::var(variable).ok()?, option)
+}
+
+fn sanitizer_option_flag(options: &str, option: &str) -> Option<bool> {
+    options
+        .split(|c: char| c == ':' || c.is_whitespace())
+        .filter_map(|item| item.split_once('='))
+        .filter(|(name, _)| *name == option)
+        .last()
+        .map(|(_, value)| matches!(value, "1" | "true"))
 }
 
 fn set_env_if_missing(key: &str, value: &str) {
