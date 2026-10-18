@@ -935,34 +935,28 @@ fn semantic_float_type_name(
         return Some("REAL");
     }
     let field = field?;
-    if field
-        .type_name
-        .as_deref()
-        .is_some_and(|name| name.eq_ignore_ascii_case("LREAL"))
-        || field
-            .type_fact
-            .as_ref()
-            .and_then(|fact| {
-                fact.get("semantic_bit_width")
-                    .or_else(|| fact.get("bit_width"))
-                    .and_then(|value| value.as_u64())
-            })
-            == Some(64)
-    {
-        return Some("LREAL");
-    }
-    let type_kind = field
-        .type_fact
-        .as_ref()
+    let named = |expected: &str| {
+        field
+            .type_name
+            .as_deref()
+            .is_some_and(|name| name.eq_ignore_ascii_case(expected))
+    };
+    let fact = field.type_fact.as_ref();
+    // Width alone does not make a float: TIME, DATE, LINT and LWORD are also
+    // 64 bits wide in RuSTy and must keep integer values.
+    let is_float = fact
         .and_then(|fact| fact.get("kind"))
         .and_then(|kind| kind.as_str())
-        .unwrap_or_default();
-    if field
-        .type_name
-        .as_deref()
-        .is_some_and(|name| name.eq_ignore_ascii_case("REAL"))
-        || type_kind == "float"
-    {
+        == Some("float");
+    let width = fact.and_then(|fact| {
+        fact.get("semantic_bit_width")
+            .or_else(|| fact.get("bit_width"))
+            .and_then(|value| value.as_u64())
+    });
+    if named("LREAL") || (is_float && width == Some(64)) {
+        return Some("LREAL");
+    }
+    if named("REAL") || is_float {
         return Some("REAL");
     }
     None
@@ -2675,6 +2669,29 @@ mod mutation_regression_tests {
         let mut record = StRecord { name: "X".into(), ty: "REAL".into(), value: "0".into() };
         assert!(!mutate_float_comparison(&mut record, ">", f32::MAX as f64, true, true));
         assert_eq!(record.value, "0");
+    }
+
+    #[test]
+    fn float_boundaries_skip_64_bit_integer_and_time_fields() {
+        let field = |name: &str, ty: &str, kind: &str| -> ControllableSeedField {
+            serde_json::from_value(serde_json::json!({
+                "symbol": format!("P.{name}"), "seed_field": name, "type_name": ty,
+                "type": {"name": ty, "kind": kind, "bit_width": 64},
+            }))
+            .unwrap()
+        };
+        let fields = [field("T", "TIME", "integer"), field("N", "LINT", "integer")];
+        let mut records = parse_structured_records("T,TIME,0\nN,LINT,0\n");
+        for (record, field) in records.iter().zip(&fields) {
+            assert_eq!(semantic_float_type_name(record, Some(field)), None);
+        }
+        let mut rand = StdRand::with_seed(7);
+        assert!(!mutate_float_boundary_group(&mut rand, &mut records, &fields));
+        assert_eq!((records[0].value.as_str(), records[1].value.as_str()), ("0", "0"));
+
+        let alias = field("Y", "MY_LREAL", "float");
+        let record = StRecord { name: "Y".into(), ty: "MY_LREAL".into(), value: "0".into() };
+        assert_eq!(semantic_float_type_name(&record, Some(&alias)), Some("LREAL"));
     }
 
     #[test]
