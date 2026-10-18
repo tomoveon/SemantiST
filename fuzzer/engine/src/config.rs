@@ -79,6 +79,8 @@ struct Config {
     rng_seed: Option<u64>,
     debug_child: bool,
     ablation: SemantiSTAblation,
+    consistency_dump: Option<PathBuf>,
+    consistency_inputs: Option<PathBuf>,
 }
 
 impl Config {
@@ -115,6 +117,8 @@ impl Config {
         let mut ablation = SemantiSTAblation::parse(
             &env::var("SEMANTIST_ABLATION").unwrap_or_else(|_| "full".to_string()),
         )?;
+        let mut consistency_dump = None;
+        let mut consistency_inputs = None;
 
         // 支持显式命令行覆盖默认值。
         let mut args = env::args().skip(1);
@@ -174,6 +178,12 @@ impl Config {
                 }
                 "--ablation" => {
                     ablation = SemantiSTAblation::parse(&next_arg(&mut args, &arg)?)?;
+                }
+                "--consistency-dump" => {
+                    consistency_dump = Some(PathBuf::from(next_arg(&mut args, &arg)?));
+                }
+                "--consistency-inputs" => {
+                    consistency_inputs = Some(PathBuf::from(next_arg(&mut args, &arg)?));
                 }
                 "--help" | "-h" => {
                     print_usage();
@@ -252,6 +262,8 @@ impl Config {
             rng_seed,
             debug_child,
             ablation,
+            consistency_dump,
+            consistency_inputs,
         })
     }
 }

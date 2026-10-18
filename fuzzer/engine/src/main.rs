@@ -7,7 +7,7 @@ use libafl::{
     executors::{forkserver::ForkserverExecutor, ExitKind, HasObservers, StdChildArgs},
     feedback_or,
     feedbacks::{Feedback, MaxMapFeedback, StateInitializer, TimeFeedback},
-    fuzzer::{Evaluator, Fuzzer, HasScheduler, InputFilter, StdFuzzer},
+    fuzzer::{Evaluator, ExecutesInput, Fuzzer, HasScheduler, InputFilter, StdFuzzer},
     inputs::BytesInput,
     monitors::SimpleMonitor,
     mutators::{MutationResult, Mutator, Tokens},
@@ -52,6 +52,7 @@ include!("config.rs");
 include!("cli.rs");
 include!("../../stages/semantic_budget.rs");
 include!("profile.rs");
+include!("consistency.rs");
 #[cfg(test)]
 mod algorithm_regressions;
 fn main() -> Result<(), Error> {
@@ -116,6 +117,8 @@ fn main() -> Result<(), Error> {
     let telemetry_observer = unsafe {
         StdMapObserver::new("semantic_telemetry", telemetry_shmem.as_slice_mut())
     };
+    let semantic_handle = semantic_observer.handle();
+    let telemetry_handle = telemetry_observer.handle();
     let time_observer = TimeObserver::new("time");
 
     // 4. feedback 决定哪些输入进入 corpus；objective 决定哪些输入是 crash/solution。
@@ -203,6 +206,30 @@ fn main() -> Result<(), Error> {
             .truncate(dynamic_map_size);
     }
     let mut executor = ProfiledExecutor { inner: executor };
+
+    if let Some(dump_path) = config.consistency_dump.as_deref() {
+        let list = config.consistency_inputs.as_deref().ok_or_else(|| {
+            Error::illegal_argument("--consistency-dump requires --consistency-inputs")
+        })?;
+        let mut records = String::new();
+        for (index, path) in consistency_input_paths(list)?.into_iter().enumerate() {
+            let input = BytesInput::new(fs::read(&path)?);
+            let exit_kind = fuzzer.execute_input(&mut state, &mut executor, &mut mgr, &input)?;
+            let observers = executor.observers();
+            let record = consistency_record(
+                index,
+                &path,
+                &exit_kind,
+                &observers[&observer_handle].as_ref().to_vec(),
+                &observers[&semantic_handle].to_vec(),
+                &observers[&telemetry_handle].to_vec(),
+            );
+            records.push_str(&record.to_string());
+            records.push('\n');
+        }
+        fs::write(dump_path, records)?;
+        return Ok(());
+    }
 
     // 8. 加载初始种子和已有 queue；如果没有种子，用一条合法结构化输入兜底。
     state.load_initial_inputs(
@@ -1037,6 +1064,8 @@ mod tests {
             rng_seed: None,
             debug_child: false,
             ablation: SemantiSTAblation::Full,
+            consistency_dump: None,
+            consistency_inputs: None,
         };
 
         assert_eq!(
