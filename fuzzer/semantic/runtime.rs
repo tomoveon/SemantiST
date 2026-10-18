@@ -1,4 +1,4 @@
-use libafl::SerdeAny;
+use libafl::{corpus::CorpusId, SerdeAny};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -176,9 +176,10 @@ fn one() -> f64 {
     1.0
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+/// What one corpus entry's execution showed, keyed by its CorpusId.
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SeedProfile {
-    pub content_hash: String,
+    pub seed_id: CorpusId,
     #[serde(default)]
     pub ordered_target_ids: Vec<String>,
     #[serde(default)]
@@ -194,7 +195,23 @@ pub struct SeedProfile {
     #[serde(default)]
     pub target_affinity: BTreeMap<String, f64>,
     #[serde(default)]
-    pub parent_id: Option<String>,
+    pub parent_id: Option<CorpusId>,
+}
+
+impl Default for SeedProfile {
+    fn default() -> Self {
+        Self {
+            seed_id: CorpusId(0),
+            ordered_target_ids: Vec::new(),
+            ordered_trace_complete: false,
+            covered_target_ids: Vec::new(),
+            covered_targets_by_cycle: BTreeMap::new(),
+            cycle_ids: Vec::new(),
+            state_signatures: Vec::new(),
+            target_affinity: BTreeMap::new(),
+            parent_id: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -244,7 +261,7 @@ pub struct TaskRuntimeState {
     #[serde(default)]
     pub minimum_effort: f64,
     #[serde(default)]
-    pub best_seed_id: Option<String>,
+    pub best_seed_id: Option<CorpusId>,
     #[serde(default)]
     pub active_path: Vec<String>,
     #[serde(default)]
@@ -265,14 +282,14 @@ pub struct AttemptHistory {
     pub path_key: Option<String>,
     #[serde(default)]
     pub guide_index: Option<usize>,
-    pub seed_id: Option<String>,
+    pub seed_id: Option<CorpusId>,
     pub covered: bool,
     pub coverage_epoch: u64,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct RankedSeed {
-    pub content_hash: String,
+    pub seed_id: CorpusId,
     pub effort: f64,
 }
 
@@ -300,7 +317,7 @@ pub struct SemanticRuntimeMetadata {
     pub active_guide_index: Option<usize>,
     #[serde(default)]
     pub active_selection_succeeded: bool,
-    pub best_seed_id: Option<String>,
+    pub best_seed_id: Option<CorpusId>,
     pub covered_target_ids: BTreeSet<String>,
     pub coverage_epoch: u64,
     #[serde(default)]
@@ -308,7 +325,7 @@ pub struct SemanticRuntimeMetadata {
     pub attempt_history: Vec<AttemptHistory>,
     pub ranking: Vec<String>,
     #[serde(default)]
-    pub seed_profiles: BTreeMap<String, SeedProfile>,
+    pub seed_profiles: BTreeMap<CorpusId, SeedProfile>,
     #[serde(default)]
     pub top_seeds_by_task: BTreeMap<String, Vec<RankedSeed>>,
     #[serde(default)]
@@ -346,7 +363,7 @@ pub struct ActiveSelection {
     pub guide_index: usize,
     pub active_path: Vec<String>,
     pub remaining_obligations: Vec<String>,
-    pub best_seed_id: Option<String>,
+    pub best_seed_id: Option<CorpusId>,
     pub priority: f64,
     pub control_obligation: Option<ControlObligation>,
     pub controllable_seed_fields: Vec<ControllableSeedField>,
@@ -406,8 +423,8 @@ impl SemanticRuntimeMetadata {
     }
 
     pub fn cache_seed_profile(&mut self, profile: SeedProfile) -> bool {
-        let hash = profile.content_hash.clone();
-        let previous = self.seed_profiles.get(&hash);
+        let seed_id = profile.seed_id;
+        let previous = self.seed_profiles.get(&seed_id);
         if previous.is_some_and(|stored| {
             stored.covered_target_ids == profile.covered_target_ids
                 && stored.ordered_target_ids == profile.ordered_target_ids
@@ -429,7 +446,7 @@ impl SemanticRuntimeMetadata {
             .ranking_statistics
             .seed_profile_build_count
             .saturating_add(1);
-        let previous = self.seed_profiles.insert(hash.clone(), profile.clone());
+        let previous = self.seed_profiles.insert(seed_id, profile.clone());
         // Every task checks the same seed coverage. Build these sets once per
         // profile update, including old evidence when a profile is replaced.
         let covered = profile.covered_target_ids.iter()
@@ -462,23 +479,23 @@ impl SemanticRuntimeMetadata {
                 .or_default();
             let before = top
                 .iter()
-                .map(|entry| (entry.content_hash.clone(), entry.effort))
+                .map(|entry| (entry.seed_id, entry.effort))
                 .collect::<Vec<_>>();
-            top.retain(|entry| entry.content_hash != hash);
+            top.retain(|entry| entry.seed_id != seed_id);
             top.push(RankedSeed {
-                content_hash: hash.clone(),
+                seed_id,
                 effort: score,
             });
             top.sort_by(|left, right| {
                 left.effort
                     .total_cmp(&right.effort)
-                    .then_with(|| left.content_hash.cmp(&right.content_hash))
+                    .then_with(|| left.seed_id.cmp(&right.seed_id))
             });
             top.truncate(TOP_SEEDS_PER_TASK);
             top_changed |= before
                 != top
                     .iter()
-                    .map(|entry| (entry.content_hash.clone(), entry.effort))
+                    .map(|entry| (entry.seed_id, entry.effort))
                     .collect::<Vec<_>>();
         }
         self.ranking_statistics.incremental_seed_updates = self
@@ -493,14 +510,14 @@ impl SemanticRuntimeMetadata {
         top_changed
     }
 
-    pub fn invalidate_seed(&mut self, content_hash: &str) {
-        if self.seed_profiles.remove(content_hash).is_none() {
+    pub fn invalidate_seed(&mut self, seed_id: CorpusId) {
+        if self.seed_profiles.remove(&seed_id).is_none() {
             return;
         }
         for top in self.top_seeds_by_task.values_mut() {
-            top.retain(|entry| entry.content_hash != content_hash);
+            top.retain(|entry| entry.seed_id != seed_id);
         }
-        if self.best_seed_id.as_deref() == Some(content_hash) {
+        if self.best_seed_id == Some(seed_id) {
             self.active_selection = None;
             self.mark_ranking_dirty("best_seed_invalidated");
         }
@@ -514,6 +531,7 @@ impl SemanticRuntimeMetadata {
         self.active_path_indices = self.index_path(&self.active_path);
     }
 
+    #[cfg(test)]
     fn target_index(&mut self, name: &str) -> u32 {
         if let Some(index) = self.target_indices.get(name) {
             return *index;
@@ -536,6 +554,7 @@ impl SemanticRuntimeMetadata {
         self.record_execution(targets.clone(), targets, true)
     }
 
+    #[cfg(test)]
     pub fn record_execution(&mut self, target_ids: impl IntoIterator<Item = String>,
         ordered_target_ids: Vec<String>, ordered_trace_complete: bool) -> bool
     {
@@ -593,7 +612,7 @@ impl SemanticRuntimeMetadata {
             let guide_covered = !self.active_selection_succeeded
                 && self.active_guide_index.is_some_and(|index| prefix > index);
             if guide_covered {
-                self.record_attempt(true, self.best_seed_id.clone());
+                self.record_attempt(true, self.best_seed_id);
             }
         }
         if advanced {
@@ -732,7 +751,7 @@ impl SemanticRuntimeMetadata {
                 .flatten()
                 .filter_map(|ranked| {
                     self.seed_profiles
-                        .get(&ranked.content_hash)
+                        .get(&ranked.seed_id)
                         .map(|seed| (ranked.effort, seed))
                 })
                 .collect::<Vec<_>>();
@@ -752,7 +771,7 @@ impl SemanticRuntimeMetadata {
                 runtime.base_priority = base_priority;
                 runtime.gain = gain;
                 runtime.minimum_effort = minimum_effort;
-                runtime.best_seed_id = seed.map(|seed| seed.content_hash.clone());
+                runtime.best_seed_id = seed.map(|seed| seed.seed_id);
                 runtime.active_path = active_path.clone();
                 runtime.guide_target_id = Some(guide_target_id.clone());
                 runtime.remaining_obligations = active_path[prefix..].to_vec();
@@ -762,7 +781,7 @@ impl SemanticRuntimeMetadata {
             ranked.push((
                 priority,
                 task.task_id.clone(),
-                seed.map(|seed| seed.content_hash.clone()),
+                seed.map(|seed| seed.seed_id),
                 active_path,
                 guide_target_id,
             ));
@@ -861,7 +880,7 @@ impl SemanticRuntimeMetadata {
             .clone();
         let best_seed_id = self
             .select_seed_for_task(&task, seed_rank, broaden_seed)
-            .or_else(|| runtime.best_seed_id.clone());
+            .or(runtime.best_seed_id);
         let (active_path, prefix) = seed_path(&task,
             best_seed_id.as_ref().and_then(|id| self.seed_profiles.get(id)));
         let guide_target_id = active_path.get(prefix)?.clone();
@@ -877,7 +896,7 @@ impl SemanticRuntimeMetadata {
         if let Some(runtime) = self.task_states.get_mut(task_id) {
             runtime.status = TaskStatus::Active;
             runtime.last_guide_target_id = Some(guide_target_id.clone());
-            runtime.best_seed_id = best_seed_id.clone();
+            runtime.best_seed_id = best_seed_id;
             runtime.active_path = active_path.clone();
             runtime.guide_target_id = Some(guide_target_id.clone());
             runtime.remaining_obligations = active_path[prefix..].to_vec();
@@ -892,7 +911,7 @@ impl SemanticRuntimeMetadata {
             .map(|index| format!("candidate:{index}"))
             .unwrap_or_else(|| "ordered_waypoints".to_string()));
         self.active_selection_succeeded = false;
-        self.best_seed_id = best_seed_id.clone();
+        self.best_seed_id = best_seed_id;
         let remaining_obligations = active_path[prefix..].to_vec();
         let control_obligation = task
             .control_obligations
@@ -976,21 +995,21 @@ impl SemanticRuntimeMetadata {
         task: &SemanticTask,
         seed_rank: usize,
         broaden_seed: bool,
-    ) -> Option<String> {
+    ) -> Option<CorpusId> {
         if broaden_seed {
             // seed_rank is uniform in exploration mode; sorting all seeds by
             // effort cannot change that distribution and only adds work.
             if let Some(id) = self.seed_profiles.keys().nth(seed_rank) {
-                return Some(id.clone());
+                return Some(*id);
             }
         }
         self.top_seeds_by_task
             .get(&task.task_id)
             .and_then(|seeds| seeds.get(seed_rank.min(seeds.len().saturating_sub(1))))
-            .map(|seed| seed.content_hash.clone())
+            .map(|seed| seed.seed_id)
     }
 
-    pub fn record_attempt(&mut self, covered: bool, seed_id: Option<String>) {
+    pub fn record_attempt(&mut self, covered: bool, seed_id: Option<CorpusId>) {
         let Some(task_id) = self.active_task_id.clone() else {
             return;
         };
@@ -1025,7 +1044,7 @@ impl SemanticRuntimeMetadata {
     }
 
     fn record_assigned_attempt(&mut self, task_id: &str, identity: &str,
-        covered: bool, seed_id: Option<String>) {
+        covered: bool, seed_id: Option<CorpusId>) {
         let mut identity_fields = identity.splitn(3, '\0');
         let (Some(path_key), Some(index), Some(guide)) = (
             identity_fields.next(), identity_fields.next(), identity_fields.next(),

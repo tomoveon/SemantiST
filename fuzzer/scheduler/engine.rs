@@ -2,13 +2,13 @@
 struct TargetAwareScheduler {
     base: QueueScheduler,
     bootstrap_path: Option<PathBuf>,
+    // Records of earlier runs, by content hash. Only a resumed run hashes its
+    // new seeds, to reuse their metadata.
     bootstrap: HashMap<String, StSeedMetadata>,
-    // Seed metadata records not yet appended to the bootstrap file, which
+    // Seeds whose metadata is not yet appended to the bootstrap file, which
     // reports read; the inputs themselves live in the LibAFL corpus.
-    pending_bootstrap: Vec<u8>,
+    pending_bootstrap: Vec<CorpusId>,
     bootstrap_flushed: std::time::Instant,
-    seen_hashes: HashSet<String>,
-    semantic_ids_by_hash: HashMap<String, CorpusId>,
     semantic_scheduling_enabled: bool,
 }
 
@@ -61,38 +61,18 @@ impl TargetAwareScheduler {
             bootstrap,
             pending_bootstrap: Vec::new(),
             bootstrap_flushed: std::time::Instant::now(),
-            seen_hashes: HashSet::new(),
-            semantic_ids_by_hash: HashMap::new(),
             semantic_scheduling_enabled: ablation.semantic_scheduling(),
         }
     }
 
-    fn persist_runtime_seed(
-        &mut self,
-        bytes: &[u8],
-        metadata: &StSeedMetadata,
-    ) -> Result<(), Error> {
-        if !is_valid_structured_seed(bytes) || self.bootstrap_path.is_none() {
-            return Ok(());
-        }
-        if self.bootstrap.contains_key(&metadata.content_hash) {
-            return Ok(());
-        }
-        let _timer = PhaseTimer::start(Phase::IoSeedPersist);
-        serde_json::to_writer(&mut self.pending_bootstrap, metadata).map_err(|error| {
-            Error::serialize(format!(
-                "unable to serialize runtime seed metadata: {error}"
-            ))
-        })?;
-        self.pending_bootstrap.push(b'\n');
-        self.bootstrap
-            .insert(metadata.content_hash.clone(), metadata.clone());
-        Ok(())
-    }
-
     // One append per interval and one after a bounded run; the records are
-    // a report artifact, never read back during this run.
-    fn flush_bootstrap(&mut self) -> Result<(), Error> {
+    // a report artifact, never read back during this run. Content hashes are
+    // computed here, for the records written, not when seeds are added.
+    fn flush_bootstrap<I, S>(&mut self, state: &S) -> Result<(), Error>
+    where
+        S: HasCorpus<I>,
+        I: AsRef<Vec<u8>>,
+    {
         self.bootstrap_flushed = std::time::Instant::now();
         let Some(path) = self.bootstrap_path.as_deref() else {
             return Ok(());
@@ -101,9 +81,27 @@ impl TargetAwareScheduler {
             return Ok(());
         }
         let _timer = PhaseTimer::start(Phase::IoSeedPersist);
-        OpenOptions::new().create(true).append(true).open(path)?
-            .write_all(&self.pending_bootstrap)?;
-        self.pending_bootstrap.clear();
+        let hash_of = |id: CorpusId| -> Option<String> {
+            let mut testcase = state.corpus().get(id).ok()?.borrow_mut();
+            let input = testcase.load_input(state.corpus()).ok()?;
+            Some(content_hash(input.as_ref().as_ref()))
+        };
+        let mut records = Vec::new();
+        for id in self.pending_bootstrap.drain(..) {
+            // A seed removed before the flush leaves no record.
+            let Some(hash) = hash_of(id) else { continue; };
+            let Some(mut metadata) = state.corpus().get(id).ok()
+                .and_then(|cell| cell.borrow().metadata_map().get::<StSeedMetadata>().cloned()) else { continue; };
+            metadata.content_hash = hash;
+            metadata.parent_id = metadata.parent.and_then(hash_of);
+            serde_json::to_writer(&mut records, &metadata).map_err(|error| {
+                Error::serialize(format!(
+                    "unable to serialize runtime seed metadata: {error}"
+                ))
+            })?;
+            records.push(b'\n');
+        }
+        OpenOptions::new().create(true).append(true).open(path)?.write_all(&records)?;
         Ok(())
     }
 
@@ -151,23 +149,13 @@ impl TargetAwareScheduler {
         let context = semantic_target_context(&selection);
         let selected_id = selection
             .best_seed_id
-            .as_ref()
-            .and_then(|hash| {
-                state
-                    .metadata_map()
-                    .get::<SemanticCorpusIndexMetadata>()
-                    .and_then(|index| index.ids_by_hash.get(hash))
-                    .or_else(|| self.semantic_ids_by_hash.get(hash))
-            })
-            .copied();
-        if selection.best_seed_id.is_some() && selected_id.is_none() {
+            .filter(|id| state.corpus().get(*id).is_ok());
+        if let (Some(missing), None) = (selection.best_seed_id, selected_id) {
             if let Some(runtime) = state
                 .metadata_map_mut()
                 .get_mut::<SemanticRuntimeMetadata>()
             {
-                if let Some(hash) = selection.best_seed_id.as_deref() {
-                    runtime.invalidate_seed(hash);
-                }
+                runtime.invalidate_seed(missing);
             }
             return Ok(None);
         }
@@ -180,30 +168,17 @@ impl TargetAwareScheduler {
         S: HasCorpus<I> + HasMetadata,
         I: AsRef<Vec<u8>>,
     {
-        let bytes = {
+        let (valid, recorded) = {
             let mut testcase = state.corpus().get(id)?.borrow_mut();
-            testcase.load_input(state.corpus())?.as_ref().to_vec()
+            let bytes = testcase.load_input(state.corpus())?.as_ref();
+            let recorded = (!self.bootstrap.is_empty())
+                .then(|| self.bootstrap.get(&content_hash(bytes)).cloned())
+                .flatten();
+            (is_valid_structured_seed(bytes), recorded)
         };
-        let hash = content_hash(&bytes);
-        let parent_id = state.corpus().current().and_then(|parent_id| {
-            state
-                .corpus()
-                .get(parent_id)
-                .ok()
-                .and_then(|cell| {
-                    cell.borrow()
-                        .metadata_map()
-                        .get::<StSeedMetadata>()
-                        .cloned()
-                })
-                .map(|metadata| metadata.content_hash)
-        });
-        let metadata = self
-            .bootstrap
-            .get(&hash)
-            .cloned()
-            .unwrap_or_else(|| StSeedMetadata::new(source_context(state), parent_id, &bytes));
-        let mut metadata = metadata;
+        let from_bootstrap = recorded.is_some();
+        let mut metadata = recorded
+            .unwrap_or_else(|| StSeedMetadata::new(source_context(state), *state.corpus().current()));
         let context = target_context(state);
         if metadata.target_id.is_none() {
             metadata.target_id = context.target_id.clone();
@@ -254,15 +229,34 @@ impl TargetAwareScheduler {
                 })
                 .collect();
         }
-        if !self.seen_hashes.insert(hash.clone()) {
-            eprintln!("[metadata] duplicate testcase content observed: {hash}");
-        }
         state
             .corpus()
             .get(id)?
             .borrow_mut()
-            .add_metadata(metadata.clone());
-        self.persist_runtime_seed(&bytes, &metadata)?;
+            .add_metadata(metadata);
+        // A seed carried over from an earlier run's records is already there.
+        if valid && !from_bootstrap && self.bootstrap_path.is_some() {
+            self.pending_bootstrap.push(id);
+        }
+        Ok(())
+    }
+
+    fn cache_profile<I, S>(&mut self, state: &mut S, id: CorpusId) -> Result<(), Error>
+    where
+        S: HasCorpus<I> + HasMetadata,
+    {
+        let metadata = state
+            .corpus()
+            .get(id)?
+            .borrow()
+            .metadata_map()
+            .get::<StSeedMetadata>()
+            .cloned();
+        if let (Some(metadata), Some(runtime)) =
+            (metadata, state.metadata_map_mut().get_mut::<SemanticRuntimeMetadata>())
+        {
+            runtime.cache_seed_profile(seed_profile_from_metadata(id, &metadata));
+        }
         Ok(())
     }
 }
@@ -275,29 +269,14 @@ where
     fn on_remove(
         &mut self,
         state: &mut S,
-        _id: CorpusId,
-        testcase: &Option<libafl::corpus::Testcase<I>>,
+        id: CorpusId,
+        _testcase: &Option<libafl::corpus::Testcase<I>>,
     ) -> Result<(), Error> {
-        let hash = testcase.as_ref().and_then(|testcase| {
-            testcase
-                .metadata_map()
-                .get::<StSeedMetadata>()
-                .map(|metadata| metadata.content_hash.clone())
-        });
-        if let Some(hash) = hash {
-            self.semantic_ids_by_hash.remove(&hash);
-            if let Some(index) = state
-                .metadata_map_mut()
-                .get_mut::<SemanticCorpusIndexMetadata>()
-            {
-                index.ids_by_hash.remove(&hash);
-            }
-            if let Some(runtime) = state
-                .metadata_map_mut()
-                .get_mut::<SemanticRuntimeMetadata>()
-            {
-                runtime.invalidate_seed(&hash);
-            }
+        if let Some(runtime) = state
+            .metadata_map_mut()
+            .get_mut::<SemanticRuntimeMetadata>()
+        {
+            runtime.invalidate_seed(id);
         }
         Ok(())
     }
@@ -306,50 +285,16 @@ where
         &mut self,
         state: &mut S,
         id: CorpusId,
-        previous: &libafl::corpus::Testcase<I>,
+        _previous: &libafl::corpus::Testcase<I>,
     ) -> Result<(), Error> {
-        let previous_hash = previous
-            .metadata_map()
-            .get::<StSeedMetadata>()
-            .map(|metadata| metadata.content_hash.clone());
-        if let Some(hash) = previous_hash {
-            self.semantic_ids_by_hash.remove(&hash);
-            if let Some(index) = state
-                .metadata_map_mut()
-                .get_mut::<SemanticCorpusIndexMetadata>()
-            {
-                index.ids_by_hash.remove(&hash);
-            }
-            if let Some(runtime) = state
-                .metadata_map_mut()
-                .get_mut::<SemanticRuntimeMetadata>()
-            {
-                runtime.invalidate_seed(&hash);
-            }
+        if let Some(runtime) = state
+            .metadata_map_mut()
+            .get_mut::<SemanticRuntimeMetadata>()
+        {
+            runtime.invalidate_seed(id);
         }
         self.attach_metadata(state, id)?;
-        let metadata = state
-            .corpus()
-            .get(id)?
-            .borrow()
-            .metadata_map()
-            .get::<StSeedMetadata>()
-            .cloned();
-        if let Some(metadata) = metadata {
-            self.semantic_ids_by_hash
-                .insert(metadata.content_hash.clone(), id);
-            state
-                .metadata_or_insert_with(SemanticCorpusIndexMetadata::default)
-                .ids_by_hash
-                .insert(metadata.content_hash.clone(), id);
-            if let Some(runtime) = state
-                .metadata_map_mut()
-                .get_mut::<SemanticRuntimeMetadata>()
-            {
-                runtime.cache_seed_profile(seed_profile_from_metadata(&metadata));
-            }
-        }
-        Ok(())
+        self.cache_profile(state, id)
     }
 }
 
@@ -362,34 +307,13 @@ where
         let _timer = PhaseTimer::start(Phase::SchedulerOnAdd);
         self.base.on_add(state, id)?;
         self.attach_metadata(state, id)?;
-        let metadata = state
-            .corpus()
-            .get(id)?
-            .borrow()
-            .metadata_map()
-            .get::<StSeedMetadata>()
-            .cloned();
-        if let Some(metadata) = metadata {
-            self.semantic_ids_by_hash
-                .insert(metadata.content_hash.clone(), id);
-            state
-                .metadata_or_insert_with(SemanticCorpusIndexMetadata::default)
-                .ids_by_hash
-                .insert(metadata.content_hash.clone(), id);
-            if let Some(runtime) = state
-                .metadata_map_mut()
-                .get_mut::<SemanticRuntimeMetadata>()
-            {
-                runtime.cache_seed_profile(seed_profile_from_metadata(&metadata));
-            }
-        }
-        Ok(())
+        self.cache_profile(state, id)
     }
 
     fn next(&mut self, state: &mut S) -> Result<CorpusId, Error> {
         let _timer = PhaseTimer::start(Phase::SchedulerNext);
         if self.bootstrap_flushed.elapsed() >= BOOTSTRAP_FLUSH_INTERVAL {
-            self.flush_bootstrap()?;
+            self.flush_bootstrap(state)?;
         }
         if let Some(runtime) = state.metadata_map_mut().get_mut::<SemanticRuntimeMetadata>() {
             runtime.tick_selection();

@@ -393,11 +393,12 @@ fn set_env_if_missing(key: &str, value: &str) {
     }
 }
 
-fn flush_scheduler_records<F, S>(fuzzer: &mut F, _state: &S) -> Result<(), Error>
+fn flush_scheduler_records<F, S>(fuzzer: &mut F, state: &S) -> Result<(), Error>
 where
     F: HasScheduler<BytesInput, S, Scheduler = TargetAwareScheduler>,
+    S: HasCorpus<BytesInput>,
 {
-    fuzzer.scheduler_mut().flush_bootstrap()
+    fuzzer.scheduler_mut().flush_bootstrap(state)
 }
 
 fn queue_without_evaluation<F, S>(fuzzer: &mut F, state: &mut S, input: BytesInput) -> Result<CorpusId, Error>
@@ -433,7 +434,7 @@ mod tests {
 
     #[test]
     fn testcase_metadata_is_serializable_and_native() {
-        let metadata = StSeedMetadata::new(SeedSource::Initial, None, b"X,INT,0\n");
+        let metadata = StSeedMetadata::new(SeedSource::Initial, None);
         let serialized = serde_json::to_string(&metadata).unwrap();
         let restored: StSeedMetadata = serde_json::from_str(&serialized).unwrap();
         assert_eq!(restored, metadata);
@@ -664,7 +665,7 @@ mod tests {
         );
         let selection = runtime
             .select(&[SeedProfile {
-                content_hash: "seed".to_string(),
+                seed_id: CorpusId(1),
                 ..SeedProfile::default()
             }])
             .unwrap();
@@ -682,7 +683,7 @@ mod tests {
         assert_eq!(runtime.guide_target_id.as_deref(), Some("target:branch"));
         assert!(runtime.covered_target_ids.contains("target:branch"));
         runtime.cache_seed_profile(SeedProfile {
-            content_hash: "child".to_string(),
+            seed_id: CorpusId(2),
             covered_target_ids: vec!["target:branch".to_string()],
             ordered_target_ids: vec!["target:branch".to_string()],
             ordered_trace_complete: true,
@@ -1144,17 +1145,28 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         let path = root.join("testcase-metadata.bootstrap.json");
         let mut scheduler = TargetAwareScheduler::new(Some(path.clone()), SemantiSTAblation::Full);
-        let first = StSeedMetadata::new(SeedSource::Fuzzing, None, b"X,INT,1\n");
-        let second = StSeedMetadata::new(SeedSource::Fuzzing, None, b"X,INT,2\n");
-        scheduler.persist_runtime_seed(b"X,INT,1\n", &first).unwrap();
-        scheduler.persist_runtime_seed(b"X,INT,1\n", &first).unwrap();
-        scheduler.persist_runtime_seed(b"X,INT,2\n", &second).unwrap();
+        let mut feedback = SemanticNoveltyFeedback;
+        let mut objective = SemanticNoveltyFeedback;
+        let mut state = StdState::new(StdRand::with_seed(1), libafl::corpus::InMemoryCorpus::<BytesInput>::new(),
+            libafl::corpus::InMemoryCorpus::<BytesInput>::new(), &mut feedback, &mut objective).unwrap();
+        let parent = state.corpus_mut().add(Testcase::from(BytesInput::new(b"X,INT,1\n".to_vec()))).unwrap();
+        scheduler.on_add(&mut state, parent).unwrap();
+        *state.corpus_mut().current_mut() = Some(parent);
+        let child = state.corpus_mut().add(Testcase::from(BytesInput::new(b"X,INT,2\n".to_vec()))).unwrap();
+        scheduler.on_add(&mut state, child).unwrap();
+        // Seed identity in memory is the CorpusId; no content hash yet.
+        let attached = state.corpus().get(child).unwrap().borrow().metadata::<StSeedMetadata>().unwrap().clone();
+        assert!(attached.content_hash.is_empty());
+        assert_eq!(attached.parent, Some(parent));
         assert!(!path.exists());
-        scheduler.flush_bootstrap().unwrap();
+        scheduler.flush_bootstrap(&state).unwrap();
         let records = load_bootstrap_metadata(Some(&path));
         assert_eq!(fs::read_to_string(&path).unwrap().lines().count(), 2);
-        assert_eq!(records[&first.content_hash], first);
-        assert_eq!(records[&second.content_hash], second);
+        let child_record = &records[&content_hash(b"X,INT,2\n")];
+        assert_eq!(child_record.parent_id.as_deref(), Some(content_hash(b"X,INT,1\n").as_str()));
+        assert!(records[&content_hash(b"X,INT,1\n")].parent_id.is_none());
+        scheduler.flush_bootstrap(&state).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap().lines().count(), 2);
         // The inputs themselves are persisted by the LibAFL corpus only.
         assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
         fs::remove_dir_all(root).unwrap();

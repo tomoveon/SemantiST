@@ -5,12 +5,18 @@ enum SeedSource {
     Fuzzing,
 }
 
+// In memory a seed is its CorpusId and its parent the parent's CorpusId.
+// content_hash and parent_id (the parent's content hash) are filled in only
+// when the record is written, for the bootstrap file and finding reports.
 #[derive(Clone, Debug, Deserialize, PartialEq, SerdeAny, Serialize)]
 struct StSeedMetadata {
     source: SeedSource,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     parent_id: Option<String>,
+    #[serde(default)]
     content_hash: String,
+    #[serde(skip)]
+    parent: Option<CorpusId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     coverage_hash: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -66,11 +72,12 @@ fn is_false(value: &bool) -> bool {
 }
 
 impl StSeedMetadata {
-    fn new(source: SeedSource, parent_id: Option<String>, bytes: &[u8]) -> Self {
+    fn new(source: SeedSource, parent: Option<CorpusId>) -> Self {
         Self {
             source,
-            parent_id,
-            content_hash: content_hash(bytes),
+            parent_id: None,
+            content_hash: String::new(),
+            parent,
             coverage_hash: None,
             constraints: vec![],
             target_id: None,
@@ -192,11 +199,6 @@ struct SeedSourceContext {
 #[derive(Clone, Debug, Default, Deserialize, SerdeAny, Serialize)]
 struct SemanticStageControl {
     skip_mutation_once: bool,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, SerdeAny, Serialize)]
-struct SemanticCorpusIndexMetadata {
-    ids_by_hash: HashMap<String, CorpusId>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, SerdeAny, Serialize)]

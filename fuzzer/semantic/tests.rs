@@ -2,6 +2,14 @@
 mod tests {
     use super::*;
 
+    // An order-preserving CorpusId for a short ASCII seed name (seven bits per
+    // byte, nine bytes), so equal-effort ties still break by name.
+    fn seed_id(name: &str) -> libafl::corpus::CorpusId {
+        assert!(name.len() <= 9 && name.is_ascii(), "{name}");
+        libafl::corpus::CorpusId(name.bytes().chain(std::iter::repeat(0)).take(9)
+            .fold(0usize, |id, byte| id << 7 | usize::from(byte)))
+    }
+
     fn task() -> SemanticTask {
         SemanticTask {
             task_id: "task".to_string(),
@@ -55,7 +63,7 @@ mod tests {
         let mut runtime =
             SemanticRuntimeMetadata::new(plan, &HashSet::from(["violation".to_string()]));
         let selection = runtime.select(&[SeedProfile {
-            content_hash: "seed".to_string(),
+            seed_id: seed_id("seed"),
             covered_target_ids: vec!["c".to_string()],
             ordered_target_ids: vec!["c".to_string()],
             ordered_trace_complete: true,
@@ -127,7 +135,7 @@ mod tests {
         let mut runtime =
             SemanticRuntimeMetadata::new(plan, &HashSet::from(["violation".to_string()]));
         runtime.cache_seed_profile(SeedProfile {
-            content_hash: "seed".to_string(),
+            seed_id: seed_id("seed"),
             covered_target_ids: vec!["c".to_string()],
             ordered_target_ids: vec!["c".to_string()],
             ordered_trace_complete: true,
@@ -154,7 +162,7 @@ mod tests {
         let mut runtime =
             SemanticRuntimeMetadata::new(plan, &HashSet::from(["violation".to_string()]));
         runtime.cache_seed_profile(SeedProfile {
-            content_hash: "seed-b".to_string(),
+            seed_id: seed_id("seed-b"),
             covered_target_ids: vec!["c".to_string()],
             ordered_target_ids: vec!["c".to_string()],
             ordered_trace_complete: true,
@@ -168,7 +176,7 @@ mod tests {
         assert_eq!(runtime.ranking_statistics.cache_hit_count, 1);
 
         runtime.cache_seed_profile(SeedProfile {
-            content_hash: "afl-only".to_string(),
+            seed_id: seed_id("afl-only"),
             ..Default::default()
         });
         assert!(!runtime.ranking_dirty);
@@ -176,7 +184,7 @@ mod tests {
         assert_eq!(runtime.ranking_statistics.ranking_count, ranking_count);
 
         runtime.cache_seed_profile(SeedProfile {
-            content_hash: "seed-a".to_string(),
+            seed_id: seed_id("seed-a"),
             covered_target_ids: vec!["c".to_string(), "reach".to_string()],
             ordered_target_ids: vec!["c".to_string(), "reach".to_string()],
             ordered_trace_complete: true,
@@ -185,8 +193,8 @@ mod tests {
         });
         assert!(runtime.ranking_dirty);
         let updated = runtime.select_cached().unwrap();
-        assert_eq!(updated.best_seed_id.as_deref(), Some("seed-a"));
-        assert_eq!(runtime.top_seeds_by_task["task"][0].content_hash, "seed-a");
+        assert_eq!(updated.best_seed_id, Some(seed_id("seed-a")));
+        assert_eq!(runtime.top_seeds_by_task["task"][0].seed_id, seed_id("seed-a"));
     }
 
     #[test]
@@ -200,14 +208,14 @@ mod tests {
         let mapped = HashSet::from(["violation".to_string()]);
         let seeds = vec![
             SeedProfile {
-                content_hash: "seed-b".to_string(),
+                seed_id: seed_id("seed-b"),
                 covered_target_ids: vec!["c".to_string()],
                 ordered_target_ids: vec!["c".to_string()],
                 ordered_trace_complete: true,
                 ..Default::default()
             },
             SeedProfile {
-                content_hash: "seed-a".to_string(),
+                seed_id: seed_id("seed-a"),
                 covered_target_ids: vec!["c".to_string(), "reach".to_string()],
                 ordered_target_ids: vec!["c".to_string(), "reach".to_string()],
                 ordered_trace_complete: true,
@@ -252,14 +260,14 @@ mod tests {
         runtime.cache_seed_profile(observed_seed("moving", &["a"]));
         assert_eq!(runtime.top_seeds_by_task["task-a"][0].effort, 1.0);
         assert!(!runtime.top_seeds_by_task["task-b"].iter()
-            .any(|seed| seed.content_hash == "moving"));
+            .any(|seed| seed.seed_id == seed_id("moving")));
 
         let replacement = observed_seed("moving", &["b"]);
         runtime.cache_seed_profile(replacement.clone());
         let old_task_seed = runtime.top_seeds_by_task["task-a"].iter()
-            .find(|seed| seed.content_hash == "moving").unwrap();
+            .find(|seed| seed.seed_id == seed_id("moving")).unwrap();
         assert_eq!(old_task_seed.effort, 2.0);
-        assert_eq!(runtime.top_seeds_by_task["task-b"][0].content_hash, "moving");
+        assert_eq!(runtime.top_seeds_by_task["task-b"][0].seed_id, seed_id("moving"));
         assert_eq!(runtime.top_seeds_by_task["task-b"][0].effort, 1.0);
         assert_eq!(runtime.corpus_epoch, 2);
 
@@ -291,7 +299,7 @@ mod tests {
         let mut runtime = SemanticRuntimeMetadata::new(plan, &mapped);
         for index in 0..512 {
             runtime.cache_seed_profile(SeedProfile {
-                content_hash: format!("seed-{index:04}"),
+                seed_id: seed_id(&format!("seed-{index:04}")),
                 ordered_target_ids: if index == 0 { vec!["c".to_string()] } else { Vec::new() },
                 ordered_trace_complete: true,
                 covered_target_ids: if index == 0 {
@@ -310,7 +318,7 @@ mod tests {
         assert_eq!(runtime.ranking_statistics.ranking_count, ranking_count);
         assert_eq!(runtime.ranking_statistics.cache_hit_count, 1_000);
 
-        runtime.record_attempt(false, Some("seed-0000".to_string()));
+        runtime.record_attempt(false, Some(seed_id("seed-0000")));
         assert!(runtime.ranking_dirty);
         runtime.select_cached().unwrap();
         assert_eq!(runtime.ranking_statistics.ranking_count, ranking_count + 1);
@@ -339,7 +347,7 @@ mod tests {
     fn observed_seed(id: &str, observed: &[&str]) -> SeedProfile {
         let ordered_target_ids = observed.iter().map(|id| (*id).to_string()).collect::<Vec<_>>();
         SeedProfile {
-            content_hash: id.to_string(),
+            seed_id: seed_id(id),
             covered_target_ids: ordered_target_ids.clone(),
             ordered_target_ids,
             ordered_trace_complete: true,
@@ -354,7 +362,7 @@ mod tests {
         runtime.cache_seed_profile(observed_seed("explore", &[]));
         assert_eq!(runtime.select_cached().unwrap().guide_target_id, "violation");
         let selected = runtime.activate_task_with_seed_mode("linear-task", 1, true).unwrap();
-        assert_eq!(selected.best_seed_id.as_deref(), Some("explore"));
+        assert_eq!(selected.best_seed_id, Some(seed_id("explore")));
         assert_eq!(selected.guide_target_id, "a");
         assert_eq!(selected.remaining_obligations, vec!["a", "b", "violation"]);
     }
@@ -507,7 +515,7 @@ mod tests {
         assert_eq!(runtime.active_guide_index, Some(2));
         runtime.cache_seed_profile(observed_seed("child", &["a", "b", "a"]));
         let child = runtime.activate_task_with_seed_mode("linear-task", 0, true).unwrap();
-        assert_eq!(child.best_seed_id.as_deref(), Some("child"));
+        assert_eq!(child.best_seed_id, Some(seed_id("child")));
         assert_eq!(child.guide_index, 3);
         assert_eq!(child.guide_target_id, "violation");
     }
@@ -516,7 +524,7 @@ mod tests {
     fn legacy_flat_sets_cannot_skip_guides_and_partial_order_only_proves_its_prefix() {
         let mut runtime = linear_runtime();
         let mut seed = SeedProfile {
-            content_hash: "legacy".to_string(),
+            seed_id: seed_id("legacy"),
             covered_target_ids: vec!["a".to_string(), "b".to_string()],
             ..Default::default()
         };

@@ -2109,7 +2109,9 @@ impl RuntimeFindingFeedback {
                 source_label, kind, digest
             )
         };
-        let mut metadata = StSeedMetadata::new(source.clone(), parent_id.clone(), input.as_ref());
+        let mut metadata = StSeedMetadata::new(source.clone(), *state.corpus().current());
+        metadata.content_hash = digest.clone();
+        metadata.parent_id = parent_id.clone();
         metadata.is_finding = true;
         metadata.finding_source = Some(source_label.clone());
         metadata.finding_kind = Some(kind.clone());

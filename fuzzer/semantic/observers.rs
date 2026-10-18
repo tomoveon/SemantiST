@@ -604,9 +604,9 @@ fn content_hash(bytes: &[u8]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-fn seed_profile_from_metadata(metadata: &StSeedMetadata) -> SeedProfile {
+fn seed_profile_from_metadata(seed_id: CorpusId, metadata: &StSeedMetadata) -> SeedProfile {
     SeedProfile {
-        content_hash: metadata.content_hash.clone(),
+        seed_id,
         covered_target_ids: if metadata.covered_target_ids.is_empty() {
             metadata.semantic_coverage.keys().cloned().collect()
         } else {
@@ -618,7 +618,7 @@ fn seed_profile_from_metadata(metadata: &StSeedMetadata) -> SeedProfile {
         cycle_ids: metadata.cycle_ids.clone(),
         state_signatures: metadata.state_signatures.clone(),
         target_affinity: metadata.target_affinity.clone(),
-        parent_id: metadata.parent_id.clone(),
+        parent_id: metadata.parent,
     }
 }
 
@@ -826,23 +826,15 @@ fn finding_severity(kind: &str) -> &'static str {
     }
 }
 
+// The current testcase's content hash, for a finding record.
 fn parent_hash<S>(state: &S) -> Option<String>
 where
     S: HasCorpus<BytesInput>,
 {
-    state.corpus().current().and_then(|id| {
-        state
-            .corpus()
-            .get(id)
-            .ok()
-            .and_then(|cell| {
-                cell.borrow()
-                    .metadata_map()
-                    .get::<StSeedMetadata>()
-                    .cloned()
-            })
-            .map(|metadata| metadata.content_hash)
-    })
+    let id = state.corpus().current().as_ref().copied()?;
+    let mut testcase = state.corpus().get(id).ok()?.borrow_mut();
+    let input = testcase.load_input(state.corpus()).ok()?;
+    Some(content_hash(input.as_ref()))
 }
 
 const INPUT_HASH_CAPACITY: usize = 65_536;
