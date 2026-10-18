@@ -66,6 +66,8 @@ struct SemanticViolationObjective<C, O> {
     map_ref: Handle<C>,
     candidate_slots: HashMap<u32, usize>,
     seen_candidates: Vec<bool>,
+    slot_entries: Vec<RuntimeTargetEntry>,
+    pending: Option<PendingSemanticFindings>,
     phantom: std::marker::PhantomData<O>,
 }
 
@@ -84,9 +86,13 @@ where
     fn new(map_observer: &C, table: &RuntimeIdTable) -> Self {
         let mut keys = BTreeMap::new();
         let mut candidate_slots = HashMap::new();
+        let mut slot_entries = Vec::new();
         for entry in table.entries.iter().filter(|entry| is_exact_semantic_violation(entry)) {
             let next = keys.len();
             let slot = *keys.entry((entry.stable_id.clone(), entry.kind.clone(), entry.hazard.clone())).or_insert(next);
+            if slot == slot_entries.len() {
+                slot_entries.push(entry.clone());
+            }
             candidate_slots.insert(entry.runtime_id, slot);
         }
         Self {
@@ -94,8 +100,17 @@ where
             map_ref: map_observer.handle(),
             candidate_slots,
             seen_candidates: vec![false; keys.len()],
+            slot_entries,
+            pending: None,
             phantom: std::marker::PhantomData,
         }
+    }
+
+    /// Report each newly reached violation target so its input is persisted
+    /// with the stable target ID and hazard kind.
+    fn with_pending_findings(mut self, pending: PendingSemanticFindings) -> Self {
+        self.pending = Some(pending);
+        self
     }
 }
 
@@ -138,6 +153,9 @@ where
             if index < usable_count && observer.get(index) != initial {
                 self.seen_candidates[slot] = true;
                 novel = true;
+                if let Some(pending) = &self.pending {
+                    pending.borrow_mut().push(self.slot_entries[slot].clone());
+                }
             }
         }
         Ok(novel)
@@ -808,6 +826,26 @@ mod semantic_objective_regressions {
             schema_version: "semantist.runtime-ids/1.0.0".into(),
             entries,
         }
+    }
+
+    #[test]
+    fn newly_reached_violations_are_reported_once_with_their_target() {
+        let mut map = vec![0u8; 6];
+        let observer = unsafe { StdMapObserver::new("pending-objective", &mut map) };
+        let handle = observer.handle();
+        let pending = PendingSemanticFindings::default();
+        let mut objective = SemanticViolationObjective::new(&observer, &candidate_table())
+            .with_pending_findings(pending.clone());
+        let mut observers = tuple_list!(observer);
+        // Runtime IDs 0 and 2 alias one violation; 3 is a property violation.
+        observers.get_mut(&handle).unwrap().as_slice_mut().copy_from_slice(&[1, 0, 1, 1, 0, 0]);
+        assert!(objective.is_interesting(&mut (), &mut (), &(), &observers, &ExitKind::Ok).unwrap());
+        let mut reported = pending.borrow().iter().map(|entry| entry.stable_id.clone()).collect::<Vec<_>>();
+        reported.sort();
+        assert_eq!(reported, vec!["alias", "property"]);
+        pending.borrow_mut().clear();
+        assert!(!objective.is_interesting(&mut (), &mut (), &(), &observers, &ExitKind::Ok).unwrap());
+        assert!(pending.borrow().is_empty());
     }
 
     // Preserve the old full-map algorithm as a behavioral oracle. Compare

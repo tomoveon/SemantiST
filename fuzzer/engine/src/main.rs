@@ -2,12 +2,12 @@
 mod semantic;
 
 use libafl::{
-    corpus::{Corpus, CorpusId, InMemoryOnDiskCorpus, OnDiskCorpus},
+    corpus::{Corpus, CorpusId, InMemoryOnDiskCorpus, OnDiskCorpus, Testcase},
     events::SimpleEventManager,
     executors::{forkserver::ForkserverExecutor, ExitKind, HasObservers, StdChildArgs},
     feedback_or,
     feedbacks::{Feedback, MaxMapFeedback, StateInitializer, TimeFeedback},
-    fuzzer::{Evaluator, Fuzzer, InputFilter, StdFuzzer},
+    fuzzer::{Evaluator, Fuzzer, HasScheduler, InputFilter, StdFuzzer},
     inputs::BytesInput,
     monitors::SimpleMonitor,
     mutators::{MutationResult, Mutator, Tokens},
@@ -118,7 +118,16 @@ fn main() -> Result<(), Error> {
     let time_observer = TimeObserver::new("time");
 
     // 4. feedback 决定哪些输入进入 corpus；objective 决定哪些输入是 crash/solution。
-    let semantic_objective = SemanticViolationObjective::new(&semantic_observer, &runtime_ids);
+    let runtime_findings = RuntimeFindingFeedback::new(
+        config.findings_dir.clone(),
+        config.crashes_dir.clone(),
+        config.metadata_bootstrap.clone(),
+        config.events_file.clone(),
+        sanitizer_log_dir.clone(),
+    )
+    .with_start(fuzz_started);
+    let semantic_objective = SemanticViolationObjective::new(&semantic_observer, &runtime_ids)
+        .with_pending_findings(runtime_findings.pending_semantic_findings());
     let semantic_evidence = SemanticEvidenceCollector(
         SemanticIrCoverageFeedback::new(&semantic_observer, runtime_ids)
             .with_telemetry(&telemetry_observer));
@@ -128,17 +137,9 @@ fn main() -> Result<(), Error> {
         TimeFeedback::new(&time_observer)
     );
 
-    let mut objective = feedback_or!(
-        semantic_evidence,
-        semantic_objective,
-        RuntimeFindingFeedback::new(
-            config.findings_dir.clone(),
-            config.crashes_dir.clone(),
-            config.metadata_bootstrap.clone(),
-            config.events_file.clone(),
-            sanitizer_log_dir.clone(),
-        )
-    );
+    // Eager OR: the runtime feedback runs after the semantic objective and
+    // persists the violations it reported for this input.
+    let mut objective = feedback_or!(semantic_evidence, semantic_objective, runtime_findings);
 
     // 5. state 保存 RNG、corpus、crashes，以及 feedback 的元数据。
     let mut state = StdState::new(
@@ -260,24 +261,21 @@ fn main() -> Result<(), Error> {
         }
     }
     if state.corpus().is_empty() {
-        if runtime_findings_exist(&config.findings_dir) {
-            append_json_value(
-                &config.events_file,
-                &serde_json::json!({
-                    "event": "startup_completed_with_findings",
-                    "reason": "all startup inputs were classified as objectives",
-                    "executions": *state.executions(),
-                    "unix_time_seconds": unix_time_seconds(),
-                }),
-            )?;
-            println!(
-                "Startup inputs produced runtime findings before a non-objective corpus seed was admitted; stopping after confirmed objectives."
-            );
-            return Ok(());
-        }
-        return Err(Error::illegal_state(
-            "all structured bootstrap inputs were objectives; no seed can initialize the corpus",
-        ));
+        // Every startup input was an objective. Those findings are already
+        // recorded near t=0; queue the base seed anyway so the campaign still
+        // explores the rest of the target instead of ending here.
+        queue_without_evaluation(&mut fuzzer, &mut state, startup_corpus_seed(&config.seed_dir))?;
+        append_json_value(
+            &config.events_file,
+            &serde_json::json!({
+                "event": "startup_objectives_seeded_corpus",
+                "reason": "all startup inputs were classified as objectives",
+                "executions": *state.executions(),
+                "elapsed_seconds": fuzz_started.elapsed().as_secs_f64(),
+                "unix_time_seconds": unix_time_seconds(),
+            }),
+        )?;
+        println!("All startup inputs were objectives; continuing from the base seed.");
     }
     state.add_metadata(SeedSourceContext {
         source: SeedSource::Fuzzing,
@@ -337,7 +335,7 @@ fn set_default_sanitizer_env(log_dir: &Path) {
     set_env_if_missing(
         "UBSAN_OPTIONS",
         &format!(
-            "abort_on_error=1:symbolize=0:print_stacktrace=0:log_path={}",
+            "abort_on_error=1:symbolize=0:print_stacktrace=1:log_path={}",
             ubsan_log.display()
         ),
     );
@@ -350,27 +348,31 @@ fn set_env_if_missing(key: &str, value: &str) {
     }
 }
 
-fn runtime_findings_exist(findings_dir: &Path) -> bool {
-    let Ok(entries) = fs::read_dir(findings_dir) else {
-        return false;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| name == "sanitizer-logs")
-        {
-            continue;
-        }
-        if path.is_file() {
-            return true;
-        }
-        if path.is_dir() && runtime_findings_exist(&path) {
-            return true;
-        }
-    }
-    false
+fn queue_without_evaluation<F, S>(fuzzer: &mut F, state: &mut S, input: BytesInput) -> Result<CorpusId, Error>
+where
+    F: HasScheduler<BytesInput, S>,
+    S: HasCorpus<BytesInput>,
+{
+    let id = state.corpus_mut().add(Testcase::from(input))?;
+    fuzzer.scheduler_mut().on_add(state, id)?;
+    Ok(id)
+}
+
+fn startup_corpus_seed(seed_dir: &Path) -> BytesInput {
+    let mut paths = fs::read_dir(seed_dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .collect::<Vec<_>>();
+    paths.sort();
+    paths
+        .into_iter()
+        .filter_map(|path| fs::read(path).ok())
+        .find(|bytes| is_valid_structured_seed(bytes))
+        .map(BytesInput::new)
+        .or_else(|| bootstrap_seed_variants(seed_dir).into_iter().next())
+        .unwrap_or_else(|| BytesInput::new(b"IN,INT,0\n".to_vec()))
 }
 
 #[cfg(test)]

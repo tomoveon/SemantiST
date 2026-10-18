@@ -1884,6 +1884,10 @@ fn is_valid_structured_seed(bytes: &[u8]) -> bool {
     found_record
 }
 
+// Exact STG violations newly reached by the current execution. The semantic
+// objective fills it; RuntimeFindingFeedback, which sees the input, persists it.
+type PendingSemanticFindings = std::rc::Rc<std::cell::RefCell<Vec<RuntimeTargetEntry>>>;
+
 #[derive(Debug)]
 struct RuntimeFindingFeedback {
     name: Cow<'static, str>,
@@ -1892,8 +1896,10 @@ struct RuntimeFindingFeedback {
     bootstrap_path: Option<PathBuf>,
     events_file: PathBuf,
     sanitizer_log_dir: PathBuf,
-    seen: HashSet<String>,
+    started: std::time::Instant,
+    signatures: HashMap<String, u64>,
     seen_sanitizer_logs: HashSet<String>,
+    pending_semantic: PendingSemanticFindings,
 }
 
 #[derive(Clone, Debug)]
@@ -1901,6 +1907,7 @@ struct SanitizerEvidence {
     kind: String,
     path: PathBuf,
     fingerprint: String,
+    signature: String,
 }
 
 impl RuntimeFindingFeedback {
@@ -1919,9 +1926,20 @@ impl RuntimeFindingFeedback {
             bootstrap_path,
             events_file,
             sanitizer_log_dir,
-            seen: HashSet::new(),
+            started: std::time::Instant::now(),
+            signatures: HashMap::new(),
             seen_sanitizer_logs,
+            pending_semantic: PendingSemanticFindings::default(),
         }
+    }
+
+    fn with_start(mut self, started: std::time::Instant) -> Self {
+        self.started = started;
+        self
+    }
+
+    fn pending_semantic_findings(&self) -> PendingSemanticFindings {
+        self.pending_semantic.clone()
     }
 
     fn take_new_sanitizer_evidence(&mut self) -> Option<SanitizerEvidence> {
@@ -1957,12 +1975,14 @@ impl RuntimeFindingFeedback {
                 .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
                 .map(|duration| duration.as_nanos())
                 .unwrap_or_default();
+            let signature = sanitizer_signature(&kind, &String::from_utf8_lossy(&contents));
             candidates.push((
                 modified,
                 SanitizerEvidence {
                     kind,
                     fingerprint,
                     path,
+                    signature,
                 },
             ));
         }
@@ -1973,6 +1993,64 @@ impl RuntimeFindingFeedback {
             }
         }
         None
+    }
+
+    fn write_reproducer(&self, source_label: &str, input: &BytesInput) -> Result<(String, PathBuf, PathBuf), Error> {
+        let digest = content_hash(input.as_ref());
+        let finding_dir = self.findings_dir.join(source_label);
+        fs::create_dir_all(&finding_dir)?;
+        fs::create_dir_all(&self.target_corpus_dir)?;
+        let seed_path = finding_dir.join(format!("{digest}.seed"));
+        fs::write(&seed_path, input.as_ref())?;
+        Ok((digest, finding_dir, seed_path))
+    }
+
+    fn persist_semantic_finding<S>(
+        &mut self,
+        state: &S,
+        input: &BytesInput,
+        entry: &RuntimeTargetEntry,
+    ) -> Result<(), Error>
+    where
+        S: HasCorpus<BytesInput> + HasExecutions + HasMetadata,
+    {
+        if !is_valid_structured_seed(input.as_ref()) {
+            return Ok(());
+        }
+        let source_label = seed_source_label(&source_context(state)).to_string();
+        let (digest, finding_dir, seed_path) = self.write_reproducer(&source_label, input)?;
+        let record = SemanticFindingRecord {
+            schema_version: "1.0",
+            kind: "semantic_violation",
+            source: source_label,
+            content_hash: digest,
+            reproducer: seed_path.display().to_string(),
+            target_id: entry.stable_id.clone(),
+            target_kind: entry.kind.clone(),
+            hazard: entry.hazard.clone(),
+            modeling: entry.modeling.clone(),
+            target_source: entry.source.clone(),
+            executions: *state.executions(),
+            elapsed_seconds: self.started.elapsed().as_secs_f64(),
+            unix_time_seconds: unix_time_seconds(),
+        };
+        let file_stem = entry.stable_id.replace(|c: char| !c.is_ascii_alphanumeric(), "_");
+        let serialized = serde_json::to_string_pretty(&record).map_err(|error| {
+            Error::serialize(format!("unable to serialize semantic finding: {error}"))
+        })?;
+        fs::write(finding_dir.join(format!("semantic-{file_stem}.json")), format!("{serialized}\n"))?;
+        append_json_value(
+            &self.events_file,
+            &serde_json::json!({
+                "event": "semantic_finding",
+                "target_id": entry.stable_id,
+                "hazard": entry.hazard,
+                "reproducer": record.reproducer,
+                "executions": record.executions,
+                "elapsed_seconds": record.elapsed_seconds,
+                "unix_time_seconds": record.unix_time_seconds,
+            }),
+        )
     }
 
     fn persist_finding<S>(
@@ -1988,8 +2066,12 @@ impl RuntimeFindingFeedback {
         if !is_valid_structured_seed(input.as_ref()) {
             return Ok(());
         }
-        let digest = content_hash(input.as_ref());
-        if !self.seen.insert(digest.clone()) {
+        let signature = sanitizer_evidence
+            .map(|evidence| evidence.signature.clone())
+            .unwrap_or_else(|| exit_kind_label(exit_kind).to_string());
+        let occurrences = self.signatures.entry(signature.clone()).or_insert(0);
+        *occurrences += 1;
+        if *occurrences > 1 {
             return Ok(());
         }
 
@@ -2001,12 +2083,7 @@ impl RuntimeFindingFeedback {
         let sanitizer_log = sanitizer_evidence
             .map(|evidence| evidence.path.display().to_string());
         let parent_id = parent_hash(state);
-        let finding_dir = self.findings_dir.join(&source_label);
-        fs::create_dir_all(&finding_dir)?;
-        fs::create_dir_all(&self.target_corpus_dir)?;
-
-        let seed_path = finding_dir.join(format!("{digest}.seed"));
-        fs::write(&seed_path, input.as_ref())?;
+        let (digest, finding_dir, seed_path) = self.write_reproducer(&source_label, input)?;
 
         let detail = if let Some(path) = sanitizer_log.as_deref() {
             format!(
@@ -2034,10 +2111,11 @@ impl RuntimeFindingFeedback {
         persist_bootstrap_metadata(self.bootstrap_path.as_deref(), metadata)?;
 
         let now = unix_time_seconds();
+        let elapsed_seconds = self.started.elapsed().as_secs_f64();
         let cycle_metadata = infer_seed_cycle_metadata(input.as_ref());
         let trace_metadata = read_fb_state_trace_metadata();
         let record = RuntimeFindingRecord {
-            schema_version: "1.0",
+            schema_version: "1.1",
             executions: *state.executions(),
             content_hash: digest.clone(),
             source: source_label.clone(),
@@ -2070,6 +2148,8 @@ impl RuntimeFindingFeedback {
             stale_cycles: trace_metadata.stale_cycles,
             last_changed_cycle: trace_metadata.last_changed_cycle,
             state_hashes: trace_metadata.state_hashes,
+            signature: signature.clone(),
+            elapsed_seconds,
             unix_time_seconds: now,
         };
         let json_path = finding_dir.join(format!("{digest}.json"));
@@ -2087,7 +2167,9 @@ impl RuntimeFindingFeedback {
                 content_hash: digest,
                 reproducer: seed_path.display().to_string(),
                 sanitizer_log,
+                signature,
                 executions: *state.executions(),
+                elapsed_seconds,
                 unix_time_seconds: now,
             },
         )?;
@@ -2115,6 +2197,10 @@ where
         _observers: &OT,
         exit_kind: &ExitKind,
     ) -> Result<bool, Error> {
+        let semantic = std::mem::take(&mut *self.pending_semantic.borrow_mut());
+        for entry in &semantic {
+            self.persist_semantic_finding(state, input, entry)?;
+        }
         let sanitizer_evidence = self.take_new_sanitizer_evidence();
         if !exit_kind_is_finding(exit_kind) && sanitizer_evidence.is_none() {
             return Ok(false);
@@ -2122,6 +2208,47 @@ where
         self.persist_finding(state, input, exit_kind, sanitizer_evidence.as_ref())?;
         Ok(true)
     }
+}
+
+// Deduplication key of a sanitizer report: the error summary plus the top
+// three stack frames as module+offset, skipping shared-library frames (libc
+// abort/raise are identical for unrelated bugs). Offsets are stable for one
+// binary because ASan runs with symbolize=0.
+fn sanitizer_signature(kind: &str, report: &str) -> String {
+    let summary = report
+        .lines()
+        .find_map(|line| line.split_once("SUMMARY: ").map(|(_, rest)| rest))
+        .map(|rest| rest.split(" (").next().unwrap_or(rest).trim().to_string())
+        .or_else(|| {
+            report
+                .lines()
+                .find_map(|line| line.split_once("runtime error: ").map(|(_, rest)| rest.trim().to_string()))
+        })
+        .unwrap_or_default();
+    let frames = report
+        .lines()
+        .filter_map(stack_frame_key)
+        .filter(|frame| !(frame.starts_with("lib") && frame.contains(".so")))
+        .take(3)
+        .collect::<Vec<_>>();
+    format!("{kind}|{summary}|{}", frames.join(","))
+}
+
+fn stack_frame_key(line: &str) -> Option<String> {
+    let line = line.trim_start();
+    let rest = line.strip_prefix('#')?;
+    let digits = rest.chars().take_while(char::is_ascii_digit).count();
+    if digits == 0 {
+        return None;
+    }
+    if let Some((_, symbolized)) = rest.split_once(" in ") {
+        return symbolized.split_whitespace().next().map(str::to_string);
+    }
+    let open = rest.find('(')?;
+    let close = open + rest[open..].find(')')?;
+    let (module, offset) = rest[open + 1..close].rsplit_once("+0x")?;
+    let module = module.rsplit('/').next().unwrap_or(module);
+    Some(format!("{module}+0x{offset}"))
 }
 
 fn sanitizer_log_name_is_candidate(file_name: &str) -> bool {
@@ -2351,6 +2478,30 @@ mod mutation_regression_tests {
         // Also reject a mismatched expression in a hazard-labelled context.
         let invalid = TargetContext { target_type: Some("hazard_reach".into()), ..context };
         assert!(!mutate_hazard_goal(&mut rand, &mut records, &invalid));
+    }
+
+    #[test]
+    fn sanitizer_signature_is_stable_across_runs_and_skips_libc_frames() {
+        let report = |dir: &str| format!(
+            "==1==ERROR: AddressSanitizer: stack-buffer-overflow on address 0x1 at pc 0x2\n\
+             \x20   #0 0x55 ({dir}/fuzz_target+0xd06ad) (BuildId: aa)\n\
+             \x20   #1 0x56 (/lib/x86_64-linux-gnu/libc.so.6+0x2a1c9) (BuildId: bb)\n\
+             \x20   #2 0x57 ({dir}/fuzz_target+0x11d49f) (BuildId: aa)\n\
+             \x20   #3 0x58 ({dir}/fuzz_target+0x1192a0) (BuildId: aa)\n\
+             \x20   #4 0x59 ({dir}/fuzz_target+0x11846b) (BuildId: aa)\n\
+             SUMMARY: AddressSanitizer: stack-buffer-overflow ({dir}/fuzz_target+0xd06ad) (BuildId: aa)\n");
+        let first = sanitizer_signature("asan", &report("/runs/trial_01"));
+        assert_eq!(
+            first,
+            "asan|AddressSanitizer: stack-buffer-overflow|fuzz_target+0xd06ad,fuzz_target+0x11d49f,fuzz_target+0x1192a0"
+        );
+        assert_eq!(first, sanitizer_signature("asan", &report("/runs/trial_02")));
+        let other = report("/runs/trial_01").replace("0x11d49f", "0x11d4a0");
+        assert_ne!(first, sanitizer_signature("asan", &other));
+        assert_eq!(
+            sanitizer_signature("ubsan", "x.st:3:1: runtime error: division by zero\n"),
+            "ubsan|division by zero|"
+        );
     }
 
     #[test]

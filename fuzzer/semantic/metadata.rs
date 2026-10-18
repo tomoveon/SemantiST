@@ -120,6 +120,30 @@ struct RuntimeFindingRecord {
     stale_cycles: Vec<i32>,
     last_changed_cycle: Option<i32>,
     state_hashes: Vec<CycleStateHash>,
+    // One record per crash signature; later inputs with the same signature
+    // are counted as duplicates and not persisted.
+    signature: String,
+    // Monotonic seconds since the fuzzer process started (time-to-exposure).
+    elapsed_seconds: f64,
+    unix_time_seconds: u64,
+}
+
+// A newly reached exact STG violation target, which is a solution without a
+// crash. The stable target ID ties it back to the STG model.
+#[derive(Debug, Serialize)]
+struct SemanticFindingRecord {
+    schema_version: &'static str,
+    kind: &'static str,
+    source: String,
+    content_hash: String,
+    reproducer: String,
+    target_id: String,
+    target_kind: String,
+    hazard: Option<String>,
+    modeling: String,
+    target_source: Option<serde_json::Value>,
+    executions: u64,
+    elapsed_seconds: f64,
     unix_time_seconds: u64,
 }
 
@@ -154,7 +178,9 @@ struct RuntimeFindingEvent {
     content_hash: String,
     reproducer: String,
     sanitizer_log: Option<String>,
+    signature: String,
     executions: u64,
+    elapsed_seconds: f64,
     unix_time_seconds: u64,
 }
 
