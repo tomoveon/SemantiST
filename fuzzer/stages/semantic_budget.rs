@@ -1,8 +1,13 @@
+// The task state file is a diagnostic snapshot for reports. Rewriting it is a
+// replace-by-rename, which some filesystems flush synchronously, so it is
+// written on an interval and once more after a bounded run.
+const SEMANTIC_STATE_WRITE_INTERVAL: Duration = Duration::from_secs(5);
+
 #[derive(Debug)]
 struct SemanticTaskBudgetStage {
     last_guide_target_id: Option<String>,
     last_accounted_executions: u64,
-    last_state_signature: Option<String>,
+    last_state_write: Option<std::time::Instant>,
     executions_by_guide: HashMap<String, u64>,
     successes_by_guide: HashMap<String, u64>,
     budget: u64,
@@ -15,13 +20,21 @@ impl SemanticTaskBudgetStage {
         Self {
             last_guide_target_id: None,
             last_accounted_executions: 0,
-            last_state_signature: None,
+            last_state_write: None,
             executions_by_guide: HashMap::new(),
             successes_by_guide: HashMap::new(),
             budget: budget.max(1),
             state_file,
             last_scan_report: None,
         }
+    }
+
+    fn state_write_due(&mut self, now: std::time::Instant) -> bool {
+        if self.last_state_write.is_some_and(|last| now.duration_since(last) < SEMANTIC_STATE_WRITE_INTERVAL) {
+            return false;
+        }
+        self.last_state_write = Some(now);
+        true
     }
 
     fn account_execution_progress(
@@ -74,21 +87,6 @@ fn semantic_state_detail_enabled() -> bool {
             .to_ascii_lowercase()
             .as_str(),
         "1" | "true" | "yes" | "full" | "debug"
-    )
-}
-
-fn semantic_state_signature(runtime: &SemanticRuntimeMetadata) -> String {
-    format!(
-        "{}:{}:{:?}:{:?}:{:?}:{:?}:{}:{}:{}",
-        runtime.coverage_epoch,
-        runtime.corpus_epoch,
-        runtime.active_task_id,
-        runtime.guide_target_id,
-        runtime.active_path_key,
-        runtime.active_guide_index,
-        runtime.covered_target_ids.len(),
-        runtime.ranking.len(),
-        runtime.attempt_history.len()
     )
 }
 
@@ -196,10 +194,8 @@ where
             self.last_guide_target_id = None;
         }
         if let Some(runtime) = state.metadata_map().get::<SemanticRuntimeMetadata>() {
-            let signature = semantic_state_signature(runtime);
-            if self.last_state_signature.as_ref() != Some(&signature) {
+            if self.state_write_due(std::time::Instant::now()) {
                 persist_semantic_task_state(&self.state_file, runtime)?;
-                self.last_state_signature = Some(signature);
             }
         }
         Ok(())
@@ -219,6 +215,16 @@ impl<S> Restartable<S> for SemanticTaskBudgetStage {
 #[cfg(test)]
 mod semantic_budget_window_tests {
     use super::*;
+
+    #[test]
+    fn task_state_is_written_once_per_interval() {
+        let mut stage = SemanticTaskBudgetStage::new(3, PathBuf::from("unused.json"));
+        let start = std::time::Instant::now();
+        assert!(stage.state_write_due(start));
+        assert!(!stage.state_write_due(start + Duration::from_secs(1)));
+        assert!(stage.state_write_due(start + SEMANTIC_STATE_WRITE_INTERVAL));
+        assert!(!stage.state_write_due(start + SEMANTIC_STATE_WRITE_INTERVAL + Duration::from_secs(4)));
+    }
 
     #[test]
     fn successful_window_resets_budget_before_failure_accounting() {

@@ -1,24 +1,20 @@
-fn append_runtime_finding_event(path: &Path, event: &RuntimeFindingEvent) -> Result<(), Error> {
-    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
-    serde_json::to_writer(&mut file, event).map_err(|error| {
-        Error::serialize(format!(
-            "unable to serialize runtime finding event: {error}"
-        ))
-    })?;
-    file.write_all(b"\n")?;
+// Each record is serialized first and appended with one write: serde_json
+// writes token by token, which into a bare File is one syscall per token.
+fn append_json_line(path: &Path, value: &impl Serialize, what: &str) -> Result<(), Error> {
+    let mut line = serde_json::to_vec(value)
+        .map_err(|error| Error::serialize(format!("unable to serialize {what}: {error}")))?;
+    line.push(b'\n');
+    OpenOptions::new().create(true).append(true).open(path)?.write_all(&line)?;
     Ok(())
+}
+
+fn append_runtime_finding_event(path: &Path, event: &RuntimeFindingEvent) -> Result<(), Error> {
+    append_json_line(path, event, "runtime finding event")
 }
 
 fn append_json_value(path: &Path, value: &serde_json::Value) -> Result<(), Error> {
     let _timer = PhaseTimer::start(Phase::IoEvents);
-    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
-    serde_json::to_writer(&mut file, value).map_err(|error| {
-        Error::serialize(format!(
-            "unable to serialize semantic coverage event: {error}"
-        ))
-    })?;
-    file.write_all(b"\n")?;
-    Ok(())
+    append_json_line(path, value, "semantic coverage event")
 }
 
 fn load_runtime_id_table(path: Option<&Path>) -> Result<RuntimeIdTable, Error> {

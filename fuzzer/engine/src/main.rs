@@ -172,11 +172,7 @@ fn main() -> Result<(), Error> {
     let mut mgr = SimpleEventManager::new(monitor);
 
     // 6. scheduler 决定下一轮从 corpus 里挑哪个 testcase。
-    let scheduler = TargetAwareScheduler::new(
-        config.metadata_bootstrap.clone(),
-        config.seed_dir.clone(),
-        config.ablation,
-    );
+    let scheduler = TargetAwareScheduler::new(config.metadata_bootstrap.clone(), config.ablation);
     let mut fuzzer = StdFuzzer::builder()
         .scheduler(scheduler)
         .feedback(feedback)
@@ -358,6 +354,10 @@ fn main() -> Result<(), Error> {
     phase_profile_begin(Some(config.events_file.with_file_name("phase-profile.txt")));
     if let Some(iterations) = config.fuzz_iterations {
         fuzzer.fuzz_loop_for(&mut stages, &mut executor, &mut state, &mut mgr, iterations)?;
+        flush_scheduler_records(&mut fuzzer, &state)?;
+        if let Some(runtime) = state.metadata_map().get::<SemanticRuntimeMetadata>() {
+            persist_semantic_task_state(&config.semantic_task_state_file, runtime)?;
+        }
     } else {
         fuzzer.fuzz_loop(&mut stages, &mut executor, &mut state, &mut mgr)?;
     }
@@ -391,6 +391,13 @@ fn set_env_if_missing(key: &str, value: &str) {
     if env::var_os(key).is_none() {
         env::set_var(key, value);
     }
+}
+
+fn flush_scheduler_records<F, S>(fuzzer: &mut F, _state: &S) -> Result<(), Error>
+where
+    F: HasScheduler<BytesInput, S, Scheduler = TargetAwareScheduler>,
+{
+    fuzzer.scheduler_mut().flush_bootstrap()
 }
 
 fn queue_without_evaluation<F, S>(fuzzer: &mut F, state: &mut S, input: BytesInput) -> Result<CorpusId, Error>
@@ -1081,6 +1088,28 @@ mod tests {
                 PathBuf::from("unified-corpus/runtime"),
             ]
         );
+    }
+
+    #[test]
+    fn runtime_seed_metadata_is_appended_in_batches() {
+        let root = std::env::temp_dir().join(format!("semantist-bootstrap-batch-{}", current_nanos()));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("testcase-metadata.bootstrap.json");
+        let mut scheduler = TargetAwareScheduler::new(Some(path.clone()), SemantiSTAblation::Full);
+        let first = StSeedMetadata::new(SeedSource::Fuzzing, None, b"X,INT,1\n");
+        let second = StSeedMetadata::new(SeedSource::Fuzzing, None, b"X,INT,2\n");
+        scheduler.persist_runtime_seed(b"X,INT,1\n", &first).unwrap();
+        scheduler.persist_runtime_seed(b"X,INT,1\n", &first).unwrap();
+        scheduler.persist_runtime_seed(b"X,INT,2\n", &second).unwrap();
+        assert!(!path.exists());
+        scheduler.flush_bootstrap().unwrap();
+        let records = load_bootstrap_metadata(Some(&path));
+        assert_eq!(fs::read_to_string(&path).unwrap().lines().count(), 2);
+        assert_eq!(records[&first.content_hash], first);
+        assert_eq!(records[&second.content_hash], second);
+        // The inputs themselves are persisted by the LibAFL corpus only.
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

@@ -2,15 +2,18 @@
 struct TargetAwareScheduler {
     base: QueueScheduler,
     bootstrap_path: Option<PathBuf>,
-    seed_dir: PathBuf,
-    bootstrap_modified: Option<SystemTime>,
     bootstrap: HashMap<String, StSeedMetadata>,
+    // Seed metadata records not yet appended to the bootstrap file, which
+    // reports read; the inputs themselves live in the LibAFL corpus.
+    pending_bootstrap: Vec<u8>,
+    bootstrap_flushed: std::time::Instant,
     seen_hashes: HashSet<String>,
     semantic_ids_by_hash: HashMap<String, CorpusId>,
     semantic_scheduling_enabled: bool,
 }
 
 const SEMANTIC_SCHEDULING_PROBABILITY: f64 = 0.75;
+const BOOTSTRAP_FLUSH_INTERVAL: Duration = Duration::from_secs(5);
 const TARGET_EXPLORATION_PROBABILITY: f64 = 0.15;
 const SEED_EXPLORATION_PROBABILITY: f64 = 0.20;
 
@@ -50,18 +53,14 @@ where
 }
 
 impl TargetAwareScheduler {
-    fn new(bootstrap_path: Option<PathBuf>, seed_dir: PathBuf, ablation: SemantiSTAblation) -> Self {
+    fn new(bootstrap_path: Option<PathBuf>, ablation: SemantiSTAblation) -> Self {
         let bootstrap = load_bootstrap_metadata(bootstrap_path.as_deref());
-        let bootstrap_modified = bootstrap_path
-            .as_deref()
-            .and_then(|path| fs::metadata(path).ok())
-            .and_then(|metadata| metadata.modified().ok());
         Self {
             base: QueueScheduler::new(),
             bootstrap_path,
-            seed_dir,
-            bootstrap_modified,
             bootstrap,
+            pending_bootstrap: Vec::new(),
+            bootstrap_flushed: std::time::Instant::now(),
             seen_hashes: HashSet::new(),
             semantic_ids_by_hash: HashMap::new(),
             semantic_scheduling_enabled: ablation.semantic_scheduling(),
@@ -73,99 +72,38 @@ impl TargetAwareScheduler {
         bytes: &[u8],
         metadata: &StSeedMetadata,
     ) -> Result<(), Error> {
-        if !is_valid_structured_seed(bytes) {
+        if !is_valid_structured_seed(bytes) || self.bootstrap_path.is_none() {
             return Ok(());
         }
-
-        let _timer = PhaseTimer::start(Phase::IoSeedPersist);
-        fs::create_dir_all(&self.seed_dir)?;
-        let seed_path = self
-            .seed_dir
-            .join(format!("{}.seed", metadata.content_hash));
-        if !seed_path.exists() {
-            fs::write(seed_path, bytes)?;
-        }
-
-        let Some(bootstrap_path) = self.bootstrap_path.as_deref() else {
-            return Ok(());
-        };
         if self.bootstrap.contains_key(&metadata.content_hash) {
             return Ok(());
         }
-
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(bootstrap_path)?;
-        serde_json::to_writer(&mut file, metadata).map_err(|error| {
+        let _timer = PhaseTimer::start(Phase::IoSeedPersist);
+        serde_json::to_writer(&mut self.pending_bootstrap, metadata).map_err(|error| {
             Error::serialize(format!(
                 "unable to serialize runtime seed metadata: {error}"
             ))
         })?;
-        file.write_all(b"\n")?;
+        self.pending_bootstrap.push(b'\n');
         self.bootstrap
             .insert(metadata.content_hash.clone(), metadata.clone());
-        self.bootstrap_modified = fs::metadata(bootstrap_path)
-            .and_then(|metadata| metadata.modified())
-            .ok();
         Ok(())
     }
 
-    fn refresh_bootstrap<I, S>(&mut self, state: &mut S) -> Result<(), Error>
-    where
-        S: HasCorpus<I> + HasMetadata + HasRand,
-        I: AsRef<Vec<u8>>,
-    {
+    // One append per interval and one after a bounded run; the records are
+    // a report artifact, never read back during this run.
+    fn flush_bootstrap(&mut self) -> Result<(), Error> {
+        self.bootstrap_flushed = std::time::Instant::now();
         let Some(path) = self.bootstrap_path.as_deref() else {
             return Ok(());
         };
-        let _timer = PhaseTimer::start(Phase::IoBootstrapRefresh);
-        let modified = fs::metadata(path)
-            .and_then(|metadata| metadata.modified())
-            .ok();
-        if modified.is_some() && modified == self.bootstrap_modified {
+        if self.pending_bootstrap.is_empty() {
             return Ok(());
         }
-
-        self.bootstrap = load_bootstrap_metadata(Some(path));
-        self.bootstrap_modified = modified;
-        if let Some(runtime) = state
-            .metadata_map_mut()
-            .get_mut::<SemanticRuntimeMetadata>()
-        {
-            runtime.ranking_statistics.corpus_scan_count = runtime
-                .ranking_statistics
-                .corpus_scan_count
-                .saturating_add(1);
-        }
-        let ids = state.corpus().ids().collect::<Vec<_>>();
-        for id in ids {
-            let bytes = {
-                let mut testcase = state.corpus().get(id)?.borrow_mut();
-                testcase.load_input(state.corpus())?.as_ref().to_vec()
-            };
-            let hash = content_hash(&bytes);
-            let Some(metadata) = self.bootstrap.get(&hash).cloned() else {
-                continue;
-            };
-            state
-                .corpus()
-                .get(id)?
-                .borrow_mut()
-                .add_metadata(metadata.clone());
-            state
-                .metadata_or_insert_with(SemanticCorpusIndexMetadata::default)
-                .ids_by_hash
-                .insert(metadata.content_hash.clone(), id);
-            self.semantic_ids_by_hash
-                .insert(metadata.content_hash.clone(), id);
-            if let Some(runtime) = state
-                .metadata_map_mut()
-                .get_mut::<SemanticRuntimeMetadata>()
-            {
-                runtime.cache_seed_profile(seed_profile_from_metadata(&metadata));
-            }
-        }
+        let _timer = PhaseTimer::start(Phase::IoSeedPersist);
+        OpenOptions::new().create(true).append(true).open(path)?
+            .write_all(&self.pending_bootstrap)?;
+        self.pending_bootstrap.clear();
         Ok(())
     }
 
@@ -450,7 +388,9 @@ where
 
     fn next(&mut self, state: &mut S) -> Result<CorpusId, Error> {
         let _timer = PhaseTimer::start(Phase::SchedulerNext);
-        self.refresh_bootstrap(state)?;
+        if self.bootstrap_flushed.elapsed() >= BOOTSTRAP_FLUSH_INTERVAL {
+            self.flush_bootstrap()?;
+        }
         if let Some(runtime) = state.metadata_map_mut().get_mut::<SemanticRuntimeMetadata>() {
             runtime.tick_selection();
         }

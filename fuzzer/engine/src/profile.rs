@@ -20,13 +20,12 @@ enum Phase {
     StageSemanticBudget,
     StageMutational,
     IoSeedPersist,
-    IoBootstrapRefresh,
     IoTaskState,
     IoEvents,
     IoFinding,
 }
 
-const PHASES: [Phase; 20] = [
+const PHASES: [Phase; 19] = [
     Phase::SchedulerNext,
     Phase::SchedulerOnAdd,
     Phase::InputFilter,
@@ -43,7 +42,6 @@ const PHASES: [Phase; 20] = [
     Phase::StageSemanticBudget,
     Phase::StageMutational,
     Phase::IoSeedPersist,
-    Phase::IoBootstrapRefresh,
     Phase::IoTaskState,
     Phase::IoEvents,
     Phase::IoFinding,
@@ -67,8 +65,7 @@ impl Phase {
             Self::ObjectiveRuntimeFindings => "objective RuntimeFindings",
             Self::StageSemanticBudget => "stage SemanticTaskBudget",
             Self::StageMutational => "stage StdMutational (incl.)",
-            Self::IoSeedPersist => "io seed persist (in on_add)",
-            Self::IoBootstrapRefresh => "io bootstrap refresh (in next)",
+            Self::IoSeedPersist => "io seed metadata (on_add, next)",
             Self::IoTaskState => "io task state (in budget)",
             Self::IoEvents => "io events append (nested)",
             Self::IoFinding => "io finding write (in objective)",
@@ -82,7 +79,6 @@ impl Phase {
             self,
             Self::StageMutational
                 | Self::IoSeedPersist
-                | Self::IoBootstrapRefresh
                 | Self::IoTaskState
                 | Self::IoEvents
                 | Self::IoFinding

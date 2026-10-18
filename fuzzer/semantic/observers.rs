@@ -671,14 +671,7 @@ fn persist_bootstrap_metadata(path: Option<&Path>, metadata: StSeedMetadata) -> 
     let Some(path) = path else {
         return Ok(());
     };
-    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
-    serde_json::to_writer(&mut file, &metadata).map_err(|error| {
-        Error::serialize(format!(
-            "unable to serialize finding seed metadata: {error}"
-        ))
-    })?;
-    file.write_all(b"\n")?;
-    Ok(())
+    append_json_line(path, &metadata, "finding seed metadata")
 }
 
 fn source_context<S>(state: &S) -> SeedSource
