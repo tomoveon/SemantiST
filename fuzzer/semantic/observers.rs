@@ -172,6 +172,17 @@ where
         self.pending = Some(pending);
         self
     }
+
+    /// Resume after an in-process restart. Every execution this objective saw
+    /// also passed the semantic evidence collector first, which records each
+    /// target hit in the semantic map as covered, so the covered set marks
+    /// exactly the violations already reported.
+    fn with_covered_targets(mut self, covered: &std::collections::BTreeSet<String>) -> Self {
+        for (slot, entry) in self.slot_entries.iter().enumerate() {
+            self.seen_candidates[slot] |= covered.contains(&entry.stable_id);
+        }
+        self
+    }
 }
 
 impl<C, O> Named for SemanticViolationObjective<C, O> {
@@ -868,6 +879,21 @@ mod semantic_objective_regressions {
             schema_version: "semantist.runtime-ids/1.0.0".into(),
             entries,
         }
+    }
+
+    #[test]
+    fn restarted_objective_does_not_report_covered_violations_again() {
+        let mut map = vec![0u8; 6];
+        let observer = unsafe { StdMapObserver::new("resumed-objective", &mut map) };
+        let handle = observer.handle();
+        let covered = std::collections::BTreeSet::from(["alias".to_string()]);
+        let mut objective = SemanticViolationObjective::new(&observer, &candidate_table())
+            .with_covered_targets(&covered);
+        let mut observers = tuple_list!(observer);
+        observers.get_mut(&handle).unwrap().as_slice_mut().copy_from_slice(&[1, 0, 1, 0, 0, 0]);
+        assert!(!objective.is_interesting(&mut (), &mut (), &(), &observers, &ExitKind::Ok).unwrap());
+        observers.get_mut(&handle).unwrap().as_slice_mut().copy_from_slice(&[0, 0, 0, 1, 0, 0]);
+        assert!(objective.is_interesting(&mut (), &mut (), &(), &observers, &ExitKind::Ok).unwrap());
     }
 
     #[test]

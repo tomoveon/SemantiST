@@ -3,13 +3,20 @@
 // written on an interval and once more after a bounded run.
 const SEMANTIC_STATE_WRITE_INTERVAL: Duration = Duration::from_secs(5);
 
-#[derive(Debug)]
-struct SemanticTaskBudgetStage {
+// Execution windows per guide. Between rounds they live in the fuzzer state,
+// so an in-process client restarted after a crash resumes them.
+#[derive(Clone, Debug, Default, Deserialize, SerdeAny, Serialize)]
+struct SemanticBudgetWindows {
     last_guide_target_id: Option<String>,
     last_accounted_executions: u64,
-    last_state_write: Option<std::time::Instant>,
     executions_by_guide: HashMap<String, u64>,
     successes_by_guide: HashMap<String, u64>,
+}
+
+#[derive(Debug)]
+struct SemanticTaskBudgetStage {
+    windows: SemanticBudgetWindows,
+    last_state_write: Option<std::time::Instant>,
     budget: u64,
     state_file: PathBuf,
     last_scan_report: Option<std::time::Instant>,
@@ -18,11 +25,8 @@ struct SemanticTaskBudgetStage {
 impl SemanticTaskBudgetStage {
     fn new(budget: u64, state_file: PathBuf) -> Self {
         Self {
-            last_guide_target_id: None,
-            last_accounted_executions: 0,
+            windows: SemanticBudgetWindows::default(),
             last_state_write: None,
-            executions_by_guide: HashMap::new(),
-            successes_by_guide: HashMap::new(),
             budget: budget.max(1),
             state_file,
             last_scan_report: None,
@@ -42,18 +46,19 @@ impl SemanticTaskBudgetStage {
         executions: u64,
         current_guide: Option<String>,
     ) -> u64 {
-        let execution_delta = executions.saturating_sub(self.last_accounted_executions);
-        if let Some(previous_guide) = self.last_guide_target_id.as_ref() {
+        let execution_delta = executions.saturating_sub(self.windows.last_accounted_executions);
+        if let Some(previous_guide) = self.windows.last_guide_target_id.as_ref() {
             let accumulated = self
+                .windows
                 .executions_by_guide
                 .entry(previous_guide.clone())
                 .or_default();
             *accumulated = accumulated.saturating_add(execution_delta);
         }
-        self.last_accounted_executions = executions;
-        self.last_guide_target_id = current_guide.clone();
+        self.windows.last_accounted_executions = executions;
+        self.windows.last_guide_target_id = current_guide.clone();
         current_guide
-            .and_then(|guide| self.executions_by_guide.get(&guide).copied())
+            .and_then(|guide| self.windows.executions_by_guide.get(&guide).copied())
             .unwrap_or(0)
     }
 
@@ -63,17 +68,17 @@ impl SemanticTaskBudgetStage {
         current_guide: Option<String>,
         previous_successes: u64,
     ) -> Option<String> {
-        let previous = self.last_guide_target_id.clone();
+        let previous = self.windows.last_guide_target_id.clone();
         self.account_execution_progress(executions, current_guide);
         let previous = previous?;
-        let recorded = self.successes_by_guide.entry(previous.clone()).or_default();
+        let recorded = self.windows.successes_by_guide.entry(previous.clone()).or_default();
         if previous_successes > *recorded {
             *recorded = previous_successes;
-            self.executions_by_guide.insert(previous, 0);
+            self.windows.executions_by_guide.insert(previous, 0);
             return None;
         }
-        if self.executions_by_guide.get(&previous).copied().unwrap_or(0) >= self.budget {
-            self.executions_by_guide.insert(previous.clone(), 0);
+        if self.windows.executions_by_guide.get(&previous).copied().unwrap_or(0) >= self.budget {
+            self.windows.executions_by_guide.insert(previous.clone(), 0);
             return Some(previous);
         }
         None
@@ -154,6 +159,9 @@ where
         state: &mut S,
         manager: &mut EM,
     ) -> Result<(), Error> {
+        if let Some(saved) = state.metadata_map_mut().remove::<SemanticBudgetWindows>() {
+            self.windows = *saved;
+        }
         let executions = *state.executions();
         if self.last_scan_report.is_none_or(|last| last.elapsed() >= Duration::from_secs(1)) {
             // The monitor line carries the executed scan cycles next to the
@@ -174,7 +182,7 @@ where
                 .filter(|runtime| runtime.active_task_id == context.semantic_task_id
                     && runtime.guide_target_id == context.target_id)
                 .and_then(SemanticRuntimeMetadata::active_guide_budget_key));
-        let previous_successes = self.last_guide_target_id.as_ref()
+        let previous_successes = self.windows.last_guide_target_id.as_ref()
             .and_then(|key| key.split_once('\0'))
             .and_then(|(task, guide)| state.metadata_map().get::<SemanticRuntimeMetadata>()
                 .map(|runtime| runtime.guide_success_count(task, guide))).unwrap_or(0);
@@ -191,8 +199,9 @@ where
             // Deferral can happen after the scheduler selected this seed.
             // Keep the following mutations ordinary queue work in that case.
             state.add_metadata(TargetContext::default());
-            self.last_guide_target_id = None;
+            self.windows.last_guide_target_id = None;
         }
+        state.add_metadata(std::mem::take(&mut self.windows));
         if let Some(runtime) = state.metadata_map().get::<SemanticRuntimeMetadata>() {
             if self.state_write_due(std::time::Instant::now()) {
                 persist_semantic_task_state(&self.state_file, runtime)?;
@@ -232,7 +241,7 @@ mod semantic_budget_window_tests {
         let key = "task\0guide".to_string();
         assert!(stage.settle_execution_window(0, Some(key.clone()), 0).is_none());
         assert!(stage.settle_execution_window(5, Some(key.clone()), 1).is_none());
-        assert_eq!(stage.executions_by_guide[&key], 0);
+        assert_eq!(stage.windows.executions_by_guide[&key], 0);
         assert!(stage.settle_execution_window(7, Some(key.clone()), 1).is_none());
         assert_eq!(stage.settle_execution_window(8, None, 1), Some(key));
     }
@@ -246,7 +255,7 @@ mod semantic_budget_window_tests {
         assert!(stage.settle_execution_window(2, Some(second.clone()), 0).is_none());
         assert!(stage.settle_execution_window(4, Some(first.clone()), 0).is_none());
         assert_eq!(stage.settle_execution_window(5, Some(second.clone()), 0), Some(first));
-        assert_eq!(stage.executions_by_guide[&second], 2);
+        assert_eq!(stage.windows.executions_by_guide[&second], 2);
     }
 
     #[test]
@@ -256,7 +265,7 @@ mod semantic_budget_window_tests {
         stage.settle_execution_window(0, Some(key.clone()), 0);
         assert!(stage.settle_execution_window(1, None, 0).is_none());
         assert!(stage.settle_execution_window(101, Some(key.clone()), 0).is_none());
-        assert_eq!(stage.executions_by_guide[&key], 1);
+        assert_eq!(stage.windows.executions_by_guide[&key], 1);
     }
 
     #[test]
@@ -267,8 +276,8 @@ mod semantic_budget_window_tests {
         stage.settle_execution_window(0, Some(later.clone()), 0);
         assert!(stage.settle_execution_window(2, Some(first.clone()), 0).is_none());
         assert!(stage.settle_execution_window(3, Some(later.clone()), 1).is_none());
-        assert_eq!(stage.executions_by_guide[&first], 0);
-        assert_eq!(stage.executions_by_guide[&later], 2);
+        assert_eq!(stage.windows.executions_by_guide[&first], 0);
+        assert_eq!(stage.windows.executions_by_guide[&later], 2);
         assert_eq!(stage.settle_execution_window(4, None, 0), Some(later));
     }
 }

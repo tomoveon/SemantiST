@@ -34,7 +34,7 @@ fn main() -> Result<(), Error> {
     env::set_var("AFL_MAP_SIZE", MAP_SIZE.to_string());
     env::set_var("SEMANTIST_SEMANTIC_MAP_SIZE", setup.semantic_map_size.to_string());
     let (time_observer, edges_observer, semantic_observer, telemetry_observer, mut feedback, mut objective) =
-        semantist_feedbacks!(&setup, shmem.as_slice_mut(), semantic_shmem.as_slice_mut(), telemetry_shmem.as_slice_mut());
+        semantist_feedbacks!(&setup, shmem.as_slice_mut(), semantic_shmem.as_slice_mut(), telemetry_shmem.as_slice_mut(), None);
     let handles = (edges_observer.handle(), semantic_observer.handle(), telemetry_observer.handle());
     let mut state = semantist_new_state!(&setup, &mut feedback, &mut objective);
 
@@ -795,13 +795,13 @@ mod tests {
         assert!(attached.content_hash.is_empty());
         assert_eq!(attached.parent, Some(parent));
         assert!(!path.exists());
-        scheduler.flush_bootstrap(&state).unwrap();
+        scheduler.flush_bootstrap(&mut state).unwrap();
         let records = load_bootstrap_metadata(Some(&path));
         assert_eq!(fs::read_to_string(&path).unwrap().lines().count(), 2);
         let child_record = &records[&content_hash(b"X,INT,2\n")];
         assert_eq!(child_record.parent_id.as_deref(), Some(content_hash(b"X,INT,1\n").as_str()));
         assert!(records[&content_hash(b"X,INT,1\n")].parent_id.is_none());
-        scheduler.flush_bootstrap(&state).unwrap();
+        scheduler.flush_bootstrap(&mut state).unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap().lines().count(), 2);
         // The inputs themselves are persisted by the LibAFL corpus only.
         assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
@@ -831,6 +831,77 @@ mod tests {
         assert!(feedback.take_new_sanitizer_evidence().is_some());
         assert!(!feedback.sanitizer_logs_may_have_changed(&ExitKind::Ok));
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn restart_state_lives_in_the_fuzzer_state() {
+        let root = std::env::temp_dir().join(format!("semantist-restart-state-{}", current_nanos()));
+        fs::create_dir_all(root.join("logs")).unwrap();
+        let mut feedback = SemanticNoveltyFeedback;
+        let mut objective = SemanticNoveltyFeedback;
+        let mut state = StdState::new(StdRand::with_seed(1), libafl::corpus::InMemoryCorpus::<BytesInput>::new(),
+            libafl::corpus::InMemoryCorpus::<BytesInput>::new(), &mut feedback, &mut objective).unwrap();
+
+        // Budget windows: a fresh stage of a restarted client resumes them.
+        state.add_metadata(SemanticBudgetWindows {
+            executions_by_guide: HashMap::from([("task\0guide".to_string(), 5)]),
+            ..SemanticBudgetWindows::default()
+        });
+        let mut stage = SemanticTaskBudgetStage::new(3, root.join("task-state.json"));
+        let mut manager = libafl::events::NopEventManager::new();
+        Stage::<(), _, _, ()>::perform(&mut stage, &mut (), &mut (), &mut state, &mut manager).unwrap();
+        assert_eq!(state.metadata::<SemanticBudgetWindows>().unwrap().executions_by_guide["task\0guide"], 5);
+
+        // Crash signatures: a restarted client does not report one again.
+        state.add_metadata(RuntimeFindingRecords {
+            signatures: HashMap::from([("crash".to_string(), 1)]),
+            ..RuntimeFindingRecords::default()
+        });
+        let mut findings = RuntimeFindingFeedback::new(root.join("findings"), root.join("target"), None,
+            root.join("events.jsonl"), root.join("logs"));
+        let input = BytesInput::new(b"X,INT,1\n".to_vec());
+        assert!(findings.is_interesting(&mut state, &mut manager, &input, &(), &ExitKind::Crash).unwrap());
+        assert!(!root.join("findings").exists());
+        assert_eq!(state.metadata::<RuntimeFindingRecords>().unwrap().signatures["crash"], 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn semantic_metadata_survives_the_restart_state_format() {
+        use libafl_bolts::staterestore::StateRestorer;
+        let mut feedback = SemanticNoveltyFeedback;
+        let mut objective = SemanticNoveltyFeedback;
+        let mut state = StdState::new(StdRand::with_seed(1), libafl::corpus::InMemoryCorpus::<BytesInput>::new(),
+            libafl::corpus::InMemoryCorpus::<BytesInput>::new(), &mut feedback, &mut objective).unwrap();
+        let goal = serde_json::json!({"kind": {"kind": "binary", "operator": ">="}, "operands": []});
+        let plan: semantic::SemanticTaskPlan = serde_json::from_value(serde_json::json!({
+            "schema_version": semantic::PLAN_SCHEMA,
+            "target_identity": "stg_stable_target_id",
+            "tasks": [{"task_id": "t", "task_kind": "violation", "pou": "P", "terminal_target_id": "v",
+                "control_obligations": [{"target_id": "v", "goal_expression": goal.clone()}],
+                "ordered_waypoints": ["v"]}]
+        })).unwrap();
+        state.add_metadata(SemanticRuntimeMetadata::new(plan, &HashSet::from(["v".to_string()])));
+        state.add_metadata(TargetContext { target_id: Some("v".into()), goal_expression: Some(goal.clone()), ..TargetContext::default() });
+        let mut metadata = StSeedMetadata::new(SeedSource::Fuzzing, Some(CorpusId(3)));
+        metadata.semantic_coverage.insert("v".into(), goal.clone());
+        let mut testcase = Testcase::from(BytesInput::new(b"X,INT,1\n".to_vec()));
+        testcase.add_metadata(metadata.clone());
+        let id = state.corpus_mut().add(testcase).unwrap();
+
+        let mut provider = UnixShMemProvider::new().unwrap();
+        let mut restorer: StateRestorer<_, UnixShMemProvider> = StateRestorer::new(provider.new_shmem(1 << 20).unwrap());
+        restorer.save(&state).unwrap();
+        let restored: StdState<libafl::corpus::InMemoryCorpus<BytesInput>, BytesInput, StdRand,
+            libafl::corpus::InMemoryCorpus<BytesInput>> = restorer.restore().unwrap().unwrap();
+        assert_eq!(restored.metadata::<TargetContext>().unwrap().goal_expression, Some(goal.clone()));
+        assert_eq!(restored.metadata::<SemanticRuntimeMetadata>().unwrap().plan.tasks[0]
+            .control_obligations[0].goal_expression, Some(goal));
+        let restored_seed = restored.corpus().get(id).unwrap().borrow().metadata::<StSeedMetadata>().unwrap().clone();
+        assert_eq!(restored_seed, metadata);
+        assert_eq!(restored_seed.parent, Some(CorpusId(3)));
+        // The bootstrap layout is the derived JSON, without the parent.
+        assert!(!serde_json::to_string(&metadata).unwrap().contains("parent"));
     }
 
     #[test]

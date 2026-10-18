@@ -305,6 +305,7 @@ pub struct RankingStatistics {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, SerdeAny, Serialize)]
+#[serde(remote = "Self")]
 pub struct SemanticRuntimeMetadata {
     pub plan: SemanticTaskPlan,
     pub task_states: BTreeMap<String, TaskRuntimeState>,
@@ -349,6 +350,8 @@ pub struct SemanticRuntimeMetadata {
     #[serde(default)]
     active_path_indices: Vec<Option<u32>>,
 }
+
+serde_as_json_text_in_binary!(SemanticRuntimeMetadata);
 
 fn default_true() -> bool {
     true

@@ -3,7 +3,7 @@ mod semantic;
 
 use libafl::{
     corpus::{Corpus, CorpusId, InMemoryOnDiskCorpus, OnDiskCorpus, Testcase},
-    events::{Event, EventFirer, EventWithStats},
+    events::{Event, EventFirer, EventWithStats, SendExiting},
     executors::{ExitKind, HasObservers},
     feedback_or,
     feedbacks::{Feedback, MaxMapFeedback, StateInitializer, TimeFeedback},
@@ -45,6 +45,7 @@ const DEFAULT_FUNCTION: &str = "inc2";
 const DEFAULT_TIMEOUT_MS: u64 = 1_000;
 const MAP_SIZE: usize = 65_536;
 
+include!("../../semantic/json_text.rs");
 include!("../../semantic/metadata.rs");
 include!("../../semantic/observers.rs");
 include!("../../semantic/io.rs");
@@ -112,7 +113,7 @@ fn prepare_campaign(config: Config, started: std::time::Instant) -> Result<Campa
 // AFL edges, the STG semantic bitmap and the semantic telemetry. Both
 // execution backends build exactly these; only where the maps live differs.
 macro_rules! semantist_feedbacks {
-    ($setup:expr, $edges:expr, $semantic:expr, $telemetry:expr) => {{
+    ($setup:expr, $edges:expr, $semantic:expr, $telemetry:expr, $covered:expr) => {{
         let setup: &CampaignSetup = $setup;
         let config = &setup.config;
         // 3. observers 负责观察目标执行：覆盖率 map 和执行时间。
@@ -136,6 +137,12 @@ macro_rules! semantist_feedbacks {
         .with_start(setup.started);
         let semantic_objective = SemanticViolationObjective::new(&semantic_observer, &setup.runtime_ids)
             .with_pending_findings(runtime_findings.pending_semantic_findings());
+        // A restarted in-process client resumes the violations already reported.
+        let covered: Option<&std::collections::BTreeSet<String>> = $covered;
+        let semantic_objective = match covered {
+            Some(covered) => semantic_objective.with_covered_targets(covered),
+            None => semantic_objective,
+        };
         let semantic_evidence = SemanticEvidenceCollector(
             SemanticIrCoverageFeedback::new(&semantic_observer, setup.runtime_ids.clone())
                 .with_telemetry(&telemetry_observer));
@@ -208,6 +215,7 @@ macro_rules! semantist_campaign {
                 records.push('\n');
             }
             fs::write(dump_path, records)?;
+            $mgr.send_exiting()?;
             return Ok(());
         }
 
@@ -331,12 +339,14 @@ macro_rules! semantist_campaign {
         );
         let mut stages = tuple_list!(
             ProfiledStage::new(budget_stage, Phase::StageSemanticBudget),
-            ProfiledStage::new(StdMutationalStage::new(mutator), Phase::StageMutational)
+            ProfiledStage::new(ResumeAfterCrash(StdMutationalStage::new(mutator)), Phase::StageMutational)
         );
         phase_profile_begin(Some(config.events_file.with_file_name("phase-profile.txt")));
         if let Some(iterations) = config.fuzz_iterations {
             $fuzzer.fuzz_loop_for(&mut stages, &mut $executor, &mut $state, &mut $mgr, iterations)?;
-            flush_scheduler_records(&mut $fuzzer, &$state)?;
+            flush_scheduler_records(&mut $fuzzer, &mut $state)?;
+            // A restarting manager respawns a client that exits without this.
+            $mgr.send_exiting()?;
             if let Some(runtime) = $state.metadata_map().get::<SemanticRuntimeMetadata>() {
                 persist_semantic_task_state(&config.semantic_task_state_file, runtime)?;
             }
@@ -348,6 +358,30 @@ macro_rules! semantist_campaign {
             $state.executions(), fuzz_started.elapsed().as_secs_f64());
         Ok(())
     }};
+}
+
+// An in-process target crash ends the client in the middle of the mutational
+// stage. LibAFL skips a testcase for good after three such restarts, a guard
+// against fuzzer faults that stops all fuzzing of a target crashing as often
+// as INC. Here a crash is a finding and every resumed round mutates afresh,
+// so the stage always resumes. Fork and persistent runs never restart it.
+#[derive(Debug)]
+struct ResumeAfterCrash<T>(T);
+
+impl<T: Stage<E, EM, S, Z>, E, EM, S, Z> Stage<E, EM, S, Z> for ResumeAfterCrash<T> {
+    fn perform(&mut self, fuzzer: &mut Z, executor: &mut E, state: &mut S, manager: &mut EM) -> Result<(), Error> {
+        self.0.perform(fuzzer, executor, state, manager)
+    }
+}
+
+impl<T, S> Restartable<S> for ResumeAfterCrash<T> {
+    fn should_restart(&mut self, _state: &mut S) -> Result<bool, Error> {
+        Ok(true)
+    }
+
+    fn clear_progress(&mut self, _state: &mut S) -> Result<(), Error> {
+        Ok(())
+    }
 }
 
 fn set_default_sanitizer_env(log_dir: &Path, execution: ExecutionMode) {
@@ -381,10 +415,10 @@ fn set_env_if_missing(key: &str, value: &str) {
     }
 }
 
-fn flush_scheduler_records<F, S>(fuzzer: &mut F, state: &S) -> Result<(), Error>
+fn flush_scheduler_records<F, S>(fuzzer: &mut F, state: &mut S) -> Result<(), Error>
 where
     F: HasScheduler<BytesInput, S, Scheduler = TargetAwareScheduler>,
-    S: HasCorpus<BytesInput>,
+    S: HasCorpus<BytesInput> + HasMetadata,
 {
     fuzzer.scheduler_mut().flush_bootstrap(state)
 }

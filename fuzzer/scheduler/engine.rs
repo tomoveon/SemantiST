@@ -5,9 +5,6 @@ struct TargetAwareScheduler {
     // Records of earlier runs, by content hash. Only a resumed run hashes its
     // new seeds, to reuse their metadata.
     bootstrap: HashMap<String, StSeedMetadata>,
-    // Seeds whose metadata is not yet appended to the bootstrap file, which
-    // reports read; the inputs themselves live in the LibAFL corpus.
-    pending_bootstrap: Vec<CorpusId>,
     bootstrap_flushed: std::time::Instant,
     semantic_scheduling_enabled: bool,
 }
@@ -59,7 +56,6 @@ impl TargetAwareScheduler {
             base: QueueScheduler::new(),
             bootstrap_path,
             bootstrap,
-            pending_bootstrap: Vec::new(),
             bootstrap_flushed: std::time::Instant::now(),
             semantic_scheduling_enabled: ablation.semantic_scheduling(),
         }
@@ -68,18 +64,19 @@ impl TargetAwareScheduler {
     // One append per interval and one after a bounded run; the records are
     // a report artifact, never read back during this run. Content hashes are
     // computed here, for the records written, not when seeds are added.
-    fn flush_bootstrap<I, S>(&mut self, state: &S) -> Result<(), Error>
+    fn flush_bootstrap<I, S>(&mut self, state: &mut S) -> Result<(), Error>
     where
-        S: HasCorpus<I>,
+        S: HasCorpus<I> + HasMetadata,
         I: AsRef<Vec<u8>>,
     {
         self.bootstrap_flushed = std::time::Instant::now();
         let Some(path) = self.bootstrap_path.as_deref() else {
             return Ok(());
         };
-        if self.pending_bootstrap.is_empty() {
+        let Some(pending) = state.metadata_map_mut().remove::<PendingBootstrapRecords>() else {
             return Ok(());
-        }
+        };
+        let state = &*state;
         let _timer = PhaseTimer::start(Phase::IoSeedPersist);
         let hash_of = |id: CorpusId| -> Option<String> {
             let mut testcase = state.corpus().get(id).ok()?.borrow_mut();
@@ -87,7 +84,7 @@ impl TargetAwareScheduler {
             Some(content_hash(input.as_ref().as_ref()))
         };
         let mut records = Vec::new();
-        for id in self.pending_bootstrap.drain(..) {
+        for id in pending.ids {
             // A seed removed before the flush leaves no record.
             let Some(hash) = hash_of(id) else { continue; };
             let Some(mut metadata) = state.corpus().get(id).ok()
@@ -235,7 +232,7 @@ impl TargetAwareScheduler {
             .add_metadata(metadata);
         // A seed carried over from an earlier run's records is already there.
         if valid && !from_bootstrap && self.bootstrap_path.is_some() {
-            self.pending_bootstrap.push(id);
+            state.metadata_or_insert_with(PendingBootstrapRecords::default).ids.push(id);
         }
         Ok(())
     }

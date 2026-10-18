@@ -9,6 +9,7 @@ enum SeedSource {
 // content_hash and parent_id (the parent's content hash) are filled in only
 // when the record is written, for the bootstrap file and finding reports.
 #[derive(Clone, Debug, Deserialize, PartialEq, SerdeAny, Serialize)]
+#[serde(remote = "Self")]
 struct StSeedMetadata {
     source: SeedSource,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -61,6 +62,42 @@ struct StSeedMetadata {
     finding_detail: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     finding_artifact: Option<String>,
+}
+
+// As serde_as_json_text_in_binary!, and binary formats also carry the
+// in-memory parent, so a restarted client still writes parent_id.
+impl Serialize for StSeedMetadata {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if serializer.is_human_readable() {
+            return StSeedMetadata::serialize(self, serializer);
+        }
+        struct Derived<'a>(&'a StSeedMetadata);
+        impl Serialize for Derived<'_> {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                StSeedMetadata::serialize(self.0, serializer)
+            }
+        }
+        let text = serde_json::to_string(&Derived(self)).map_err(serde::ser::Error::custom)?;
+        (text, self.parent).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for StSeedMetadata {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        if deserializer.is_human_readable() {
+            return StSeedMetadata::deserialize(deserializer);
+        }
+        struct Derived(StSeedMetadata);
+        impl<'de> Deserialize<'de> for Derived {
+            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                StSeedMetadata::deserialize(deserializer).map(Derived)
+            }
+        }
+        let (text, parent) = <(String, Option<CorpusId>)>::deserialize(deserializer)?;
+        let mut metadata = serde_json::from_str::<Derived>(&text).map_err(serde::de::Error::custom)?.0;
+        metadata.parent = parent;
+        Ok(metadata)
+    }
 }
 
 fn is_zero(value: &u64) -> bool {
@@ -196,12 +233,21 @@ struct SeedSourceContext {
     source: SeedSource,
 }
 
+// Seeds whose metadata is not yet appended to the bootstrap file, which
+// reports read; the inputs themselves live in the LibAFL corpus. Kept in the
+// state so a restarted in-process client still writes them.
+#[derive(Clone, Debug, Default, Deserialize, SerdeAny, Serialize)]
+struct PendingBootstrapRecords {
+    ids: Vec<CorpusId>,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, SerdeAny, Serialize)]
 struct SemanticStageControl {
     skip_mutation_once: bool,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, SerdeAny, Serialize)]
+#[serde(remote = "Self")]
 struct TargetContext {
     target_id: Option<String>,
     target_type: Option<String>,
@@ -293,6 +339,8 @@ impl std::fmt::Display for StateSignature {
 // Evidence of the last execution, plus what all executions have covered.
 // Targets are indices into `target_names`; string forms are built only when
 // a seed keeps this evidence (attach_metadata) or a trace line is written.
+serde_as_json_text_in_binary!(TargetContext);
+
 #[derive(Clone, Debug, Default, Deserialize, SerdeAny, Serialize)]
 struct SemanticCoverageMetadata {
     #[serde(default)]

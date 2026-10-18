@@ -1917,6 +1917,15 @@ fn is_valid_structured_seed(bytes: &[u8]) -> bool {
 // objective fills it; RuntimeFindingFeedback, which sees the input, persists it.
 type PendingSemanticFindings = std::rc::Rc<std::cell::RefCell<Vec<RuntimeTargetEntry>>>;
 
+// Crash signatures already reported and sanitizer logs already claimed.
+// Between executions they live in the fuzzer state, so an in-process client
+// restarted after a crash neither reports a signature twice nor re-reads logs.
+#[derive(Clone, Debug, Default, Deserialize, SerdeAny, Serialize)]
+struct RuntimeFindingRecords {
+    signatures: HashMap<String, u64>,
+    seen_sanitizer_logs: HashSet<String>,
+}
+
 #[derive(Debug)]
 struct RuntimeFindingFeedback {
     name: Cow<'static, str>,
@@ -1926,8 +1935,8 @@ struct RuntimeFindingFeedback {
     events_file: PathBuf,
     sanitizer_log_dir: PathBuf,
     started: std::time::Instant,
-    signatures: HashMap<String, u64>,
-    seen_sanitizer_logs: HashSet<String>,
+    records: RuntimeFindingRecords,
+    records_loaded: bool,
     // Directory mtime at the last scan, and whether that scan left new logs
     // unclaimed; an unchanged, settled directory needs no scan.
     scanned_log_dir: Option<SystemTime>,
@@ -1964,8 +1973,11 @@ impl RuntimeFindingFeedback {
             events_file,
             sanitizer_log_dir,
             started: std::time::Instant::now(),
-            signatures: HashMap::new(),
-            seen_sanitizer_logs,
+            records: RuntimeFindingRecords {
+                signatures: HashMap::new(),
+                seen_sanitizer_logs,
+            },
+            records_loaded: false,
             scanned_log_dir: None,
             unclaimed_logs: true,
             pending_semantic: PendingSemanticFindings::default(),
@@ -1975,6 +1987,26 @@ impl RuntimeFindingFeedback {
     fn with_start(mut self, started: std::time::Instant) -> Self {
         self.started = started;
         self
+    }
+
+    fn record_findings<S>(&mut self, state: &mut S, input: &BytesInput, exit_kind: &ExitKind) -> Result<bool, Error>
+    where
+        S: HasCorpus<BytesInput> + HasExecutions + HasMetadata,
+    {
+        let semantic = std::mem::take(&mut *self.pending_semantic.borrow_mut());
+        for entry in &semantic {
+            self.persist_semantic_finding(state, input, entry)?;
+        }
+        let sanitizer_evidence = if self.sanitizer_logs_may_have_changed(exit_kind) {
+            self.take_new_sanitizer_evidence()
+        } else {
+            None
+        };
+        if !exit_kind_is_finding(exit_kind) && sanitizer_evidence.is_none() {
+            return Ok(false);
+        }
+        self.persist_finding(state, input, exit_kind, sanitizer_evidence.as_ref())?;
+        Ok(true)
     }
 
     fn pending_semantic_findings(&self) -> PendingSemanticFindings {
@@ -2015,7 +2047,7 @@ impl RuntimeFindingFeedback {
                 continue;
             }
             let fingerprint = sanitizer_log_fingerprint(&path, &metadata);
-            if self.seen_sanitizer_logs.contains(&fingerprint) {
+            if self.records.seen_sanitizer_logs.contains(&fingerprint) {
                 continue;
             }
             let Ok(contents) = fs::read(&path) else {
@@ -2044,7 +2076,7 @@ impl RuntimeFindingFeedback {
         candidates.sort_by_key(|(modified, _)| *modified);
         let mut candidates = candidates.into_iter();
         for (_, evidence) in candidates.by_ref() {
-            if self.seen_sanitizer_logs.insert(evidence.fingerprint.clone()) {
+            if self.records.seen_sanitizer_logs.insert(evidence.fingerprint.clone()) {
                 // One log per execution; the rest are claimed by later ones.
                 self.unclaimed_logs = candidates.len() > 0;
                 return Some(evidence);
@@ -2128,7 +2160,7 @@ impl RuntimeFindingFeedback {
         let signature = sanitizer_evidence
             .map(|evidence| evidence.signature.clone())
             .unwrap_or_else(|| exit_kind_label(exit_kind).to_string());
-        let occurrences = self.signatures.entry(signature.clone()).or_insert(0);
+        let occurrences = self.records.signatures.entry(signature.clone()).or_insert(0);
         *occurrences += 1;
         if *occurrences > 1 {
             return Ok(());
@@ -2259,20 +2291,18 @@ where
         _observers: &OT,
         exit_kind: &ExitKind,
     ) -> Result<bool, Error> {
-        let semantic = std::mem::take(&mut *self.pending_semantic.borrow_mut());
-        for entry in &semantic {
-            self.persist_semantic_finding(state, input, entry)?;
+        if !self.records_loaded {
+            self.records_loaded = true;
+            if let Some(saved) = state.metadata_map().get::<RuntimeFindingRecords>() {
+                self.records = saved.clone();
+            }
         }
-        let sanitizer_evidence = if self.sanitizer_logs_may_have_changed(exit_kind) {
-            self.take_new_sanitizer_evidence()
-        } else {
-            None
-        };
-        if !exit_kind_is_finding(exit_kind) && sanitizer_evidence.is_none() {
-            return Ok(false);
+        let known = (self.records.signatures.len(), self.records.seen_sanitizer_logs.len());
+        let result = self.record_findings(state, input, exit_kind);
+        if known != (self.records.signatures.len(), self.records.seen_sanitizer_logs.len()) {
+            state.add_metadata(self.records.clone());
         }
-        self.persist_finding(state, input, exit_kind, sanitizer_evidence.as_ref())?;
-        Ok(true)
+        result
     }
 }
 
