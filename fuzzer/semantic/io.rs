@@ -10,6 +10,7 @@ fn append_runtime_finding_event(path: &Path, event: &RuntimeFindingEvent) -> Res
 }
 
 fn append_json_value(path: &Path, value: &serde_json::Value) -> Result<(), Error> {
+    let _timer = PhaseTimer::start(Phase::IoEvents);
     let mut file = OpenOptions::new().create(true).append(true).open(path)?;
     serde_json::to_writer(&mut file, value).map_err(|error| {
         Error::serialize(format!(

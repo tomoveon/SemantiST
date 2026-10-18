@@ -95,6 +95,7 @@ fn persist_semantic_task_state(
     runtime: &SemanticRuntimeMetadata,
 ) -> Result<(), Error> {
     const COMPACT_RANKING_LIMIT: usize = 32;
+    let _timer = PhaseTimer::start(Phase::IoTaskState);
     let detailed = semantic_state_detail_enabled();
     let active_task_state = runtime
         .active_task_id

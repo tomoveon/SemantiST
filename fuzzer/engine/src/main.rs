@@ -51,6 +51,7 @@ include!("mutations.rs");
 include!("config.rs");
 include!("cli.rs");
 include!("../../stages/semantic_budget.rs");
+include!("profile.rs");
 #[cfg(test)]
 mod algorithm_regressions;
 fn main() -> Result<(), Error> {
@@ -132,14 +133,18 @@ fn main() -> Result<(), Error> {
         SemanticIrCoverageFeedback::new(&semantic_observer, runtime_ids)
             .with_telemetry(&telemetry_observer));
     let mut feedback = feedback_or!(
-        SemanticNoveltyFeedback,
-        MaxMapFeedback::new(&edges_observer),
-        TimeFeedback::new(&time_observer)
+        ProfiledFeedback::new(SemanticNoveltyFeedback, Phase::FeedbackSemanticNovelty),
+        ProfiledFeedback::new(MaxMapFeedback::new(&edges_observer), Phase::FeedbackEdges),
+        ProfiledFeedback::new(TimeFeedback::new(&time_observer), Phase::FeedbackTime)
     );
 
     // Eager OR: the runtime feedback runs after the semantic objective and
     // persists the violations it reported for this input.
-    let mut objective = feedback_or!(semantic_evidence, semantic_objective, runtime_findings);
+    let mut objective = feedback_or!(
+        ProfiledFeedback::new(semantic_evidence, Phase::ObjectiveSemanticEvidence),
+        ProfiledFeedback::new(semantic_objective, Phase::ObjectiveSemanticViolation),
+        ProfiledFeedback::new(runtime_findings, Phase::ObjectiveRuntimeFindings)
+    );
 
     // 5. state 保存 RNG、corpus、crashes，以及 feedback 的元数据。
     let mut state = StdState::new(
@@ -183,10 +188,12 @@ fn main() -> Result<(), Error> {
         .coverage_map_size(MAP_SIZE)
         .timeout(config.timeout)
         .build(tuple_list!(
+            PhaseMarkerObserver::opening(),
             time_observer,
             edges_observer,
             semantic_observer,
-            telemetry_observer
+            telemetry_observer,
+            PhaseMarkerObserver::closing()
         ))?;
 
     // AFL 目标可能报告真实 map size；observer 跟着截断，减少无效 map 区域。
@@ -195,6 +202,7 @@ fn main() -> Result<(), Error> {
             .as_mut()
             .truncate(dynamic_map_size);
     }
+    let mut executor = ProfiledExecutor { inner: executor };
 
     // 8. 加载初始种子和已有 queue；如果没有种子，用一条合法结构化输入兜底。
     state.load_initial_inputs(
@@ -311,12 +319,17 @@ fn main() -> Result<(), Error> {
         config.semantic_task_budget,
         config.semantic_task_state_file.clone(),
     );
-    let mut stages = tuple_list!(budget_stage, StdMutationalStage::new(mutator));
+    let mut stages = tuple_list!(
+        ProfiledStage::new(budget_stage, Phase::StageSemanticBudget),
+        ProfiledStage::new(StdMutationalStage::new(mutator), Phase::StageMutational)
+    );
+    phase_profile_begin(Some(config.events_file.with_file_name("phase-profile.txt")));
     if let Some(iterations) = config.fuzz_iterations {
         fuzzer.fuzz_loop_for(&mut stages, &mut executor, &mut state, &mut mgr, iterations)?;
     } else {
         fuzzer.fuzz_loop(&mut stages, &mut executor, &mut state, &mut mgr)?;
     }
+    phase_profile_flush(true);
     println!("SemantiST final executions: {}, elapsed_seconds: {:.6}",
         state.executions(), fuzz_started.elapsed().as_secs_f64());
     Ok(())

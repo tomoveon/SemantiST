@@ -89,6 +89,7 @@ where
     S: HasMetadata + HasRand,
 {
     fn mutate(&mut self, state: &mut S, input: &mut BytesInput) -> Result<MutationResult, Error> {
+        let _timer = PhaseTimer::start(Phase::Mutate);
         if state
             .metadata_map()
             .get::<SemanticStageControl>()
@@ -2011,6 +2012,7 @@ impl RuntimeFindingFeedback {
         if !is_valid_structured_seed(input.as_ref()) {
             return Ok(());
         }
+        let _timer = PhaseTimer::start(Phase::IoFinding);
         let source_label = seed_source_label(&source_context(state)).to_string();
         let (digest, finding_dir, seed_path) = self.write_reproducer(&source_label, input)?;
         let record = SemanticFindingRecord {
@@ -2068,6 +2070,7 @@ impl RuntimeFindingFeedback {
         if *occurrences > 1 {
             return Ok(());
         }
+        let _timer = PhaseTimer::start(Phase::IoFinding);
 
         let source = source_context(state);
         let source_label = seed_source_label(&source).to_string();

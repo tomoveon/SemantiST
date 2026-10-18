@@ -791,6 +791,7 @@ where
         _state: &mut S,
         _manager: &mut EM,
     ) -> Result<bool, Error> {
+        let _timer = PhaseTimer::start(Phase::InputFilter);
         Ok(self.admit_hash(compact_content_hash(input.as_ref())))
     }
 }

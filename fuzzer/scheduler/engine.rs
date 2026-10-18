@@ -77,6 +77,7 @@ impl TargetAwareScheduler {
             return Ok(());
         }
 
+        let _timer = PhaseTimer::start(Phase::IoSeedPersist);
         fs::create_dir_all(&self.seed_dir)?;
         let seed_path = self
             .seed_dir
@@ -118,6 +119,7 @@ impl TargetAwareScheduler {
         let Some(path) = self.bootstrap_path.as_deref() else {
             return Ok(());
         };
+        let _timer = PhaseTimer::start(Phase::IoBootstrapRefresh);
         let modified = fs::metadata(path)
             .and_then(|metadata| metadata.modified())
             .ok();
@@ -419,6 +421,7 @@ where
     I: AsRef<Vec<u8>>,
 {
     fn on_add(&mut self, state: &mut S, id: CorpusId) -> Result<(), Error> {
+        let _timer = PhaseTimer::start(Phase::SchedulerOnAdd);
         self.base.on_add(state, id)?;
         self.attach_metadata(state, id)?;
         let metadata = state
@@ -446,6 +449,7 @@ where
     }
 
     fn next(&mut self, state: &mut S) -> Result<CorpusId, Error> {
+        let _timer = PhaseTimer::start(Phase::SchedulerNext);
         self.refresh_bootstrap(state)?;
         if let Some(runtime) = state.metadata_map_mut().get_mut::<SemanticRuntimeMetadata>() {
             runtime.tick_selection();
