@@ -1,0 +1,23 @@
+﻿lib,pou,id,class,category,vars_types,file,lines,magnitude,trigger_estimate,depends_on,behavior_change,confidence,main_uncertainty
+Basic,CLK_PULSE,B-1,main,B 16位,CNT : INT (VAR_OUTPUT),oscat_basic.st,13373;13380;13381,分钟级,32767 个脉冲；PT=0(默认)每周期一个：1ms≈33s/10ms≈5.5min/100ms≈55min；PT=1s≈9.1h,N=0（连续模式），无 RST,CNT 变负；RUN 在 N=0 时翻为 TRUE,高,调用方是否读取 CNT/RUN
+Basic,SCHEDULER_2,B-2,main,B 16位,sx : UINT (VAR，无复位),oscat_basic.st,13808;13814,分钟级,65536 周期：1ms≈66s/10ms≈10.9min/100ms≈1.8h,C0..C3 非 2 的幂,Q0..Q3 调度间隔错一次,高,影响取决于被调度任务
+Basic,_RMP_B (FRMP_B),D-1,main,A1+位移截断,"tx,tl : TIME；TD,TR : TIME",oscat_basic.st,6736;18708;18709,小时级,TD 达 2^24 ms≈4.66h,TR > 4.66h（RMP_B/RMP_SOFT/_RMP_NEXT 的 PT/TR）,RMP 输出每 4.66h 回跳,中,实际是否配置超长字节斜坡
+Basic,CYCLE_TIME,B-3,main,B 32位,cycles : DWORD (VAR_OUTPUT),oscat_basic.st,5162;5144,天级,2^32 周期：1ms≈49.7d/10ms≈497d/100ms≈13.6y,无 RST,cycles 归零,中,仅统计输出
+Basic,SIGNAL,A2-1,main,A2,tx : DWORD；TS : TIME,oscat_basic.st,1585;1587,天级,49.7d（S7≈24.9d）,8·TS 不整除 2^32（TS=0 默认无问题）,Q 位图案在回绕处中断一次,中,影响轻微
+Basic,DCF77,A1u-1,main,A1(无界区间),"ty,last_sync : TIME",oscat_basic.st,26466;26465,天级,连续无信号 49.7d（S7≈24.9d）,长期收不到报文,sync 误报 TRUE 约 2 分钟,低,现场是否长期无信号；调用方是否依赖 sync
+Basic,DCF77,D-2,main,D,"t1,ty : TIME → INT",oscat_basic.st,26470;26462,秒级,≈33s,rtc=0（SDT 默认 0 且从未同步）,msec 截断/负值,低,此状态下时钟本就无效
+Basic,FT_Profile,A1u-2,main,A1(无界区间),"tx,t0 : TIME；ET : TIME",oscat_basic.st,913;881,天级,state 5 保持 >49.7d,E 长期保持为 TRUE,ET 回绕,低,需超长保持；ET 为诊断输出
+Basic,DT_SIMU,B-4,main,B DT,DTS : DT (VAR_OUTPUT),oscat_basic.st,5218;5221,天级,START≈2026 时 SPEED=0：1ms≈29d/10ms≈290d/100ms≈7.9y,SPEED=0 或 SPEED≥1000,DTS 回到 1970,低,仿真 FB
+Network,MB_SERVER,B-5,main,B TIME(推断),VMAP[i].TIME_OUT (VAR_IN_OUT),oscat_network_1352_functions.st,13733;13734;14321,天级,某区 49.7d 无写访问（S7≈24.9d 冻结为负）,—,TIME_OUT 回绕为小值,中,DUT 类型推断；看门狗在用户程序
+Network,MB_SERVER_1,B-6,main,B TIME(推断),VMAP[i].TIME_OUT (VAR_IN_OUT),oscat_network_1352_functions.st,14013;14014;14321,天级,同 MB_SERVER,—,同上,中,同上
+Network,YAHOO_WEATHER,A2-2,main,A2,"tx,repeat_tx : UDINT",oscat_network_1352_functions.st,21250;21266,天级,每 49.7d 一个 5s 窗口,重试恰在窗口内,重试等待被跳过,低,概率性，影响小
+Building,ACTUATOR_3P,B-7,main,B TIME(语义阈值),next_cal : TIME；T_CAL : TIME；SWITCH_AVAIL : BOOL,oscat_building_100_functions.st,195;211;222;223;224;268;269;270,小时级,累计电机动作时间达 T_CAL(600s)，占空比 5% 时≈3.3h,SWITCH_AVAIL=FALSE、T_CAL>0、ARE=TRUE（均为默认）,状态卡在 101，OUT1/OUT2 保持，执行器不再跟随 IN,高,语义阈值+状态机缺口，非数值回绕
+Building,ACTUATOR_3P,A2-3,main,A2,"next_diag,next_cal : TIME",oscat_building_100_functions.st,189;195;218;250,天级,每 49.7d；回绕前最长 10d 内连续反复自检（每轮≈140s）,SWITCH_AVAIL=FALSE 且 T_CAL=0（否则先触发 B-7）,连续自检，不跟随 IN,中,需非默认配置；S7 上可能表现为推迟
+Building,SWITCH_I,A2-4,main,A2,T_on : TIME；T_on_max : TIME,oscat_building_100_functions.st,1557;1541;1547,天级,开灯边沿落在回绕前 T_on_max 窗口,T_on_max>0（默认 0）,Q 被立即关闭,中,概率随操作频率与 T_on_max
+Building,SWITCH_I,A2-5,main,A2(非模差),"T_on : TIME；t_debounce,t_reconfig : TIME",oscat_building_100_functions.st,1549;1554,天级,边沿落在回绕前 t_debounce 内且扫描周期 > t_debounce,—,state 卡在 1，最长 49.7d 不响应输入,低,自然概率极低，可确定性复现
+Building,F_LAMP,D-3,main,D 隐式,"T_NO_DIMM,T_MAINTENANCE : UINT；ONTIME : UDINT",oscat_building_100_functions.st,1280;1293,小时级,若 16 位求值：≈9.0h / ≈17.7h,编译器对 UINT*常量 的中间位宽,LAMP 提前取 DIMM；STATUS 提前报 120,低,32 位求值则不成立
+Basic,INTEGRATE (+FT_INT/FT_PI/FT_PID/FT_PIW/FT_PIDW),N-1,non-monotone,E,Y : REAL (VAR_IN_OUT),oscat_basic.st,3999;2747,时级~天级,常值输入下 dt·2^24..2^25 s：1ms≈4.7–9.3h/10ms≈47–93h/100ms≈19–39d,X 长期同号,增量被吞掉,—,增量方向取决于输入
+Basic,FT_PIWL,N-2,non-monotone,E,i : REAL,oscat_basic.st,3378,同上,同上,开环/长期偏差,同上,—,闭环中 IN 变号
+Basic,INC_DEC,N-3,non-monotone,B 16位,cnt : INT (VAR_OUTPUT),oscat_basic.st,975;976,分钟级起,32767 边沿,单向旋转,cnt 回绕,—,方向可变
+Basic,FT_AVG,N-4,non-monotone,E,avg : REAL (VAR_OUTPUT),oscat_basic.st,18770,—,随机游走漂移，无明确边界,—,avg 漂移,—,需长跑测漂移
+Building,HEAT_METER,N-5,non-monotone,E,Y : REAL (VAR_IN_OUT)；C : REAL,oscat_building_100_functions.st,3274;3294,天级,脉冲模式 2^24..2^25 脉冲；C 量化误差 10%：AVG_TIME=5s 时≈49–97d,TF>TR 供热工况,Y 停滞；C 量化失真,—,增量符号取决于 TF−TR

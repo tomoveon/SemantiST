@@ -37,6 +37,7 @@
 | --- | --- |
 | [Layout migration](migration.md) | 旧目录/接口到当前布局的迁移参考 |
 | [Restructure report](restructure-report.md) | 重构时的结果与验证；历史行数和测试数不表示当前规模 |
+| [审稿式评审与顶会改进路线，2026-10-18](top_venue_review_20261018_zh.md) | 主实验崩溃的重放分类、P0 缺陷、主线与投稿路线 |
 | [算法实现审查，2026-10-08](algorithm_review_20261008_zh.md) | 修复前反例与问题清单，开头说明后续处理状态 |
 | [算法修订与验收记录，2026-10-08](algorithm_validation_20261008_zh.md) | 算法验收的条件、局部性能证据及后续接口回归补充 |
 | [RuSTy DWORD 报告](rusty_dword_high_bit_miscompilation_report_zh.md) | 指定编译器版本下的历史问题，不代表最新上游状态 |
