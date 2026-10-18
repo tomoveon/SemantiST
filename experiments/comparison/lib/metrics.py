@@ -155,6 +155,29 @@ class FindingObserver:
         return list(self.by_id.values())
 
 
+def replay_fault_metrics(crashes: list[dict[str, Any]], *, complete: bool = True) -> dict[str, Any]:
+    """Defect counts after common replay; toolchain panics and harness faults are excluded."""
+    classes: dict[str, int] = {}
+    for event in crashes:
+        replay = event.get("common_replay") or {}
+        if replay.get("confirmed"):
+            fault_class = str(replay.get("fault_class") or "unclassified")
+            classes[fault_class] = classes.get(fault_class, 0) + 1
+    unknown = any((event.get("common_replay") or {}).get("status") not in {"confirmed", "not_reproduced"}
+                  for event in crashes)
+    target_faults = classes.get("target_fault", 0)
+    return {
+        "replay_fault_classes": classes,
+        "replay_confirmed_target_fault_found": True if target_faults else None if unknown or not complete else False,
+        "replay_confirmed_target_fault_signatures": len({
+            event.get("finding_signature") or event.get("candidate_id")
+            for event in crashes
+            if (event.get("common_replay") or {}).get("fault_class") == "target_fault"
+            and (event.get("common_replay") or {}).get("confirmed")
+        }),
+    }
+
+
 def paper_metrics(run: dict[str, Any]) -> dict[str, Any]:
     if run.get("collection_mode") == "post_run":
         return _post_run_metrics(run)
@@ -200,6 +223,7 @@ def paper_metrics(run: dict[str, Any]) -> dict[str, Any]:
         "first_crash_count_status": "recorded" if count is not None else "unavailable" if first else "no_crash",
         "first_crash_input": (first.get("reproducer_artifact_path") or first.get("artifact_path")) if first else None,
         "replay_confirmed_crash_found": True if confirmed else None if unknown_replay else False,
+        **replay_fault_metrics(timely),
         "unverified_crash_count": len(unknown_replay),
         "total_executions_reported": total,
         "total_executions_status": "last_native_report_not_exact_stop_count" if total is not None else "unavailable",
@@ -250,6 +274,7 @@ def _post_run_metrics(run: dict[str, Any]) -> dict[str, Any]:
         "first_crash_count_status": "recorded" if count is not None else "no_crash" if complete and not crashes else "unavailable",
         "first_crash_input": (first.get("reproducer_artifact_path") or first.get("artifact_path")) if first else None,
         "replay_confirmed_crash_found": True if confirmed else None if unknown_replay or not complete else False,
+        **replay_fault_metrics(crashes, complete=complete),
         "unverified_crash_count": len(unknown_replay),
         "total_executions_reported": total,
         "total_executions_status": "last_native_report_not_exact_stop_count" if total is not None else "unavailable",

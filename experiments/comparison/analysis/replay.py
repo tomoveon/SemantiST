@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -65,6 +66,7 @@ def replay_experiment(
                 returncode = outcome.get("returncode")
                 confirmed = bool(outcome.get("confirmed"))
                 reason = outcome.get("reason")
+            fault_class = None if unsupported_history or not target_bin.is_file() or not seed.is_file() else outcome.get("fault_class")
             records.append(
                 {
                     "run_key": run["run_key"],
@@ -75,6 +77,7 @@ def replay_experiment(
                     "status": status,
                     "confirmed": confirmed,
                     "oracle": event.get("oracle"),
+                    "fault_class": fault_class,
                     "returncode": returncode,
                     "reason": reason,
                     "input_mode": "stdin",
@@ -114,7 +117,7 @@ def replay_seed(
             container_runtime,
             semantist_image,
             mounts=[(experiment_dir, "/replay", True)],
-            env={"ASAN_OPTIONS": "detect_leaks=0"},
+            env=REPLAY_SANITIZER_ENV,
             platform=container_platform,
             interactive_stdin=True,
             command=inner_command,
@@ -126,6 +129,7 @@ def replay_seed(
     try:
         completed = subprocess.run(
             command,
+            env=None if container_runtime else {**os.environ, **REPLAY_SANITIZER_ENV},
             input=data,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -168,12 +172,43 @@ def replay_seed(
         "confirmed": confirmed,
         "returncode": completed.returncode,
         "stderr": stderr,
+        "fault_class": classify_fault(combined) if confirmed else None,
         "reason": (
             "sanitizer_or_signal"
             if sanitizer or signal_exit
             else "clean_or_unclassified_nonzero"
         ),
     }
+
+
+# Symbolized stacks let one rule classify every tool's replay the same way.
+REPLAY_SANITIZER_ENV = {
+    "ASAN_OPTIONS": "detect_leaks=0:symbolize=1",
+    "UBSAN_OPTIONS": "print_stacktrace=1:symbolize=1",
+}
+_RUST_PANIC = re.compile(r"thread '[^']*' panicked at |panicked at [^\n]*\.rs:\d+")
+_FRAME = re.compile(r"^\s*#\d+ 0x[0-9a-f]+ in (?P<function>\S+)(?: (?P<location>\S+))?", re.M)
+_RUNTIME_FRAME = re.compile(r"^(?:__asan|__interceptor|___interceptor|__sanitizer|__ubsan|__lsan|__libc_|abort$|raise$)")
+
+
+def classify_fault(output: str) -> str:
+    """Attribute a confirmed crash to the toolchain, the harness, or the target.
+
+    ``toolchain_panic`` is a Rust panic in the RuSTy standard library (e.g. its
+    UTF-8 string assumptions), which a CODESYS runtime does not share.
+    ``harness_fault`` faults first in harness code. Only ``target_fault``
+    counts as a target defect.
+    """
+    if _RUST_PANIC.search(output):
+        return "toolchain_panic"
+    for frame in _FRAME.finditer(output):
+        if _RUNTIME_FRAME.match(frame.group("function")):
+            continue
+        location = frame.group("location") or ""
+        if re.search(r"(?:^|/)(?:semantist_)?harness\.c:", location):
+            return "harness_fault"
+        break
+    return "target_fault"
 
 
 def _startup_failure_reason(output: str) -> str | None:
@@ -235,6 +270,7 @@ def merge_replay_results(experiment_dir: Path, records: list[dict[str, Any]]) ->
                 event["common_replay"] = {
                     "status": record["status"],
                     "confirmed": record["confirmed"],
+                    "fault_class": record.get("fault_class"),
                     "returncode": record["returncode"],
                     "reason": record.get("reason"),
                     "input_mode": record.get("input_mode"),

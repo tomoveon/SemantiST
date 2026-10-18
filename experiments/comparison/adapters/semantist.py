@@ -341,6 +341,14 @@ class SemantiSTAdapter(BaseAdapter):
                 continue
             event["execution_count_source"] = count_source
             event["tool_reported_unix_time_seconds"] = raw.get("unix_time_seconds")
+            if raw.get("elapsed_seconds") is not None:
+                event["native_time_to_find_seconds"] = raw["elapsed_seconds"]
+                event["native_time_origin"] = "semantist_fuzzer_start"
+            if raw.get("signature"):
+                event["finding_signature"] = raw["signature"]
+            if raw.get("target_id"):
+                event["semantic_target_id"] = raw["target_id"]
+                event["semantic_hazard"] = raw.get("hazard")
             # Report JSON is evidence, never a target input. Keep identity
             # stable while the writer finishes metadata after the seed file.
             event["candidate_id"] = f"{self.tool_name}:{target.target_id}:{trial_id}:{oracle}:{json_path.stem}"
