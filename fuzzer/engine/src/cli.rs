@@ -41,6 +41,7 @@ fn print_usage() {
     println!("  --seed N                     initialize the SemantiST LibAFL RNG deterministically");
     println!("  --ablation NAME              full, no_semantic_init, no_targeted_mutation, queue_havoc,");
     println!("                               no_transition_guidance, no_prefix_growth, no_multicycle_guidance");
+    println!("  --execution MODE             fork (default) or persistent forkserver execution");
     println!("  --consistency-dump PATH      run --consistency-inputs once each and write observations, then exit");
     println!("  --consistency-inputs PATH    file listing one input path per line, in execution order");
 }

@@ -121,6 +121,16 @@ class HarnessStateResetTests(unittest.TestCase):
             self.assertTrue(line.startswith("SEMANTIST_DRIVER "), line)
         self.assertIn("static int semantist_run_input(char *data) {\n    semantist_state_reset();", harness)
 
+    def test_persistent_loop_needs_the_forkserver_request_and_a_resettable_target(self):
+        step = Param("STEP", scalar_spec("DINT"), "VAR_INPUT", offset=8, index=1)
+        harness = generate_harness(TargetAbi("FUNCTION_BLOCK", "P", [step], state_fields=[step],
+                                             instance_size=16, instance_align=8))
+        self.assertIn("int __afl_sharedmem_fuzzing = 1;", harness)
+        self.assertIn('if (getenv("__AFL_PERSISTENT") && __afl_persistent_loop && semantist_state_resettable()) {',
+                      harness)
+        loop = harness[harness.index("while (__afl_persistent_loop("):]
+        self.assertLess(loop.index("__afl_area_ptr[0] = 0;"), loop.index("semantist_harness_execute("))
+
 
 if __name__ == "__main__":
     unittest.main()

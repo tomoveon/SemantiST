@@ -485,8 +485,34 @@ SEMANTIST_DRIVER int semantist_harness_execute(const uint8_t *data, size_t len) 
 }
 
 #ifndef SEMANTIST_IN_PROCESS
-/* A standalone or forkserver child reads stdin or the file named by argv[1]. */
+/* AFL++ forkserver transport. The runtime fills the shared-memory testcase when
+ * the fuzzer offers one, and __AFL_PERSISTENT selects the persistent loop. A
+ * standalone run, such as replay, reads stdin or the file named by argv[1].
+ * The references are weak so the harness also links without the AFL runtime. */
+int __afl_sharedmem_fuzzing = 1;
+extern unsigned char *__afl_fuzz_ptr __attribute__((weak));
+extern unsigned int *__afl_fuzz_len __attribute__((weak));
+extern unsigned char *__afl_area_ptr __attribute__((weak));
+int __afl_persistent_loop(unsigned int max_cnt) __attribute__((weak));
+static volatile const char *semantist_persistent_signature __attribute__((used));
+
 SEMANTIST_DRIVER int main(int argc, char **argv) {
+    if (argc < 2 && &__afl_fuzz_ptr && __afl_fuzz_ptr) {
+        if (getenv("__AFL_PERSISTENT") && __afl_persistent_loop && semantist_state_resettable()) {
+            semantist_persistent_signature = "##SIG_AFL_PERSISTENT##";
+            unsigned int iterations =
+                (unsigned int)semantist_parse_env_u64("SEMANTIST_PERSISTENT_ITERATIONS", 10000);
+            while (__afl_persistent_loop(iterations ? iterations : 1)) {
+                /* The loop marks map slot 0, which no edge uses; a fork child
+                 * leaves it clear, so clear it to report the same map. */
+                __afl_area_ptr[0] = 0;
+                semantist_harness_execute(__afl_fuzz_ptr, *__afl_fuzz_len);
+            }
+            return 0;
+        }
+        return semantist_harness_execute(__afl_fuzz_ptr, *__afl_fuzz_len);
+    }
+
     FILE *fp = stdin;
     if (argc >= 2) {
         fp = fopen(argv[1], "rb");

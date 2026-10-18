@@ -58,6 +58,34 @@ impl SemantiSTAblation {
     }
 }
 
+// How the target runs one input. Fork starts a fresh process per input;
+// persistent reuses one forkserver child for many inputs and relies on the
+// harness resetting target state. Both use the same target binary.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ExecutionMode {
+    Fork,
+    Persistent,
+}
+
+impl ExecutionMode {
+    fn parse(value: &str) -> Result<Self, Error> {
+        match value {
+            "fork" => Ok(Self::Fork),
+            "persistent" => Ok(Self::Persistent),
+            _ => Err(Error::illegal_argument(format!(
+                "unknown execution mode {value:?}; expected fork or persistent"
+            ))),
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Fork => "fork",
+            Self::Persistent => "persistent",
+        }
+    }
+}
+
 #[derive(Debug)]
 struct Config {
     target: PathBuf,
@@ -79,6 +107,7 @@ struct Config {
     rng_seed: Option<u64>,
     debug_child: bool,
     ablation: SemantiSTAblation,
+    execution: ExecutionMode,
     consistency_dump: Option<PathBuf>,
     consistency_inputs: Option<PathBuf>,
 }
@@ -116,6 +145,9 @@ impl Config {
         let mut debug_child = false;
         let mut ablation = SemantiSTAblation::parse(
             &env::var("SEMANTIST_ABLATION").unwrap_or_else(|_| "full".to_string()),
+        )?;
+        let mut execution = ExecutionMode::parse(
+            &env::var("SEMANTIST_EXECUTION").unwrap_or_else(|_| "fork".to_string()),
         )?;
         let mut consistency_dump = None;
         let mut consistency_inputs = None;
@@ -178,6 +210,9 @@ impl Config {
                 }
                 "--ablation" => {
                     ablation = SemantiSTAblation::parse(&next_arg(&mut args, &arg)?)?;
+                }
+                "--execution" => {
+                    execution = ExecutionMode::parse(&next_arg(&mut args, &arg)?)?;
                 }
                 "--consistency-dump" => {
                     consistency_dump = Some(PathBuf::from(next_arg(&mut args, &arg)?));
@@ -262,6 +297,7 @@ impl Config {
             rng_seed,
             debug_child,
             ablation,
+            execution,
             consistency_dump,
             consistency_inputs,
         })

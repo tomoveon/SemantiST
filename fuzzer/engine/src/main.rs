@@ -189,6 +189,7 @@ fn main() -> Result<(), Error> {
         .shmem_provider(&mut shmem_provider)
         .autotokens(&mut tokens)
         .coverage_map_size(MAP_SIZE)
+        .is_persistent(config.execution == ExecutionMode::Persistent)
         .timeout(config.timeout)
         .build(tuple_list!(
             PhaseMarkerObserver::opening(),
@@ -319,8 +320,9 @@ fn main() -> Result<(), Error> {
 
     // 9. 运行语义预算 stage 和结构化 ST 变异 stage。
     println!(
-        "Starting ST forkserver fuzzer for {}",
-        config.target.display()
+        "Starting ST forkserver fuzzer for {} ({} execution)",
+        config.target.display(),
+        config.execution.as_str()
     );
     println!("Function: {}", config.function);
     println!(
@@ -1064,6 +1066,7 @@ mod tests {
             rng_seed: None,
             debug_child: false,
             ablation: SemantiSTAblation::Full,
+            execution: ExecutionMode::Fork,
             consistency_dump: None,
             consistency_inputs: None,
         };
@@ -1075,6 +1078,14 @@ mod tests {
                 PathBuf::from("unified-corpus/runtime"),
             ]
         );
+    }
+
+    #[test]
+    fn execution_modes_parse_only_supported_names() {
+        assert_eq!(ExecutionMode::parse("fork").unwrap(), ExecutionMode::Fork);
+        assert_eq!(ExecutionMode::parse("persistent").unwrap(), ExecutionMode::Persistent);
+        assert_eq!(ExecutionMode::Persistent.as_str(), "persistent");
+        assert!(ExecutionMode::parse("inprocess").is_err());
     }
 
     #[test]
