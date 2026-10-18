@@ -9,6 +9,11 @@
 
 extern uint16_t STFZ_ICSF_ICSFUZZ_BF_MCPY_12(uint16_t);
 
+/* Code that runs differently on the first input of a process (state capture,
+ * cached configuration, input transport) is excluded from edge coverage, so a
+ * fork, persistent or in-process execution of one input reports one edge map. */
+#define SEMANTIST_DRIVER __attribute__((no_sanitize("coverage")))
+
 static const char *skip_spaces(const char *value) {
     if (!value) {
         return "0";
@@ -203,6 +208,14 @@ static void fill_wstring_value(uint16_t *dst, size_t dst_len, const char *value)
     dst[len] = 0;
 }
 
+SEMANTIST_DRIVER static uint64_t semantist_parse_env_u64(const char *name, uint64_t default_value) {
+    const char *value = getenv(name);
+    if (!value || !*value) {
+        return default_value;
+    }
+    return parse_u64(value);
+}
+
 static void escape_bytes(const void *data, size_t len) {
     volatile const uint8_t *p = (const uint8_t *)data;
     volatile uint8_t sink = 0;
@@ -219,8 +232,147 @@ __attribute__((weak)) void __semantist_semantic_state(uint64_t before, uint64_t 
     (void)before;
     (void)after;
 }
+__attribute__((weak)) void __semantist_semantic_reset(void) {
+}
 
-static uint8_t *read_all(FILE *fp, size_t *len_out) {
+#ifdef SEMANTIST_HARNESS_TIMING
+#include <time.h>
+static uint64_t semantist_timing_total_ns;
+static uint64_t semantist_timing_call_ns;
+static uint64_t semantist_timing_runs;
+
+SEMANTIST_DRIVER static uint64_t semantist_now_ns(void) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (uint64_t)now.tv_sec * 1000000000ULL + (uint64_t)now.tv_nsec;
+}
+
+SEMANTIST_DRIVER static void semantist_timing_report(void) {
+    const char *path = getenv("SEMANTIST_HARNESS_TIMING_FILE");
+    FILE *out = path && *path ? fopen(path, "a") : NULL;
+    fprintf(
+        out ? out : stderr,
+        "semantist-harness-timing runs=%llu parse_ns=%llu call_ns=%llu\n",
+        (unsigned long long)semantist_timing_runs,
+        (unsigned long long)(semantist_timing_total_ns - semantist_timing_call_ns),
+        (unsigned long long)semantist_timing_call_ns
+    );
+    if (out) {
+        fclose(out);
+    }
+}
+#define SEMANTIST_TIMING_BEGIN() uint64_t semantist_started = semantist_now_ns()
+#define SEMANTIST_TIMING_END(total) ((total) += semantist_now_ns() - semantist_started)
+#else
+#define SEMANTIST_TIMING_BEGIN() ((void)0)
+#define SEMANTIST_TIMING_END(total) ((void)0)
+#endif
+
+/* Writable globals of the target module, listed in its IR by
+ * compiler/harness/state_table.py. The first input of a process records them
+ * and every later input starts from that record, as a fresh process would. */
+struct semantist_state_region {
+    void *address;
+    uint64_t size;
+};
+extern const struct semantist_state_region __semantist_state_regions[] __attribute__((weak));
+extern const uint64_t __semantist_state_region_count __attribute__((weak));
+static uint8_t *semantist_state_snapshot;
+
+SEMANTIST_DRIVER static int semantist_state_resettable(void) {
+    return &__semantist_state_region_count != NULL;
+}
+
+SEMANTIST_DRIVER static void semantist_state_reset(void) {
+    if (semantist_state_resettable()) {
+        uint64_t count = __semantist_state_region_count;
+        if (!semantist_state_snapshot) {
+            size_t total = 1;
+            for (uint64_t i = 0; i < count; i++) {
+                total += __semantist_state_regions[i].size;
+            }
+            semantist_state_snapshot = (uint8_t *)malloc(total);
+            if (!semantist_state_snapshot) {
+                abort();
+            }
+            uint8_t *cursor = semantist_state_snapshot;
+            for (uint64_t i = 0; i < count; i++) {
+                memcpy(cursor, __semantist_state_regions[i].address, __semantist_state_regions[i].size);
+                cursor += __semantist_state_regions[i].size;
+            }
+        } else {
+            const uint8_t *cursor = semantist_state_snapshot;
+            for (uint64_t i = 0; i < count; i++) {
+                memcpy(__semantist_state_regions[i].address, cursor, __semantist_state_regions[i].size);
+                cursor += __semantist_state_regions[i].size;
+            }
+        }
+    }
+    __semantist_semantic_reset();
+}
+
+/* Consistency-checker record of each completed execution, enabled with
+ * SEMANTIST_HARNESS_OUTPUT_TRACE=path: hex values per scan cycle, one line per
+ * input. A crashing input writes nothing. */
+static FILE *semantist_output_trace;
+static int semantist_output_trace_loaded;
+static char *semantist_output_line;
+static size_t semantist_output_length;
+static size_t semantist_output_capacity;
+
+SEMANTIST_DRIVER static int semantist_output_trace_enabled(void) {
+    if (!semantist_output_trace_loaded) {
+        semantist_output_trace_loaded = 1;
+        const char *path = getenv("SEMANTIST_HARNESS_OUTPUT_TRACE");
+        if (path && *path) {
+            semantist_output_trace = fopen(path, "a");
+        }
+    }
+    return semantist_output_trace != NULL;
+}
+
+SEMANTIST_DRIVER static void semantist_trace_append(const char *text, size_t len) {
+    if (semantist_output_length + len + 2 > semantist_output_capacity) {
+        size_t capacity = (semantist_output_length + len + 2) * 2;
+        char *next = (char *)realloc(semantist_output_line, capacity);
+        if (!next) {
+            abort();
+        }
+        semantist_output_line = next;
+        semantist_output_capacity = capacity;
+    }
+    memcpy(semantist_output_line + semantist_output_length, text, len);
+    semantist_output_length += len;
+}
+
+SEMANTIST_DRIVER static void semantist_trace_bytes(const void *data, size_t len) {
+    if (!semantist_output_trace_enabled()) {
+        return;
+    }
+    static const char digits[] = "0123456789abcdef";
+    const uint8_t *bytes = (const uint8_t *)data;
+    for (size_t i = 0; i < len; i++) {
+        char pair[2] = {digits[bytes[i] >> 4], digits[bytes[i] & 15]};
+        semantist_trace_append(pair, 2);
+    }
+}
+
+SEMANTIST_DRIVER static void semantist_trace_mark(char mark) {
+    if (semantist_output_trace_enabled()) {
+        semantist_trace_append(&mark, 1);
+    }
+}
+
+SEMANTIST_DRIVER static void semantist_trace_end(void) {
+    if (semantist_output_trace_enabled()) {
+        semantist_trace_append("\n", 1);
+        fwrite(semantist_output_line, 1, semantist_output_length, semantist_output_trace);
+        fflush(semantist_output_trace);
+        semantist_output_length = 0;
+    }
+}
+
+SEMANTIST_DRIVER static uint8_t *read_all(FILE *fp, size_t *len_out) {
     size_t cap = 4096;
     size_t len = 0;
     uint8_t *buf = (uint8_t *)malloc(cap + 1);
@@ -267,7 +419,66 @@ static int split_record(char *line, char **name, char **value) {
     return 1;
 }
 
-int main(int argc, char **argv) {
+static int semantist_run_input(char *data) {
+    semantist_state_reset();
+    uint16_t semantist_param_input1 = 0;
+    char *save = NULL;
+    for (char *line = strtok_r(data, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
+        char *name = NULL;
+        char *value = NULL;
+        if (!split_record(line, &name, &value)) {
+            continue;
+        }
+        if (strcmp(name, "input1") == 0) {
+            semantist_param_input1 = (uint16_t)parse_u64(value);
+        }
+    }
+    __semantist_semantic_cycle(0);
+    SEMANTIST_TIMING_BEGIN();
+    volatile uint16_t result = STFZ_ICSF_ICSFUZZ_BF_MCPY_12(semantist_param_input1);
+    (void)result;
+    SEMANTIST_TIMING_END(semantist_timing_call_ns);
+
+    semantist_trace_bytes((const void *)&result, sizeof(result));
+    semantist_trace_bytes(&semantist_param_input1, sizeof(semantist_param_input1));
+    semantist_trace_mark('|');
+
+    semantist_trace_end();
+    return 0;
+}
+
+static uint8_t *semantist_input;
+static size_t semantist_input_capacity;
+
+/* One input in any execution mode: a forkserver child, one iteration of the
+ * persistent loop, or a call from the in-process fuzzer. */
+SEMANTIST_DRIVER int semantist_harness_execute(const uint8_t *data, size_t len) {
+    if (len + 1 > semantist_input_capacity) {
+        uint8_t *next = (uint8_t *)realloc(semantist_input, len + 1);
+        if (!next) {
+            abort();
+        }
+        semantist_input = next;
+        semantist_input_capacity = len + 1;
+    }
+    if (len) {
+        memcpy(semantist_input, data, len);
+    }
+    semantist_input[len] = 0;
+#ifdef SEMANTIST_HARNESS_TIMING
+    if (!semantist_timing_runs++) {
+        atexit(semantist_timing_report);
+    }
+#endif
+    SEMANTIST_TIMING_BEGIN();
+    int result = semantist_run_input((char *)semantist_input);
+    SEMANTIST_TIMING_END(semantist_timing_total_ns);
+    return result;
+}
+
+#ifndef SEMANTIST_IN_PROCESS
+/* A standalone or forkserver child reads stdin or the file named by argv[1]. */
+SEMANTIST_DRIVER int main(int argc, char **argv) {
     FILE *fp = stdin;
     if (argc >= 2) {
         fp = fopen(argv[1], "rb");
@@ -284,23 +495,8 @@ int main(int argc, char **argv) {
     if (!data) {
         return 1;
     }
-    uint16_t semantist_param_input1 = 0;
-    char *save = NULL;
-    for (char *line = strtok_r((char *)data, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
-        char *name = NULL;
-        char *value = NULL;
-        if (!split_record(line, &name, &value)) {
-            continue;
-        }
-        if (strcmp(name, "input1") == 0) {
-            semantist_param_input1 = (uint16_t)parse_u64(value);
-        }
-    }
-    __semantist_semantic_cycle(0);
-    volatile uint16_t result = STFZ_ICSF_ICSFUZZ_BF_MCPY_12(semantist_param_input1);
-    (void)result;
-
-
+    int result = semantist_harness_execute(data, len);
     free(data);
-    return 0;
+    return result;
 }
+#endif

@@ -7,6 +7,8 @@ void __semantist_semantic_hit(uint32_t runtime_id);
 void __semantist_semantic_hazard(uint32_t runtime_id, uint8_t violation);
 void __semantist_semantic_cycle(uint32_t cycle);
 void __semantist_semantic_state(uint64_t before, uint64_t after);
+/* Called by the harness before each input of a persistent or in-process loop. */
+void __semantist_semantic_reset(void);
 
 /* Bounded per-execution telemetry, reset by the parent before each input.
  * Keep this layout in sync with fuzzer/semantic/observers.rs. */

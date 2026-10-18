@@ -109,6 +109,12 @@ void __semantist_semantic_cycle(uint32_t cycle) {
     }
 }
 
+void __semantist_semantic_reset(void) {
+    /* Map attachments survive across inputs; only per-input state is reset.
+     * The fuzzer clears the maps and the telemetry header itself. */
+    semantist_semantic_cycle_id = 0;
+}
+
 void __semantist_semantic_state(uint64_t before, uint64_t after) {
     semantist_semantic_initialize();
     if (!semantist_telemetry) return;

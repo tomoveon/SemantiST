@@ -85,6 +85,11 @@ def pointer_storage_lines(name: str, spec: TypeSpec, indent: str = "    ") -> li
 
 
 COMMON_C = r"""
+/* Code that runs differently on the first input of a process (state capture,
+ * cached configuration, input transport) is excluded from edge coverage, so a
+ * fork, persistent or in-process execution of one input reports one edge map. */
+#define SEMANTIST_DRIVER __attribute__((no_sanitize("coverage")))
+
 static const char *skip_spaces(const char *value) {
     if (!value) {
         return "0";
@@ -279,6 +284,14 @@ static void fill_wstring_value(uint16_t *dst, size_t dst_len, const char *value)
     dst[len] = 0;
 }
 
+SEMANTIST_DRIVER static uint64_t semantist_parse_env_u64(const char *name, uint64_t default_value) {
+    const char *value = getenv(name);
+    if (!value || !*value) {
+        return default_value;
+    }
+    return parse_u64(value);
+}
+
 static void escape_bytes(const void *data, size_t len) {
     volatile const uint8_t *p = (const uint8_t *)data;
     volatile uint8_t sink = 0;
@@ -295,8 +308,147 @@ __attribute__((weak)) void __semantist_semantic_state(uint64_t before, uint64_t 
     (void)before;
     (void)after;
 }
+__attribute__((weak)) void __semantist_semantic_reset(void) {
+}
 
-static uint8_t *read_all(FILE *fp, size_t *len_out) {
+#ifdef SEMANTIST_HARNESS_TIMING
+#include <time.h>
+static uint64_t semantist_timing_total_ns;
+static uint64_t semantist_timing_call_ns;
+static uint64_t semantist_timing_runs;
+
+SEMANTIST_DRIVER static uint64_t semantist_now_ns(void) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (uint64_t)now.tv_sec * 1000000000ULL + (uint64_t)now.tv_nsec;
+}
+
+SEMANTIST_DRIVER static void semantist_timing_report(void) {
+    const char *path = getenv("SEMANTIST_HARNESS_TIMING_FILE");
+    FILE *out = path && *path ? fopen(path, "a") : NULL;
+    fprintf(
+        out ? out : stderr,
+        "semantist-harness-timing runs=%llu parse_ns=%llu call_ns=%llu\n",
+        (unsigned long long)semantist_timing_runs,
+        (unsigned long long)(semantist_timing_total_ns - semantist_timing_call_ns),
+        (unsigned long long)semantist_timing_call_ns
+    );
+    if (out) {
+        fclose(out);
+    }
+}
+#define SEMANTIST_TIMING_BEGIN() uint64_t semantist_started = semantist_now_ns()
+#define SEMANTIST_TIMING_END(total) ((total) += semantist_now_ns() - semantist_started)
+#else
+#define SEMANTIST_TIMING_BEGIN() ((void)0)
+#define SEMANTIST_TIMING_END(total) ((void)0)
+#endif
+
+/* Writable globals of the target module, listed in its IR by
+ * compiler/harness/state_table.py. The first input of a process records them
+ * and every later input starts from that record, as a fresh process would. */
+struct semantist_state_region {
+    void *address;
+    uint64_t size;
+};
+extern const struct semantist_state_region __semantist_state_regions[] __attribute__((weak));
+extern const uint64_t __semantist_state_region_count __attribute__((weak));
+static uint8_t *semantist_state_snapshot;
+
+SEMANTIST_DRIVER static int semantist_state_resettable(void) {
+    return &__semantist_state_region_count != NULL;
+}
+
+SEMANTIST_DRIVER static void semantist_state_reset(void) {
+    if (semantist_state_resettable()) {
+        uint64_t count = __semantist_state_region_count;
+        if (!semantist_state_snapshot) {
+            size_t total = 1;
+            for (uint64_t i = 0; i < count; i++) {
+                total += __semantist_state_regions[i].size;
+            }
+            semantist_state_snapshot = (uint8_t *)malloc(total);
+            if (!semantist_state_snapshot) {
+                abort();
+            }
+            uint8_t *cursor = semantist_state_snapshot;
+            for (uint64_t i = 0; i < count; i++) {
+                memcpy(cursor, __semantist_state_regions[i].address, __semantist_state_regions[i].size);
+                cursor += __semantist_state_regions[i].size;
+            }
+        } else {
+            const uint8_t *cursor = semantist_state_snapshot;
+            for (uint64_t i = 0; i < count; i++) {
+                memcpy(__semantist_state_regions[i].address, cursor, __semantist_state_regions[i].size);
+                cursor += __semantist_state_regions[i].size;
+            }
+        }
+    }
+    __semantist_semantic_reset();
+}
+
+/* Consistency-checker record of each completed execution, enabled with
+ * SEMANTIST_HARNESS_OUTPUT_TRACE=path: hex values per scan cycle, one line per
+ * input. A crashing input writes nothing. */
+static FILE *semantist_output_trace;
+static int semantist_output_trace_loaded;
+static char *semantist_output_line;
+static size_t semantist_output_length;
+static size_t semantist_output_capacity;
+
+SEMANTIST_DRIVER static int semantist_output_trace_enabled(void) {
+    if (!semantist_output_trace_loaded) {
+        semantist_output_trace_loaded = 1;
+        const char *path = getenv("SEMANTIST_HARNESS_OUTPUT_TRACE");
+        if (path && *path) {
+            semantist_output_trace = fopen(path, "a");
+        }
+    }
+    return semantist_output_trace != NULL;
+}
+
+SEMANTIST_DRIVER static void semantist_trace_append(const char *text, size_t len) {
+    if (semantist_output_length + len + 2 > semantist_output_capacity) {
+        size_t capacity = (semantist_output_length + len + 2) * 2;
+        char *next = (char *)realloc(semantist_output_line, capacity);
+        if (!next) {
+            abort();
+        }
+        semantist_output_line = next;
+        semantist_output_capacity = capacity;
+    }
+    memcpy(semantist_output_line + semantist_output_length, text, len);
+    semantist_output_length += len;
+}
+
+SEMANTIST_DRIVER static void semantist_trace_bytes(const void *data, size_t len) {
+    if (!semantist_output_trace_enabled()) {
+        return;
+    }
+    static const char digits[] = "0123456789abcdef";
+    const uint8_t *bytes = (const uint8_t *)data;
+    for (size_t i = 0; i < len; i++) {
+        char pair[2] = {digits[bytes[i] >> 4], digits[bytes[i] & 15]};
+        semantist_trace_append(pair, 2);
+    }
+}
+
+SEMANTIST_DRIVER static void semantist_trace_mark(char mark) {
+    if (semantist_output_trace_enabled()) {
+        semantist_trace_append(&mark, 1);
+    }
+}
+
+SEMANTIST_DRIVER static void semantist_trace_end(void) {
+    if (semantist_output_trace_enabled()) {
+        semantist_trace_append("\n", 1);
+        fwrite(semantist_output_line, 1, semantist_output_length, semantist_output_trace);
+        fflush(semantist_output_trace);
+        semantist_output_length = 0;
+    }
+}
+
+SEMANTIST_DRIVER static uint8_t *read_all(FILE *fp, size_t *len_out) {
     size_t cap = 4096;
     size_t len = 0;
     uint8_t *buf = (uint8_t *)malloc(cap + 1);
@@ -342,6 +494,62 @@ static int split_record(char *line, char **name, char **value) {
     *value = second + 1;
     return 1;
 }
+"""
+
+DRIVER_C = r"""
+static uint8_t *semantist_input;
+static size_t semantist_input_capacity;
+
+/* One input in any execution mode: a forkserver child, one iteration of the
+ * persistent loop, or a call from the in-process fuzzer. */
+SEMANTIST_DRIVER int semantist_harness_execute(const uint8_t *data, size_t len) {
+    if (len + 1 > semantist_input_capacity) {
+        uint8_t *next = (uint8_t *)realloc(semantist_input, len + 1);
+        if (!next) {
+            abort();
+        }
+        semantist_input = next;
+        semantist_input_capacity = len + 1;
+    }
+    if (len) {
+        memcpy(semantist_input, data, len);
+    }
+    semantist_input[len] = 0;
+#ifdef SEMANTIST_HARNESS_TIMING
+    if (!semantist_timing_runs++) {
+        atexit(semantist_timing_report);
+    }
+#endif
+    SEMANTIST_TIMING_BEGIN();
+    int result = semantist_run_input((char *)semantist_input);
+    SEMANTIST_TIMING_END(semantist_timing_total_ns);
+    return result;
+}
+
+#ifndef SEMANTIST_IN_PROCESS
+/* A standalone or forkserver child reads stdin or the file named by argv[1]. */
+SEMANTIST_DRIVER int main(int argc, char **argv) {
+    FILE *fp = stdin;
+    if (argc >= 2) {
+        fp = fopen(argv[1], "rb");
+        if (!fp) {
+            return 1;
+        }
+    }
+
+    size_t len = 0;
+    uint8_t *data = read_all(fp, &len);
+    if (argc >= 2) {
+        fclose(fp);
+    }
+    if (!data) {
+        return 1;
+    }
+    int result = semantist_harness_execute(data, len);
+    free(data);
+    return result;
+}
+#endif
 """
 
 INCLUDES = """#include <ctype.h>
@@ -416,6 +624,27 @@ def fb_snapshot_hash_lines(snapshot_fields: list[Param]) -> list[str]:
     return lines
 
 
+def traceable(spec: TypeSpec) -> bool:
+    """Values without addresses: pointers and nested FB instances differ between processes."""
+    if spec.kind == "array":
+        return traceable(spec.element)
+    return spec.kind in ("scalar", "string")
+
+
+def fb_output_trace_lines(fields: list[Param]) -> list[str]:
+    lines = []
+    for param in fields:
+        if not traceable(param.spec):
+            continue
+        name = field_name(param)
+        if param.block_kind == "VAR_IN_OUT":
+            lines.append(f"    semantist_trace_bytes(inst->{name}, {fb_pointee_size(param)});")
+        else:
+            lines.append(f"    semantist_trace_bytes(&inst->{name}, sizeof(inst->{name}));")
+    lines.append("    semantist_trace_mark('|');")
+    return lines
+
+
 def fb_abstract_state_lines(snapshot_fields: list[Param]) -> list[str]:
     """A bounded projection, independent of pointers and exact continuous values.
 
@@ -455,7 +684,6 @@ FB_RUNTIME_C = r"""
 typedef struct {
     int trace_enabled;
     FILE *trace_file;
-    int close_trace_file;
     uint64_t stale_threshold;
     uint64_t stale_count;
     uint64_t max_cycles;
@@ -463,17 +691,9 @@ typedef struct {
     int stop;
 } semantist_fb_runtime_t;
 
-static int semantist_env_enabled(const char *name) {
+SEMANTIST_DRIVER static int semantist_env_enabled(const char *name) {
     const char *value = getenv(name);
     return value && strcmp(value, "1") == 0;
-}
-
-static uint64_t semantist_parse_env_u64(const char *name, uint64_t default_value) {
-    const char *value = getenv(name);
-    if (!value || !*value) {
-        return default_value;
-    }
-    return parse_u64(value);
 }
 
 static void semantist_fb_hash_bytes(uint64_t *hash, const void *data, size_t len) {
@@ -515,29 +735,28 @@ static uint64_t semantist_fb_nonzero_prefix(const void *data, size_t size) {
     return nonzero != 0;
 }
 
-static void semantist_fb_runtime_init(semantist_fb_runtime_t *runtime) {
-    memset(runtime, 0, sizeof(*runtime));
-    runtime->trace_enabled = semantist_env_enabled("SEMANTIST_FB_STATE_TRACE");
-    runtime->stale_threshold = semantist_parse_env_u64("SEMANTIST_FB_STALE_THRESHOLD", 0);
-    runtime->max_cycles = semantist_parse_env_u64("SEMANTIST_FB_MAX_CYCLES", 0);
-    runtime->trace_file = stderr;
-    if (runtime->trace_enabled) {
-        const char *trace_path = getenv("SEMANTIST_FB_STATE_TRACE_FILE");
-        if (trace_path && *trace_path) {
-            FILE *trace = fopen(trace_path, "a");
-            if (trace) {
-                runtime->trace_file = trace;
-                runtime->close_trace_file = 1;
+/* The environment is read once per process: a persistent or in-process loop
+ * keeps the configuration and the open trace stream for every input. */
+SEMANTIST_DRIVER static void semantist_fb_runtime_init(semantist_fb_runtime_t *runtime) {
+    static semantist_fb_runtime_t configured;
+    static int loaded;
+    if (!loaded) {
+        loaded = 1;
+        configured.trace_enabled = semantist_env_enabled("SEMANTIST_FB_STATE_TRACE");
+        configured.stale_threshold = semantist_parse_env_u64("SEMANTIST_FB_STALE_THRESHOLD", 0);
+        configured.max_cycles = semantist_parse_env_u64("SEMANTIST_FB_MAX_CYCLES", 0);
+        configured.trace_file = stderr;
+        if (configured.trace_enabled) {
+            const char *trace_path = getenv("SEMANTIST_FB_STATE_TRACE_FILE");
+            if (trace_path && *trace_path) {
+                FILE *trace = fopen(trace_path, "a");
+                if (trace) {
+                    configured.trace_file = trace;
+                }
             }
         }
     }
-}
-
-static void semantist_fb_runtime_close(semantist_fb_runtime_t *runtime) {
-    if (runtime->close_trace_file && runtime->trace_file) {
-        fclose(runtime->trace_file);
-    }
-    runtime->trace_file = NULL;
+    *runtime = configured;
 }
 
 static void semantist_fb_trace_cycle(
@@ -613,6 +832,7 @@ def generate_function_block_harness(abi: TargetAbi) -> str:
     ) or "    escape_bytes(inst, sizeof(*inst));"
     snapshot_hash = "\n".join(fb_snapshot_hash_lines(abi.snapshot_fields))
     abstract_state = "\n".join(fb_abstract_state_lines(abi.snapshot_fields))
+    output_trace = "\n".join(fb_output_trace_lines(fields))
 
     return f"""{HEADER}
 {INCLUDES}
@@ -649,9 +869,12 @@ static int run_cycle(semantist_fb_state_t *inst, semantist_fb_runtime_t *runtime
     }}
     uint64_t abstract_before = semantist_fb_abstract_state(inst);
     __semantist_semantic_cycle((uint32_t)cycle);
+    SEMANTIST_TIMING_BEGIN();
     {name}(inst);
+    SEMANTIST_TIMING_END(semantist_timing_call_ns);
 {output_escapes}
     __semantist_semantic_state(abstract_before, semantist_fb_abstract_state(inst));
+{output_trace}
     if (observe_state) {{
         state_hash_after = semantist_fb_snapshot_hash(inst);
         int changed = state_hash_before != state_hash_after;
@@ -670,24 +893,8 @@ static int run_cycle(semantist_fb_state_t *inst, semantist_fb_runtime_t *runtime
     return !runtime->stop;
 }}
 
-int main(int argc, char **argv) {{
-    FILE *fp = stdin;
-    if (argc >= 2) {{
-        fp = fopen(argv[1], "rb");
-        if (!fp) {{
-            return 1;
-        }}
-    }}
-
-    size_t len = 0;
-    uint8_t *data = read_all(fp, &len);
-    if (argc >= 2) {{
-        fclose(fp);
-    }}
-    if (!data) {{
-        return 1;
-    }}
-
+static int semantist_run_input(char *data) {{
+    semantist_state_reset();
     semantist_fb_state_t inst;
     memset(&inst, 0, sizeof(inst));
     {name}__ctor(&inst);
@@ -699,7 +906,7 @@ int main(int argc, char **argv) {{
     int current_cycle = -1;
     int saw_record = 0;
     char *save = NULL;
-    for (char *line = strtok_r((char *)data, "\\n", &save); line; line = strtok_r(NULL, "\\n", &save)) {{
+    for (char *line = strtok_r(data, "\\n", &save); line; line = strtok_r(NULL, "\\n", &save)) {{
         if (runtime.stop) {{
             break;
         }}
@@ -728,12 +935,11 @@ int main(int argc, char **argv) {{
             run_cycle(&inst, &runtime, 0);
         }}
     }}
-    semantist_fb_runtime_close(&runtime);
 {pointer_frees}
-    free(data);
+    semantist_trace_end();
     return 0;
 }}
-"""
+{DRIVER_C}"""
 
 
 # ---------------------------------------------------------------------------
@@ -785,9 +991,18 @@ def generate_function_harness(abi: TargetAbi) -> str:
         if param.spec.kind == "pointer":
             continue
         escapes.append(f"    escape_bytes(&{variable}, sizeof({variable}));")
+    traces: list[str] = []
+    for slot in abi.call_slots:
+        param = slot.param
+        if not traceable(param.spec):
+            continue
+        variable = "result" if param.block_kind == "RETURN" else c_identifier(param.name)
+        traces.append(f"    semantist_trace_bytes(&{variable}, sizeof({variable}));")
     call_arguments = ", ".join(arguments)
     if abi.ret_by_value is not None:
         call = f"    volatile {ret_c} result = {name}({call_arguments});\n    (void)result;"
+        if abi.ret is not None and traceable(abi.ret.spec):
+            traces.insert(0, "    semantist_trace_bytes((const void *)&result, sizeof(result));")
     else:
         call = f"    {name}({call_arguments});"
     pointer_frees = "\n".join(
@@ -800,26 +1015,11 @@ def generate_function_harness(abi: TargetAbi) -> str:
 {INCLUDES}
 extern {ret_c} {name}({proto_args});
 {COMMON_C}
-int main(int argc, char **argv) {{
-    FILE *fp = stdin;
-    if (argc >= 2) {{
-        fp = fopen(argv[1], "rb");
-        if (!fp) {{
-            return 1;
-        }}
-    }}
-
-    size_t len = 0;
-    uint8_t *data = read_all(fp, &len);
-    if (argc >= 2) {{
-        fclose(fp);
-    }}
-    if (!data) {{
-        return 1;
-    }}
+static int semantist_run_input(char *data) {{
+    semantist_state_reset();
 {nl.join(declarations)}
     char *save = NULL;
-    for (char *line = strtok_r((char *)data, "\\n", &save); line; line = strtok_r(NULL, "\\n", &save)) {{
+    for (char *line = strtok_r(data, "\\n", &save); line; line = strtok_r(NULL, "\\n", &save)) {{
         char *name = NULL;
         char *value = NULL;
         if (!split_record(line, &name, &value)) {{
@@ -828,13 +1028,17 @@ int main(int argc, char **argv) {{
 {nl.join(assignments)}
     }}
     __semantist_semantic_cycle(0);
+    SEMANTIST_TIMING_BEGIN();
 {call}
+    SEMANTIST_TIMING_END(semantist_timing_call_ns);
 {nl.join(escapes)}
+{nl.join(traces)}
+    semantist_trace_mark('|');
 {pointer_frees}
-    free(data);
+    semantist_trace_end();
     return 0;
 }}
-"""
+{DRIVER_C}"""
 
 
 def generate_harness(abi: TargetAbi) -> str:

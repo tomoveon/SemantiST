@@ -14,6 +14,7 @@ OUT_OBJ="${OUT_OBJ:-${SEMANTIST_BUILD_ARTIFACT_DIR}/objects/${TARGET_NAME}.o}"
 OUT_BIN="${OUT_BIN:-${SEMANTIST_BUILD_ARTIFACT_DIR}/targets/fuzz_target}"
 HARNESS_OUT="${HARNESS_OUT:-${SEMANTIST_BUILD_ARTIFACT_DIR}/harness/harness.c}"
 PREPARED_LL="${PREPARED_LL:-${OUT_LL%.ll}.prepared.ll}"
+STATE_LL="${STATE_LL:-${PREPARED_LL%.ll}.state.ll}"
 
 SEMANTIC_MODE="${SEMANTIST_SEMANTIC_INSTRUMENTATION:-ir}"
 if [[ "$SEMANTIC_MODE" != "ir" && "$SEMANTIC_MODE" != "off" ]]; then
@@ -85,10 +86,13 @@ PREPARE_ARGS=(
   --llvm-bin "$SEMANTIST_LLVM_BIN"
 )
 python3 -m compiler.scripts.prepare_target_ir "${PREPARE_ARGS[@]}"
+# The harness restores these writable globals before every input, so a
+# persistent or in-process loop sees the state of a fresh process.
+python3 -m compiler.harness.state_table "$PREPARED_LL" --output "$STATE_LL"
 
 mkdir -p "$(dirname "$OUT_OBJ")" "$(dirname "$OUT_BIN")"
 echo "[build_target] compiling LLVM IR to AFL-compatible instrumented object"
-"$LLVM_CLANG" -g -O1 "${AFL_COVERAGE_FLAGS[@]}" "${TARGET_SANITIZER_FLAGS[@]}" -c "$PREPARED_LL" -o "$OUT_OBJ"
+"$LLVM_CLANG" -g -O1 "${AFL_COVERAGE_FLAGS[@]}" "${TARGET_SANITIZER_FLAGS[@]}" -c "$STATE_LL" -o "$OUT_OBJ"
 
 LINK_OBJECTS=(
   "$HARNESS_OUT"
