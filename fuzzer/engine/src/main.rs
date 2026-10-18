@@ -75,7 +75,7 @@ fn main() -> Result<(), Error> {
     ensure_dirs(&config)?;
     let sanitizer_log_dir = config.findings_dir.join("sanitizer-logs");
     fs::create_dir_all(&sanitizer_log_dir)?;
-    set_default_sanitizer_env(&sanitizer_log_dir);
+    set_default_sanitizer_env(&sanitizer_log_dir, config.execution);
 
     let runtime_ids = load_runtime_id_table(config.semantic_runtime_ids.as_deref())?;
     let target_names = stable_target_names(&runtime_ids);
@@ -367,9 +367,14 @@ fn main() -> Result<(), Error> {
     Ok(())
 }
 
-fn set_default_sanitizer_env(log_dir: &Path) {
+fn set_default_sanitizer_env(log_dir: &Path, execution: ExecutionMode) {
     let asan_log = log_dir.join("asan");
     let ubsan_log = log_dir.join("ubsan");
+    // One process runs many inputs outside fork mode. A recoverable UBSan
+    // report would then be deduplicated per source location across inputs,
+    // and later reports appended to an earlier input's log, so it ends the
+    // process instead, as an ASan report does.
+    let halt = if execution == ExecutionMode::Fork { "" } else { ":halt_on_error=1" };
     set_env_if_missing(
         "ASAN_OPTIONS",
         &format!(
@@ -380,7 +385,7 @@ fn set_default_sanitizer_env(log_dir: &Path) {
     set_env_if_missing(
         "UBSAN_OPTIONS",
         &format!(
-            "abort_on_error=1:symbolize=0:print_stacktrace=1:log_path={}",
+            "abort_on_error=1:symbolize=0:print_stacktrace=1{halt}:log_path={}",
             ubsan_log.display()
         ),
     );
@@ -1169,6 +1174,31 @@ mod tests {
         assert_eq!(fs::read_to_string(&path).unwrap().lines().count(), 2);
         // The inputs themselves are persisted by the LibAFL corpus only.
         assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn sanitizer_logs_are_rescanned_only_when_they_may_have_changed() {
+        let root = std::env::temp_dir().join(format!("semantist-sanitizer-scan-{}", current_nanos()));
+        let logs = root.join("sanitizer-logs");
+        fs::create_dir_all(&logs).unwrap();
+        let mut feedback = RuntimeFindingFeedback::new(root.join("findings"), root.join("target"), None,
+            root.join("events.jsonl"), logs.clone());
+        assert!(feedback.sanitizer_logs_may_have_changed(&ExitKind::Ok));
+        assert!(feedback.take_new_sanitizer_evidence().is_none());
+        std::thread::sleep(SANITIZER_LOG_SETTLE + Duration::from_millis(20));
+        assert!(!feedback.sanitizer_logs_may_have_changed(&ExitKind::Ok));
+        assert!(feedback.sanitizer_logs_may_have_changed(&ExitKind::Crash));
+        let report = b"==1==ERROR: AddressSanitizer: heap-buffer-overflow\nSUMMARY: AddressSanitizer: heap-buffer-overflow (x)\n";
+        fs::write(logs.join("asan.11"), report).unwrap();
+        fs::write(logs.join("asan.12"), report).unwrap();
+        assert!(feedback.sanitizer_logs_may_have_changed(&ExitKind::Ok));
+        assert!(feedback.take_new_sanitizer_evidence().is_some());
+        // The second new log is claimed by the next execution, as before.
+        std::thread::sleep(SANITIZER_LOG_SETTLE + Duration::from_millis(20));
+        assert!(feedback.sanitizer_logs_may_have_changed(&ExitKind::Ok));
+        assert!(feedback.take_new_sanitizer_evidence().is_some());
+        assert!(!feedback.sanitizer_logs_may_have_changed(&ExitKind::Ok));
         fs::remove_dir_all(root).unwrap();
     }
 

@@ -1910,8 +1910,16 @@ struct RuntimeFindingFeedback {
     started: std::time::Instant,
     signatures: HashMap<String, u64>,
     seen_sanitizer_logs: HashSet<String>,
+    // Directory mtime at the last scan, and whether that scan left new logs
+    // unclaimed; an unchanged, settled directory needs no scan.
+    scanned_log_dir: Option<SystemTime>,
+    unclaimed_logs: bool,
     pending_semantic: PendingSemanticFindings,
 }
+
+// Directory mtimes come from the coarse kernel clock: two log files created a
+// few milliseconds apart may leave one mtime, so a recent mtime is rescanned.
+const SANITIZER_LOG_SETTLE: Duration = Duration::from_millis(50);
 
 #[derive(Clone, Debug)]
 struct SanitizerEvidence {
@@ -1940,6 +1948,8 @@ impl RuntimeFindingFeedback {
             started: std::time::Instant::now(),
             signatures: HashMap::new(),
             seen_sanitizer_logs,
+            scanned_log_dir: None,
+            unclaimed_logs: true,
             pending_semantic: PendingSemanticFindings::default(),
         }
     }
@@ -1953,7 +1963,23 @@ impl RuntimeFindingFeedback {
         self.pending_semantic.clone()
     }
 
+    // A sanitizer can report without ending the process (recoverable UBSan),
+    // so the log directory is checked after every execution, by its mtime.
+    fn sanitizer_logs_may_have_changed(&mut self, exit_kind: &ExitKind) -> bool {
+        let modified = fs::metadata(&self.sanitizer_log_dir).and_then(|metadata| metadata.modified()).ok();
+        let settled = modified.is_some_and(|modified| {
+            SystemTime::now().duration_since(modified).is_ok_and(|age| age >= SANITIZER_LOG_SETTLE)
+        });
+        let changed = self.unclaimed_logs || exit_kind_is_finding(exit_kind)
+            || modified.is_none() || modified != self.scanned_log_dir || !settled;
+        if changed {
+            self.scanned_log_dir = modified;
+        }
+        changed
+    }
+
     fn take_new_sanitizer_evidence(&mut self) -> Option<SanitizerEvidence> {
+        self.unclaimed_logs = false;
         let entries = fs::read_dir(&self.sanitizer_log_dir).ok()?;
         let mut candidates = Vec::new();
         for entry in entries.flatten() {
@@ -1998,8 +2024,11 @@ impl RuntimeFindingFeedback {
             ));
         }
         candidates.sort_by_key(|(modified, _)| *modified);
-        for (_, evidence) in candidates {
+        let mut candidates = candidates.into_iter();
+        for (_, evidence) in candidates.by_ref() {
             if self.seen_sanitizer_logs.insert(evidence.fingerprint.clone()) {
+                // One log per execution; the rest are claimed by later ones.
+                self.unclaimed_logs = candidates.len() > 0;
                 return Some(evidence);
             }
         }
@@ -2216,7 +2245,11 @@ where
         for entry in &semantic {
             self.persist_semantic_finding(state, input, entry)?;
         }
-        let sanitizer_evidence = self.take_new_sanitizer_evidence();
+        let sanitizer_evidence = if self.sanitizer_logs_may_have_changed(exit_kind) {
+            self.take_new_sanitizer_evidence()
+        } else {
+            None
+        };
         if !exit_kind_is_finding(exit_kind) && sanitizer_evidence.is_none() {
             return Ok(false);
         }
