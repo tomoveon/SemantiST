@@ -170,22 +170,26 @@ struct CycleAwareSeed {
     cycles: BTreeMap<usize, Vec<StRecord>>,
 }
 
+// 一行 `NAME,TYPE,VALUE` 的三个字段（借用原文本）；格式不完整的行返回 None。
+fn structured_record_fields(line: &str) -> Option<(&str, &str, &str)> {
+    let mut parts = line.splitn(3, ',');
+    let name = parts.next()?.trim();
+    let ty = parts.next()?.trim();
+    let value = parts.next().unwrap_or("").trim();
+    if name.is_empty() || ty.is_empty() {
+        return None;
+    }
+    Some((name, ty, value))
+}
+
 // 从 corpus/queue 中读取的文本输入解析成记录列表。
 fn parse_structured_records(text: &str) -> Vec<StRecord> {
     text.lines()
-        .filter_map(|line| {
-            let mut parts = line.splitn(3, ',');
-            let name = parts.next()?.trim();
-            let ty = parts.next()?.trim();
-            let value = parts.next().unwrap_or("").trim();
-            if name.is_empty() || ty.is_empty() {
-                return None;
-            }
-            Some(StRecord {
-                name: name.to_string(),
-                ty: ty.to_ascii_uppercase(),
-                value: value.to_string(),
-            })
+        .filter_map(structured_record_fields)
+        .map(|(name, ty, value)| StRecord {
+            name: name.to_string(),
+            ty: ty.to_ascii_uppercase(),
+            value: value.to_string(),
         })
         .collect()
 }
@@ -1388,28 +1392,40 @@ fn is_unsigned_type(ty: &str) -> bool {
     )
 }
 
-fn split_cycle_record_name(name: &str) -> Option<(usize, String)> {
+fn split_cycle_prefix(name: &str) -> Option<(usize, &str)> {
     let (prefix, rest) = name.split_once('.')?;
     if prefix.is_empty() || rest.is_empty() || !prefix.chars().all(|ch| ch.is_ascii_digit()) {
         return None;
     }
-    Some((prefix.parse().ok()?, rest.to_string()))
+    Some((prefix.parse().ok()?, rest))
 }
 
+fn split_cycle_record_name(name: &str) -> Option<(usize, String)> {
+    split_cycle_prefix(name).map(|(cycle, rest)| (cycle, rest.to_string()))
+}
+
+// 每次变异都要判断，所以只扫描字段，不分配记录。
 fn has_cycle_record(text: &str) -> bool {
-    parse_structured_records(text)
-        .iter()
-        .any(|record| split_cycle_record_name(&record.name).is_some())
+    text.lines()
+        .filter_map(structured_record_fields)
+        .any(|(name, _, _)| split_cycle_prefix(name).is_some())
 }
 
 fn parse_cycle_aware_seed(text: &str) -> CycleAwareSeed {
     let mut seed = CycleAwareSeed::default();
-    for mut record in parse_structured_records(text) {
-        if let Some((cycle, field_name)) = split_cycle_record_name(&record.name) {
-            record.name = field_name;
-            seed.cycles.entry(cycle).or_default().push(record);
-        } else {
-            seed.shared.push(record);
+    for (name, ty, value) in text.lines().filter_map(structured_record_fields) {
+        let (cycle, field_name) = match split_cycle_prefix(name) {
+            Some((cycle, field_name)) => (Some(cycle), field_name),
+            None => (None, name),
+        };
+        let record = StRecord {
+            name: field_name.to_string(),
+            ty: ty.to_ascii_uppercase(),
+            value: value.to_string(),
+        };
+        match cycle {
+            Some(cycle) => seed.cycles.entry(cycle).or_default().push(record),
+            None => seed.shared.push(record),
         }
     }
     seed

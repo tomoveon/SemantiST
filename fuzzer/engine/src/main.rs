@@ -501,6 +501,54 @@ mod tests {
     }
 
     #[test]
+    fn borrowed_seed_parsing_matches_the_allocating_parser() {
+        // The parsers this module used before borrowing record fields.
+        fn reference_split(name: &str) -> Option<(usize, String)> {
+            let (prefix, rest) = name.split_once('.')?;
+            if prefix.is_empty() || rest.is_empty() || !prefix.chars().all(|ch| ch.is_ascii_digit()) {
+                return None;
+            }
+            Some((prefix.parse().ok()?, rest.to_string()))
+        }
+        fn reference_parse(text: &str) -> (Vec<(String, String, String)>, Vec<(usize, Vec<(String, String, String)>)>, bool) {
+            let records = parse_structured_records(text);
+            let has_cycle = records.iter().any(|record| reference_split(&record.name).is_some());
+            let mut shared = Vec::new();
+            let mut cycles = BTreeMap::<usize, Vec<(String, String, String)>>::new();
+            for record in records {
+                match reference_split(&record.name) {
+                    Some((cycle, name)) => cycles.entry(cycle).or_default().push((name, record.ty, record.value)),
+                    None => shared.push((record.name, record.ty, record.value)),
+                }
+            }
+            (shared, cycles.into_iter().collect(), has_cycle)
+        }
+        let pieces = ["X", " 0.EN ", "1.x", "12.Y.Z", ".A", "3.", "a.B", "00.Q", "99999999999999999999999.R", ""];
+        let types = ["int", " BOOL", "", "Real "];
+        let mut rand = StdRand::with_seed(3);
+        for _ in 0..500 {
+            let mut text = String::new();
+            for _ in 0..rand.below_or_zero(8) {
+                let name = pieces[rand.below_or_zero(pieces.len())];
+                match rand.below_or_zero(4) {
+                    0 => text.push_str(&format!("{name}\n")),
+                    1 => text.push_str(&format!("{name},{}\n", types[rand.below_or_zero(types.len())])),
+                    _ => text.push_str(&format!("{name},{}, v,1 \n", types[rand.below_or_zero(types.len())])),
+                }
+            }
+            let seed = parse_cycle_aware_seed(&text);
+            let tuples = |records: &[StRecord]| records.iter()
+                .map(|record| (record.name.clone(), record.ty.clone(), record.value.clone())).collect::<Vec<_>>();
+            let actual = (
+                tuples(&seed.shared),
+                seed.cycles.iter().map(|(cycle, records)| (*cycle, tuples(records))).collect::<Vec<_>>(),
+                has_cycle_record(&text),
+            );
+            assert_eq!(actual, reference_parse(&text), "{text:?}");
+        }
+    }
+
+    #[test]
     fn cycle_seed_normalize_rewrites_sparse_cycle_ids() {
         let mut seed = parse_cycle_aware_seed("A,INT,1\n2.X,INT,2\n7.X,INT,3\n");
         normalize_cycle_ids(&mut seed);
