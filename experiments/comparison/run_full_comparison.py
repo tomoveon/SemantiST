@@ -120,6 +120,13 @@ def parse_args(argv: list[str] | None = None, *, description: str | None = None)
         default="full",
         help="SemantiST-only runtime mechanism ablation; use a separate one-tool run",
     )
+    add_advanced(
+        "--semantist-execution",
+        choices=("fork", "persistent", "inprocess"),
+        default="inprocess",
+        help="how SemantiST runs each input: a forked process, an AFL++ persistent child, "
+        "or in its own process (default); replay always uses the forkserver binary",
+    )
     add_advanced("--semantist-fb-max-cycles", type=int, default=256)
     add_advanced("--semantist-fb-stale-threshold", type=int, default=0)
     trace_group = advanced.add_mutually_exclusive_group()
@@ -258,6 +265,7 @@ def main(argv: list[str] | None = None, *, description: str | None = None) -> in
         container_platform=args.container_platform,
         semantist_image=args.semantist_image,
         semantist_ablation=args.semantist_ablation,
+        semantist_execution=args.semantist_execution,
     )
     manifest = load_manifest(args.manifest, ROOT)
     targets = select_targets(manifest.targets, args.target_id, args.limit_targets)
@@ -456,10 +464,11 @@ def validate_execution_environment(
     except subprocess.TimeoutExpired as error:
         raise SystemExit(f"SemantiST image interface probe timed out: {semantist_image}") from error
     output = (result.stdout or "") + "\n" + (result.stderr or "")
-    if result.returncode != 0 or "--ablation" not in output:
+    missing_options = [option for option in ("--ablation", "--execution") if option not in output]
+    if result.returncode != 0 or missing_options:
         raise SystemExit(
             f"SemantiST image {semantist_image!r} does not contain the current experiment CLI "
-            "(--ablation is missing); rebuild it from the current source tree"
+            f"({', '.join(missing_options) or 'help failed'}); rebuild it from the current source tree"
         )
 
 
@@ -510,6 +519,7 @@ def write_environment(
         "trial_count": args.trials,
         "seed_namespace": args.seed_namespace,
         "semantist_ablation": args.semantist_ablation,
+        "semantist_execution": args.semantist_execution,
         "online_budget_seconds": args.fuzz_time,
         "per_execution_timeout_ms": args.timeout_ms,
         "semantic_task_budget": args.semantic_task_budget,

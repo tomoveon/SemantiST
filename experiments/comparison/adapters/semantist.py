@@ -17,6 +17,10 @@ from experiments.comparison.adapters.base import (
 from experiments.comparison.lib.hashing import sha256_file
 from experiments.comparison.lib.manifest import Target
 from experiments.comparison.lib.metrics import CRASH_ORACLES, FindingCollectionError, read_events, execution_count, reported_executions
+
+ENGINE = "/opt/semantist/cargo-target/release/semantist"
+INPROCESS_LIB = "/opt/semantist/cargo-target/release/libsemantist_inprocess.a"
+INPROCESS_FUZZER = "semantist-inprocess"
 from experiments.comparison.lib.process import (
     container_cpu_bound_command,
     container_run_command,
@@ -85,6 +89,10 @@ class SemantiSTAdapter(BaseAdapter):
         }
         if target.compatibility_manifest is not None:
             env["SEMANTIST_COMPATIBILITY_MANIFEST"] = self.container_path(target.compatibility_manifest)
+        if self.config.semantist_execution == "inprocess":
+            # build_target.sh also links the target into its in-process fuzzer;
+            # fuzz_target stays the forkserver and replay binary.
+            env["SEMANTIST_INPROCESS_LIB"] = INPROCESS_LIB
         target_path = self.container_path(target.st_file)
         stg_dir = self.container_path(preprocess_dir / "stg")
         task_plan = self.container_path(preprocess_dir / "semantic-task-plan.json")
@@ -150,6 +158,7 @@ class SemantiSTAdapter(BaseAdapter):
                 preprocess_dir / "fuzz_target",
                 preprocess_dir / "harness.c",
                 preprocess_dir / "seed-manifest.json",
+                *([preprocess_dir / INPROCESS_FUZZER] if self.config.semantist_execution == "inprocess" else []),
             )
             if not path.exists()
         ]
@@ -189,6 +198,10 @@ class SemantiSTAdapter(BaseAdapter):
         _copy_dir(preprocessing.preprocess_dir / "base-seeds", seed_dir)
         shutil.copy2(preprocessing.preprocess_dir / "fuzz_target", run_dir / "tool-artifacts" / "fuzz_target")
         shutil.copy2(preprocessing.preprocess_dir / "harness.c", run_dir / "tool-artifacts" / "harness.c")
+        if self.config.semantist_execution == "inprocess":
+            shutil.copy2(
+                preprocessing.preprocess_dir / INPROCESS_FUZZER, run_dir / "tool-artifacts" / INPROCESS_FUZZER
+            )
         _copy_dir(preprocessing.preprocess_dir / "stg", run_dir / "stg")
         shutil.copy2(preprocessing.preprocess_dir / "semantic-task-plan.json", run_dir / "semantic-task-plan.json")
         shutil.copy2(preprocessing.preprocess_dir / "seed-manifest.json", run_dir / "seed-manifest.json")
@@ -241,10 +254,17 @@ class SemantiSTAdapter(BaseAdapter):
             )
         container_name = self.container_name(target, run_dir, "online")
         remove_container_quiet(runtime, container_name)
+        execution = self.config.semantist_execution
+        if execution == "inprocess":
+            # The in-process fuzzer contains the target; --target only names
+            # the forkserver binary kept for replay.
+            engine = [self.container_path(run_dir / "tool-artifacts" / INPROCESS_FUZZER)]
+        else:
+            engine = [ENGINE, "--execution", execution]
         command = self._container_command(
             env,
             [
-                "/opt/semantist/cargo-target/release/semantist",
+                *engine,
                 "--target",
                 self.container_path(target_bin),
                 "--function",
@@ -400,6 +420,10 @@ class SemantiSTAdapter(BaseAdapter):
             # Optional semantic coverage must not discard the native execution
             # count and crash reports already collected from the stopped run.
             metrics["tool_specific_metrics"] = {"semantic_coverage_collection_error": repr(error)}
+        metrics["tool_specific_metrics"]["execution"] = self.config.semantist_execution
+        # PLC scan cycles the harness executed, from the same native report as
+        # the execution count; a function call is one cycle.
+        metrics["tool_specific_metrics"]["scan_cycles_reported"] = _reported_scan_cycles(run_dir / "stdout.log")
         return metrics
 
     def _container_command(
@@ -457,6 +481,7 @@ def _filtered_env(env: dict[str, str]) -> dict[str, str]:
         "SEMANTIST_FB_STATE_TRACE",
         "SEMANTIST_FB_STATE_TRACE_FILE",
         "SEMANTIST_COMPATIBILITY_MANIFEST",
+        "SEMANTIST_INPROCESS_LIB",
         "SEMANTIST_RNG_SEED",
         "SEMANTIST_LLM_PROVIDER",
     }
@@ -502,6 +527,18 @@ def _safe_int(value: object) -> int | None:
         return int(str(value))
     except (TypeError, ValueError):
         return None
+
+
+def _reported_scan_cycles(stdout_path: Path) -> int | None:
+    if not stdout_path.is_file():
+        return None
+    found = None
+    for line in stdout_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        marker = line.rfind("scan_cycles: ")
+        if marker >= 0:
+            value = _safe_int(line[marker + len("scan_cycles: "):].split(",", 1)[0].strip())
+            found = value if value is not None else found
+    return found
 
 
 def _max_executions(events_path: Path) -> int | None:

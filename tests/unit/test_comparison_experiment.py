@@ -24,7 +24,7 @@ from experiments.comparison.adapters.icsquartz import (  # noqa: E402
     _launcher_core_spec,
     _latest_total_executions,
 )
-from experiments.comparison.adapters.semantist import SemantiSTAdapter  # noqa: E402
+from experiments.comparison.adapters.semantist import SemantiSTAdapter, _reported_scan_cycles  # noqa: E402
 from experiments.baselines import build_images  # noqa: E402
 from experiments.comparison.analysis import coverage as coverage_analysis  # noqa: E402
 from experiments.comparison.analysis.replay import replay_seed  # noqa: E402
@@ -89,11 +89,19 @@ class ComparisonExperimentTests(unittest.TestCase):
     def test_execution_environment_probes_current_semantist_cli(
         self, _image_id, _command, run
     ):
-        run.return_value = SimpleNamespace(returncode=0, stdout="--ablation <PROFILE>", stderr="")
+        run.return_value = SimpleNamespace(
+            returncode=0, stdout="--ablation <PROFILE>\n--execution <EXECUTION>", stderr=""
+        )
         validate_execution_environment(
             "docker", "docker info succeeded", ["semantist_full"],
             "semantist:test", None,
         )
+        run.return_value = SimpleNamespace(returncode=0, stdout="--ablation <PROFILE>", stderr="")
+        with self.assertRaisesRegex(SystemExit, "--execution"):
+            validate_execution_environment(
+                "docker", "docker info succeeded", ["semantist_full"],
+                "semantist:test", None,
+            )
         run.return_value = SimpleNamespace(returncode=0, stdout="old help", stderr="")
         with self.assertRaisesRegex(SystemExit, "current experiment CLI"):
             validate_execution_environment(
@@ -104,6 +112,26 @@ class ComparisonExperimentTests(unittest.TestCase):
     def test_comparison_disables_semantist_only_state_trace_by_default(self):
         self.assertFalse(parse_args([]).semantist_fb_state_trace)
         self.assertTrue(parse_args(["--semantist-fb-state-trace"]).semantist_fb_state_trace)
+
+    def test_semantist_execution_defaults_to_in_process(self):
+        self.assertEqual(parse_args([]).semantist_execution, "inprocess")
+        self.assertEqual(
+            parse_args(["--semantist-execution", "persistent"]).semantist_execution, "persistent"
+        )
+        with self.assertRaises(SystemExit), patch("sys.stderr"):
+            parse_args(["--semantist-execution", "snapshot"])
+
+    def test_semantist_scan_cycles_come_from_the_last_native_report(self):
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            stdout = Path(raw_tmp) / "stdout.log"
+            self.assertIsNone(_reported_scan_cycles(stdout))
+            stdout.write_text(
+                "[Testcase] (CLIENT) corpus: 3, executions: 10, exec/sec: 5, scan_cycles: 40\n"
+                "[UserStats] (CLIENT) corpus: 3, executions: 12, scan_cycles: 52, edges: 3/9\n"
+                "SemantiST final executions: 12\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(_reported_scan_cycles(stdout), 52)
 
     def test_semantist_ablation_is_recorded_per_trial(self):
         target = SimpleNamespace(

@@ -54,6 +54,8 @@ SemantiST 默认周期上限为 256；比较配置时保持 `--semantist-fb-max-
 
 执行计数单位是 native executor testcase（工具执行器的一次测试输入），不是 PLC 扫描周期。保留 `execution_model`：`single_cycle`（单周期）、`stateful_semantic_sequence`（有状态输入序列）、`scan_cycle`（持续扫描周期）。完整工具效率可以比较，但一次输入包含的工作量可能不同，不能表述为完全相同的函数调用次数。
 
+SemantiST 的执行方式（`fork`、`persistent`、`inprocess`，默认 `inprocess`）记录在 `environment.json` 和 `tool_specific_metrics.execution`，不改变上述字段含义：计数仍是执行器执行的 testcase 数，包括与先前输入重复的变异结果；进程内模式崩溃重启后计数连续。`tool_specific_metrics.scan_cycles_reported` 是同一原生报告中的 PLC 扫描周期数。独立重放始终使用 forkserver 目标二进制。
+
 首次发现计数来源：
 
 - SemantiST：引擎在 finding report（发现报告）中写入 `executions`。采集器也支持同一次运行的 runtime finding event（运行时发现事件）；不假定历史日志存在。

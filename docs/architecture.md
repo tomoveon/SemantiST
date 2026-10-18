@@ -42,13 +42,27 @@ experiment entry is a repository script, not an installed Python console command
    semantic selection with queue fallback; execution history and observed
    semantic progress update subsequent selection. Function-block inputs can
    contain bounded sequences of scan cycles.
+   The same harness and target code run in three execution modes. `fork`
+   (the engine default) forks a child per input. `--execution persistent`
+   keeps the forkserver child for up to 10000 inputs and passes each input
+   through AFL++ shared memory. `semantist-inprocess`, which `build_target.sh`
+   links when `SEMANTIST_INPROCESS_LIB` names `libsemantist_inprocess.a`,
+   contains the engine and the target in one process and restarts from the
+   saved fuzzer state after a crash or timeout. Both non-fork modes restore the
+   target's writable globals from the first input's snapshot before every
+   later input. `tests/integration/execution_consistency.py` checks that they
+   report the same edges, semantic hits, telemetry and outputs as `fork`.
+   Replay always runs the forkserver binary on one input.
 5. Runtime findings and reproducer seeds are persisted separately from the
    coverage corpus. `fuzzer/reporting/` deduplicates findings, replays
    representatives and optionally minimizes them before writing reports.
 
 The engine separates implementation across `fuzzer/semantic/`,
-`fuzzer/scheduler/`, `fuzzer/corpus/` and `fuzzer/stages/`. Several files still
-share crate scope through `include!`; the physical directory split is not a
+`fuzzer/scheduler/`, `fuzzer/corpus/` and `fuzzer/stages/`. The campaign in
+`fuzzer/engine/src/campaign.rs` is shared by the forkserver binary
+(`main.rs`) and the in-process library (`lib.rs`, `inprocess.rs`). Engine state
+that must survive an in-process restart lives in the LibAFL fuzzer state.
+Several files still share crate scope through `include!`; the physical directory split is not a
 claim that each directory is an independent Rust crate. See
 [semantic ranking](stg_semantic_ranking_zh.md) and
 [semantic instrumentation](semantic_ir_instrumentation.md) for algorithm details.

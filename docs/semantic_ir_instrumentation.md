@@ -29,9 +29,17 @@ events already identified by the compiler-semantic STG.
   probes, and emits the final cross-layer map and diagnostics.
 - `compiler/instrumentation/runtime/semantic_coverage.c` records semantic hits in a SysV shared-memory
   bitmap independent from AFL `trace-pc-guard`, and records ordered events and
-  scan/state observations in a second shared-memory segment.
+  scan/state observations in a second shared-memory segment. Compiled with
+  `-DSEMANTIST_IN_PROCESS` for `semantist-inprocess`, it writes the same
+  layouts into static buffers that the linked engine observes directly.
 - `compiler/harness/generator.py` brackets real target calls with cycle hooks
-  and, for FB targets, abstract state observations.
+  and, for FB targets, abstract state observations. Its driver
+  (`semantist_harness_execute`) is excluded from coverage and kept out of line,
+  so the AFL edges do not depend on the execution mode.
+- `compiler/harness/state_table.py` lists the writable globals that remain
+  writable after the target's `-O1` compile. The harness snapshots them after
+  the first input and restores them, and resets the semantic cycle counter,
+  before each later input in the same process.
 - `fuzzer/semantic/observers.rs` maps dense hits back to stable target ID,
   outcome role, POU, semantic edge IDs, and source location; it also consumes
   bounded telemetry. `fuzzer/engine/src/main.rs` wires these observers into the engine.
@@ -110,8 +118,8 @@ diagnostics before interpreting a coverage denominator.
 
 ## Runtime Telemetry And Scan Bounds
 
-The engine resets the semantic bitmap and telemetry before each input. Bitmap
-counters saturate at 255. The telemetry ABI in `semantic_coverage.h` and
+The engine resets the semantic bitmap and the telemetry header before each
+input. Bitmap counters saturate at 255. The telemetry ABI in `semantic_coverage.h` and
 `fuzzer/semantic/observers.rs` contains:
 
 - the number of real harness calls (`scan_count`);

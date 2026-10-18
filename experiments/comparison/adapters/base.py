@@ -39,6 +39,8 @@ class ExperimentConfig:
     container_platform: str | None
     semantist_image: str
     semantist_ablation: str = "full"
+    # fork, persistent or inprocess; see experiments/comparison/README.md.
+    semantist_execution: str = "inprocess"
 
 
 @dataclass(frozen=True)
