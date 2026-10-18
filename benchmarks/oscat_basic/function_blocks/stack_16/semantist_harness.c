@@ -39,8 +39,12 @@ extern void STACK_16__ctor(semantist_fb_state_t *);
 
 /* Code that runs differently on the first input of a process (state capture,
  * cached configuration, input transport) is excluded from edge coverage, so a
- * fork, persistent or in-process execution of one input reports one edge map. */
-#define SEMANTIST_DRIVER __attribute__((no_sanitize("coverage")))
+ * fork, persistent or in-process execution of one input reports one edge map.
+ * Inlining would move code across that boundary: per-input code inlined into a
+ * driver function loses its edges, and driver code inlined into per-input code
+ * gains them. */
+#define SEMANTIST_DRIVER __attribute__((no_sanitize("coverage"), noinline))
+#define SEMANTIST_INPUT __attribute__((noinline))
 
 static const char *skip_spaces(const char *value) {
     if (!value) {
@@ -638,7 +642,7 @@ static int run_cycle(semantist_fb_state_t *inst, semantist_fb_runtime_t *runtime
     return !runtime->stop;
 }
 
-static int semantist_run_input(char *data) {
+SEMANTIST_INPUT static int semantist_run_input(char *data) {
     semantist_state_reset();
     semantist_fb_state_t inst;
     memset(&inst, 0, sizeof(inst));

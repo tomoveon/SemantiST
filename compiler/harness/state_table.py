@@ -6,6 +6,12 @@ persistent or in-process loop starts from the same state as a fresh process.
 The table lives in the target module because prepared globals are internal:
 no other object can name them. Each entry stores the global's address and the
 allocation size of its IR type; ASan redzones are outside those bytes.
+
+A table entry makes its global escape, which stops the optimizer from deleting
+store-only globals (such as unused FB vtables and the functions they reach) or
+folding loads of never-written ones. With ``--optimized``, the IR the target
+compile itself produces, only globals still writable after that optimization
+are recorded; the others are never written at run time.
 """
 
 from __future__ import annotations
@@ -79,10 +85,23 @@ def writable_globals(source: str) -> list[WritableGlobal]:
     return regions
 
 
-def append_state_table(source: str) -> tuple[str, int]:
+def _bare(name: str) -> str:
+    return name[1:].strip('"')
+
+
+def survives(region: WritableGlobal, optimized: set[str]) -> bool:
+    """The global, or the parts scalar replacement split it into, is still writable."""
+    bare = _bare(region.name)
+    return bare in optimized or any(name.startswith(bare + ".") for name in optimized)
+
+
+def append_state_table(source: str, optimized: str | None = None) -> tuple[str, int]:
     if re.search(rf"^@{TABLE}\b|^@{COUNT}\b", source, re.M):
         raise StateTableError("IR already contains a SemantiST state table")
     regions = writable_globals(source)
+    if optimized is not None:
+        writable = {_bare(region.name) for region in writable_globals(optimized)}
+        regions = [region for region in regions if survives(region, writable)]
     entries = ", ".join(
         "{ ptr, i64 } { ptr " + region.name
         + f", i64 ptrtoint (ptr getelementptr ({region.llvm_type}, ptr null, i32 1) to i64) }}"
@@ -101,10 +120,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input_ll", type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--optimized", type=Path, help="the same IR after the target compile's optimization")
     args = parser.parse_args(argv)
     source = args.input_ll.read_text(encoding="utf-8", errors="replace")
+    optimized = args.optimized.read_text(encoding="utf-8", errors="replace") if args.optimized else None
     try:
-        text, count = append_state_table(source)
+        text, count = append_state_table(source, optimized)
     except StateTableError as error:
         print(f"[state_table] {args.input_ll}: {error}")
         return 1

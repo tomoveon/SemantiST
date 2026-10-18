@@ -86,11 +86,14 @@ PREPARE_ARGS=(
   --llvm-bin "$SEMANTIST_LLVM_BIN"
 )
 python3 -m compiler.scripts.prepare_target_ir "${PREPARE_ARGS[@]}"
-# The harness restores these writable globals before every input, so a
-# persistent or in-process loop sees the state of a fresh process.
-python3 -m compiler.harness.state_table "$PREPARED_LL" --output "$STATE_LL"
 
 mkdir -p "$(dirname "$OUT_OBJ")" "$(dirname "$OUT_BIN")"
+# The harness restores the target's writable globals before every input, so a
+# persistent or in-process loop sees the state of a fresh process. Only globals
+# still writable after this compile's own optimization are recorded.
+OPTIMIZED_LL="${STATE_LL%.ll}.optimized.ll"
+"$LLVM_CLANG" -O1 "${AFL_COVERAGE_FLAGS[@]}" "${TARGET_SANITIZER_FLAGS[@]}" -S -emit-llvm "$PREPARED_LL" -o "$OPTIMIZED_LL"
+python3 -m compiler.harness.state_table "$PREPARED_LL" --optimized "$OPTIMIZED_LL" --output "$STATE_LL"
 echo "[build_target] compiling LLVM IR to AFL-compatible instrumented object"
 "$LLVM_CLANG" -g -O1 "${AFL_COVERAGE_FLAGS[@]}" "${TARGET_SANITIZER_FLAGS[@]}" -c "$STATE_LL" -o "$OUT_OBJ"
 

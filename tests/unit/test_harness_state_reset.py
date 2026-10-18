@@ -49,6 +49,20 @@ class StateTableTests(unittest.TestCase):
         with self.assertRaises(StateTableError):
             append_state_table(text)
 
+    def test_globals_the_optimizer_proves_unwritten_are_not_recorded(self):
+        optimized = (
+            '@TOTAL = internal global i32 0, align 4\n'
+            '@NESTED.1 = internal global i64 0, align 8\n'
+            '@"quoted.name" = internal constant [4 x i8] zeroinitializer, align 1\n'
+        )
+        text, count = append_state_table(IR, optimized)
+        self.assertEqual(count, 2)
+        self.assertIn("ptr @TOTAL,", text)
+        # Scalar replacement split NESTED; the whole original is restored.
+        self.assertIn("ptr @NESTED,", text)
+        self.assertNotIn('ptr @"quoted.name"', text)
+        self.assertNotIn("ptr @__vtable_FB_instance", text)
+
     def test_module_without_writable_globals_gets_an_empty_table(self):
         text, count = append_state_table("@LIMIT = internal constant i32 7\n")
         self.assertEqual(count, 0)
@@ -119,7 +133,10 @@ class HarnessStateResetTests(unittest.TestCase):
                          "static void semantist_fb_runtime_init(", "static uint8_t *read_all("):
             line = next(line for line in harness.splitlines() if function in line)
             self.assertTrue(line.startswith("SEMANTIST_DRIVER "), line)
-        self.assertIn("static int semantist_run_input(char *data) {\n    semantist_state_reset();", harness)
+        # Inlined into a driver function, the per-input code would lose its edges.
+        self.assertIn("SEMANTIST_INPUT static int semantist_run_input(char *data) {\n    semantist_state_reset();", harness)
+        self.assertIn("#define SEMANTIST_INPUT __attribute__((noinline))", harness)
+        self.assertIn('#define SEMANTIST_DRIVER __attribute__((no_sanitize("coverage"), noinline))', harness)
 
     def test_persistent_loop_needs_the_forkserver_request_and_a_resettable_target(self):
         step = Param("STEP", scalar_spec("DINT"), "VAR_INPUT", offset=8, index=1)

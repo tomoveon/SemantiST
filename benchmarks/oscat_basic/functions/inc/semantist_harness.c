@@ -11,8 +11,12 @@ extern int16_t INC(int16_t, int16_t, int16_t);
 
 /* Code that runs differently on the first input of a process (state capture,
  * cached configuration, input transport) is excluded from edge coverage, so a
- * fork, persistent or in-process execution of one input reports one edge map. */
-#define SEMANTIST_DRIVER __attribute__((no_sanitize("coverage")))
+ * fork, persistent or in-process execution of one input reports one edge map.
+ * Inlining would move code across that boundary: per-input code inlined into a
+ * driver function loses its edges, and driver code inlined into per-input code
+ * gains them. */
+#define SEMANTIST_DRIVER __attribute__((no_sanitize("coverage"), noinline))
+#define SEMANTIST_INPUT __attribute__((noinline))
 
 static const char *skip_spaces(const char *value) {
     if (!value) {
@@ -419,7 +423,7 @@ static int split_record(char *line, char **name, char **value) {
     return 1;
 }
 
-static int semantist_run_input(char *data) {
+SEMANTIST_INPUT static int semantist_run_input(char *data) {
     semantist_state_reset();
     int16_t semantist_param_X = 0;
     int16_t semantist_param_D = 0;
