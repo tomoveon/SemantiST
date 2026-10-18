@@ -8,51 +8,27 @@ import sys
 import tempfile
 import unittest
 
-from compiler.harness.generator import (
-    generate_function_block_harness,
-    upgrade_fixed_harness_telemetry,
-)
-from compiler.parser.st import parse_target
-
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+
+from compiler.harness.abi import Param, TargetAbi, scalar_spec  # noqa: E402
+from compiler.harness.generator import generate_harness  # noqa: E402
+
 RUNTIME = ROOT / "compiler/instrumentation/runtime/semantic_coverage.c"
 TELEMETRY_SIZE = 16 + 4096 * 8 + 512 * 16
 
 
-class FixedHarnessTelemetryTests(unittest.TestCase):
-    def test_fixed_benchmark_upgrade_preserves_call_and_is_idempotent(self):
-        fixture = ROOT / "benchmarks/oscat_basic/function_blocks/ctrl_pid"
-        with tempfile.TemporaryDirectory() as directory:
-            destination = Path(directory) / "harness.c"
-            original = (fixture / "semantist_harness.c").read_text(encoding="utf-8")
-            destination.write_text(original, encoding="utf-8")
-            self.assertTrue(upgrade_fixed_harness_telemetry(destination, fixture / "target.st", "CTRL_PID"))
-            upgraded = destination.read_text(encoding="utf-8")
-            self.assertEqual(upgraded.count("    CTRL_PID(inst);"), original.count("    CTRL_PID(inst);"))
-            self.assertIn("__semantist_semantic_state(abstract_before,", upgraded)
-            self.assertFalse(upgrade_fixed_harness_telemetry(destination, fixture / "target.st", "CTRL_PID"))
-            self.assertEqual(destination.read_text(encoding="utf-8"), upgraded)
-            destination.write_text(original.replace("    float f0;", "    double f0;"), encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "unrecognized FB layout"):
-                upgrade_fixed_harness_telemetry(destination, fixture / "target.st", "CTRL_PID")
-
+class HarnessTelemetryTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform.startswith("linux") and shutil.which("cc"), "requires Linux C compiler and SysV SHM")
     def test_default_hooks_measure_real_scans_and_abstract_state_without_trace_files(self):
-        source = """FUNCTION_BLOCK COUNTER
-VAR_INPUT
-    STEP : DINT;
-END_VAR
-VAR
-    COUNT : DINT;
-END_VAR
-END_FUNCTION_BLOCK
-"""
+        # FUNCTION_BLOCK COUNTER: VAR_INPUT STEP : DINT; VAR COUNT : DINT.
+        step = Param("STEP", scalar_spec("DINT"), "VAR_INPUT", offset=8, index=1)
+        count = Param("COUNT", scalar_spec("DINT"), "VAR", offset=12, index=2)
+        abi = TargetAbi("FUNCTION_BLOCK", "COUNTER", [step], state_fields=[step, count],
+                        snapshot_fields=[count], instance_size=16, instance_align=8)
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
-            st_file = directory / "counter.st"
-            st_file.write_text(source, encoding="utf-8")
-            target = parse_target(str(st_file), "COUNTER")
-            harness = generate_function_block_harness(target.name, target.params, target.outputs or [], target.state_fields or [])
+            harness = generate_harness(abi)
             harness += """
 extern void __semantist_semantic_hit(uint32_t);
 void COUNTER__ctor(semantist_fb_state_t *inst) { inst->f1 = 0; }
@@ -99,7 +75,7 @@ void COUNTER(semantist_fb_state_t *inst) {
                 same_bucket_a = execute("0.STEP,DINT,100\n")
                 same_bucket_b = execute("0.STEP,DINT,101\n")
                 self.assertEqual(same_bucket_a[state_offset:state_offset + 16], same_bucket_b[state_offset:state_offset + 16])
-                self.assertEqual(sorted(path.name for path in directory.iterdir()), ["counter", "counter.st", "harness.c"])
+                self.assertEqual(sorted(path.name for path in directory.iterdir()), ["counter", "harness.c"])
             finally:
                 libc.shmdt(memory)
                 libc.shmctl(shm_id, 0, None)

@@ -57,6 +57,13 @@ if [[ ${#TARGET_SANITIZER_FLAGS[@]} -gt 0 ]]; then
   echo "[build_target] using target sanitizers: ${TARGET_SANITIZER_FLAGS[*]}"
 fi
 
+# The harness ABI comes from this build's IR and STG model, never from the ST text.
+STG_MODEL="${SEMANTIST_STG_DIR:-${SEMANTIST_BUILD_ARTIFACT_DIR}/stg/${TARGET_NAME}}/stg-model.json"
+if [[ ! -r "$STG_MODEL" ]]; then
+  echo "[build_target] missing STG model $STG_MODEL; run compile_st.sh with SEMANTIST_SEMANTIC_INSTRUMENTATION=ir" >&2
+  exit 1
+fi
+HARNESS_ARGS=("$ST_FUNCTION" --ir "$OUT_LL" --stg-model "$STG_MODEL")
 if [[ -n "${SEMANTIST_HARNESS_SOURCE:-}" ]]; then
   if [[ ! -r "$SEMANTIST_HARNESS_SOURCE" ]]; then
     echo "[build_target] missing fixed benchmark harness: $SEMANTIST_HARNESS_SOURCE" >&2
@@ -64,15 +71,12 @@ if [[ -n "${SEMANTIST_HARNESS_SOURCE:-}" ]]; then
   fi
   mkdir -p "$(dirname "$HARNESS_OUT")"
   cp "$SEMANTIST_HARNESS_SOURCE" "$HARNESS_OUT"
-  # Keep the checked-in harness execution contract, adding only bounded
-  # semantic telemetry to its prepared build copy.
-  if [[ "${SEMANTIC_MODE}" == "ir" ]]; then
-    python3 -m compiler.harness.generator --upgrade-fixed-telemetry \
-      "$HARNESS_OUT" "$ST_FILE" "$ST_FUNCTION"
-  fi
+  python3 -m compiler.harness.generator "${HARNESS_ARGS[@]}" --verify "$HARNESS_OUT"
   echo "[build_target] using fixed benchmark harness: $SEMANTIST_HARNESS_SOURCE"
 else
-  python3 -m compiler.scripts.generate_harness "$ST_FILE" "$ST_FUNCTION"
+  GENERATED_SEED_DIR="${GENERATED_SEED_DIR:-${SEMANTIST_BUILD_ARTIFACT_DIR}/corpus/${TARGET_NAME}/seeds}"
+  python3 -m compiler.harness.generator "${HARNESS_ARGS[@]}" \
+    --out "$HARNESS_OUT" --seed-out "$GENERATED_SEED_DIR/seed1"
 fi
 PREPARE_ARGS=(
   "$OUT_LL"

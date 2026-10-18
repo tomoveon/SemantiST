@@ -197,7 +197,7 @@ Run the relevant checks inside the built Linux toolchain environment:
 cargo test --manifest-path compiler/stg/Cargo.toml
 cargo test --manifest-path fuzzer/engine/Cargo.toml
 python3 -m pytest tests/unit/test_semantic_tasks.py
-python3 -m pytest compiler/harness/test_telemetry.py
+python3 -m pytest tests/unit/test_harness_telemetry.py
 python3 -m pytest tests/integration/test_semantic_ir_runtime.py
 ./tests/e2e/semantic_ir_e2e.sh
 ./tests/e2e/semantic_ir_hazard_e2e.sh

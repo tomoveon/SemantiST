@@ -9,6 +9,8 @@ Checks (per target):
   5. AFL++ baseline image builds the target.
   6. ICSQuartz baseline image builds with the same harness.c.
   7. Short smoke replay (zero / normal inputs) does not crash in the harness.
+  8. semantist_harness.c / semantist.seed equal the ones derived from the
+     compiled IR and STG model (run benchmarks/generate_harness.py first).
 
 The script exits non-zero if any selected stage fails.
 """
@@ -26,6 +28,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from experiments.comparison.lib.manifest import BENCHMARK_FIXTURE_FILES
 from benchmarks.lib.generator import ROOT, load_targets
+from compiler.harness.abi import AbiError, load_target_abi
+from compiler.harness.generator import generate_harness, generate_seed
 
 SEMANTIST_IMAGE = "semantist:0.1.0"
 AFLPP_IMAGE = "semantist-aflplusplus-env:4.21c"
@@ -115,6 +119,23 @@ def check_files(targets) -> dict:
             "target_matches_head": head_normalized is not None and current_normalized == head_normalized,
             "oscat_pou_equivalent": meta.get(t.id, {}).get("oscat_pou_equivalent"),
         }
+    return results
+
+
+def check_semantist_fixtures(targets) -> dict:
+    """Re-derive the SemantiST harness and seed from each compiled target."""
+    results = {}
+    for t in targets:
+        work = WORK / t.id
+        directory = Path(t.st_file).parent
+        try:
+            abi = load_target_abi(work / "stg" / "stg-model.json", work / "main.ll", t.function)
+        except (AbiError, OSError) as error:
+            results[t.id] = {"ok": False, "error": str(error)}
+            continue
+        harness_ok = (directory / "semantist_harness.c").read_text(encoding="utf-8") == generate_harness(abi)
+        seed_ok = (directory / "semantist.seed").read_text(encoding="utf-8") == generate_seed(abi)
+        results[t.id] = {"ok": harness_ok and seed_ok, "harness": harness_ok, "seed": seed_ok}
     return results
 
 
@@ -220,6 +241,7 @@ def main() -> int:
     parser.add_argument("--rusty-build", action="store_true")
     parser.add_argument("--aflpp-build", action="store_true")
     parser.add_argument("--icsquartz-build", action="store_true")
+    parser.add_argument("--semantist-abi", action="store_true")
     parser.add_argument("--all", action="store_true")
     args = parser.parse_args()
 
@@ -234,6 +256,7 @@ def main() -> int:
         args.rusty_build = True
         args.aflpp_build = True
         args.icsquartz_build = True
+        args.semantist_abi = True
 
     report: dict = {}
     overall_fail = 0
@@ -247,6 +270,17 @@ def main() -> int:
             if result["all_files"] and result["target_matches_head"]
         )
         print(f"[check] fixed fixture bundles unchanged={ok}/{len(targets)}")
+        if ok != len(targets):
+            overall_fail = 1
+
+    if args.semantist_abi:
+        results = check_semantist_fixtures(targets)
+        report["semantist_abi"] = results
+        ok = sum(1 for result in results.values() if result["ok"])
+        for target_id, result in results.items():
+            if not result["ok"]:
+                print(f"[semantist-abi] {target_id}: {result}")
+        print(f"[semantist-abi] fixtures match compiled ABI={ok}/{len(targets)}")
         if ok != len(targets):
             overall_fail = 1
 

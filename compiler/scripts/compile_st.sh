@@ -50,10 +50,8 @@ if [[ -n "$ST_PROGRAM" ]]; then
   COMPILE_ARGS+=(--program "$ST_PROGRAM")
 fi
 if [[ "${SEMANTIC_MODE}" == "ir" ]]; then
-  COMPILE_ARGS+=(--semantic-ir)
-  if [[ -n "${SEMANTIST_STG_DIR:-}" ]]; then
-    COMPILE_ARGS+=(--stg-output "${SEMANTIST_STG_DIR}")
-  fi
+  # build_target.sh reads the harness ABI from this STG model.
+  COMPILE_ARGS+=(--semantic-ir --stg-output "${SEMANTIST_STG_DIR:-${SEMANTIST_BUILD_ARTIFACT_DIR}/stg/${TARGET_NAME}}")
 fi
 python3 -m compiler.scripts.compile_st_project "${COMPILE_ARGS[@]}"
 

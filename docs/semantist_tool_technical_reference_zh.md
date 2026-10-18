@@ -56,7 +56,7 @@ Python 包版本为 0.1.0。主要命令入口为：
 | `semantist` | 完整构建、任务生成、fuzz 和报告流水线 |
 | `semantist-compile` | 编译 ST 项目并可执行语义 IR 插桩 |
 | `semantist-prepare-ir` | 对目标 LLVM IR 做兼容化、内部化和边界检查准备 |
-| `semantist-harness` | 解析 POU 声明并生成 C Harness 和基础种子 |
+| `semantist-harness` | 从 IR 和 STG 模型生成 C Harness 和基础种子，或校验固定 Harness |
 | `semantist-report` | 从一次运行目录回放证据并生成报告 |
 | `semantist-minimize` | 对结构化复现输入做确定性最小化 |
 | `semantist-check-llm` | 检查可选的报告 LLM 服务配置 |
@@ -184,39 +184,27 @@ stubs 被区分为声明、语义 adapter 和环境模型。工具会检查冲�
 
 仓库自带 `codesys-memory` profile。它用 ST adapter 暴露 `SysMemSet`、`SysMemCpy`、`SysMemMove` 形式的接口，并由原生 runtime 提供 checked/unchecked 实现。若目标和源对象大小能够从 alloca 推断，IR 准备阶段把相应调用改写为带对象大小的 checked shim；请求长度越界时 shim 中止，从而由动态运行与 sanitizer 形成证据。无法推断大小时传入 `UINT64_MAX` 表示未知，不把“未知”错误地当作已证明安全或已证明越界。
 
-## 5. ST 声明解析与 testcase 数据模型
+## 5. 目标 ABI 与 testcase 数据模型
 
-### 5.1 解析范围
+### 5.1 ABI 来源
 
-Harness 生成器使用一个轻量声明解析器读取指定的 `FUNCTION` 或 `FUNCTION_BLOCK`，而不是复用完整 RuSTy AST。解析器删除 `(* ... *)` 和 `// ...` 注释但保持行数，并特别识别 `VAR_INPUT (* CONSTANT *)` 这种注释式常量输入约定。
+Harness 不再解析 ST 声明文本。`compiler/harness/abi.py` 从同一次构建的两份编译器产物合成目标 ABI：
 
-变量区支持：
+- **STG 模型（`stg-model.json`）** 提供逻辑类型。类型由 RuSTy 语义索引解析，常量、数组上下界（包括引用 `VAR_GLOBAL CONSTANT` 和库常量的界限）、字符串容量和 `VAR_IN_OUT` 指向的类型都已经求值；别名、子范围和枚举解析到其基础类型。
+- **LLVM IR** 提供物理布局。FB 实例的字段集合和顺序取自 RuSTy 在 FB 入口为每个成员生成的命名 GEP；字段偏移和实例大小按 x86_64 SysV DataLayout 计算。FUNCTION 的参数位置取自函数签名，并通过入口块中写入同名 alloca 的 `store`/`memcpy` 绑定到声明变量；按值传入的字符串/数组还记录 RuSTy 实际拷贝的字节数。
 
-- `VAR`、`VAR_INPUT`、`VAR_IN_OUT`、`VAR_OUTPUT`、`VAR_TEMP`；
-- `CONSTANT`、`RETAIN`、`PERSISTENT`、`NON_RETAIN` 修饰；
-- 一条声明中的多个变量名、`AT` 地址和初始化式；
-- 用简单整数常量初始化的常量名，后续可用于数组上下界计算。
-
-这部分解析器的职责是生成 fuzz 输入 schema 和 C Harness，不代表完整 ST 前端的语义能力。完整语法与类型分析由 RuSTy 完成。
+两份来源共有的事实逐项交叉检查：标量宽度和浮点/整数类别、字符串和数组的字节数、按引用成员必须是指针、拷贝字节数不得超过声明容量、IR 字段必须全部有对应 STG 成员。任何不一致都报错，不再回退到猜测的布局。嵌套 FB、STRUCT 等成员按 IR 给出的大小和对齐生成不透明字段；`VAR_TEMP` 不属于实例，不出现在结构体中。
 
 ### 5.2 支持的输入类型表示
 
-轻量解析器把 IEC 类型映射到用于输入存储的 C 表示：
+ABI 中的类型映射到以下 C 存储：
 
-- `BOOL`；
-- `SINT/USINT/BYTE/CHAR`；
-- `INT/UINT/WORD/WCHAR`；
-- `DINT/UDINT/DWORD`；
-- `LINT/ULINT/LWORD`；
-- `REAL/LREAL`；
-- `TIME/DATE/DT/TOD` 及长名称别名，按有符号 64 位值处理；
-- 定长 `STRING` 和 `WSTRING`；
-- 多维 `ARRAY`；
-- `POINTER TO`/`REF_TO`。
-
-未显式给出字符串长度时默认长度由 `SEMANTIST_STRING_LENGTH` 控制，默认 250；存储包含额外终止元素。数组各维元素数相乘后扁平化，元素总数限制在 1 至 `SEMANTIST_MAX_ARRAY_ELEMENTS`，默认上限 65536。指针若能识别元素类型则按元素类型准备 backing storage；没有元素信息时使用 `SEMANTIST_POINTER_BYTES`，默认 4096。未知命名类型会被保守地当作指向一个 `BYTE` 的输入模型。
-
-这是一种 fuzzing 存储模型，而不是 ABI 布局计算器。尤其是用户定义结构体、复杂别名、padding 和厂商 ABI 不能据此推断。
+- `BOOL`、`SINT/USINT/BYTE/CHAR`、`INT/UINT/WORD/WCHAR`、`DINT/UDINT/DWORD`、`LINT/ULINT/LWORD`、`REAL/LREAL`；
+- `TIME/DATE/DT/TOD` 及长名称别名，按 RuSTy 的有符号 64 位值处理；
+- `STRING` 和 `WSTRING`，容量取 STG 的解析结果（RuSTy 默认 `STRING` 为 80 个字符）；
+- 多维 `ARRAY`，扁平化为元素数组；
+- `POINTER TO`/`REF_TO` 输入：backing storage 至少为一个声明 pointee 类型的对象（上限 1 MiB），种子值更长时扩展、更短时补零；
+- 不透明聚合（嵌套 FB、STRUCT 成员）：按十六进制字节填写，seed 中的类型 token 为 `ARRAY`。
 
 ### 5.3 FUNCTION 与 FUNCTION_BLOCK 字段分类
 
@@ -228,7 +216,7 @@ Harness 生成器使用一个轻量声明解析器读取指定的 `FUNCTION` 或
 
 对 `FUNCTION_BLOCK`：
 
-- `state_fields` 包含所解析的全部声明字段；
+- `state_fields` 是 IR 实例结构体中除 vtable 外的全部成员，按 IR 字段顺序排列；
 - fuzz 参数包括 input 和 inout；
 - 输出字段单独记录；
 - persistent fields 是排除 input、inout、output、temp 和 constant 后的普通内部字段；
@@ -263,7 +251,7 @@ FB 的周期字段使用：
 - `STRING` 先清零，再截断并保证终止；
 - `WSTRING` 将输入的每个字节扩展为宽元素，不执行 Unicode 解码；
 - 数组接受十六进制字节串或文本字节，写入固定缓冲区；
-- 指针 backing storage 按本次解码或文本长度重新分配，最少一个字节。
+- 指针 backing storage 按 max(本次解码长度, pointee 类型大小) 重新分配。
 
 结构化变异器用 `splitn(3)` 解析记录，因此值中后续逗号不会继续拆字段。无法解析为有效结构时，变异阶段不会把任意字节输入伪装成正常结构化 testcase。
 
@@ -271,13 +259,13 @@ FB 的周期字段使用：
 
 ### 6.1 FUNCTION Harness
 
-FUNCTION Harness 为参数分配 C 存储、逐行扫描输入并赋值，然后调用一次 `__semantist_semantic_cycle(0)` 和目标函数。标量返回值写入 `volatile`；字符串、数组或指针返回按 RuSTy 调用约定使用显式结果缓冲区。输出会以最小逃逸方式被观察，防止编译器把整个调用优化掉。
+FUNCTION Harness 的 C 原型按 IR 签名逐位生成，为每个参数分配 C 存储、逐行扫描输入并赋值，然后调用一次 `__semantist_semantic_cycle(0)` 和目标函数。标量返回值写入 `volatile`；字符串、数组返回按 IR 中的返回指针参数使用显式结果缓冲区；按引用传递的 `VAR_IN_OUT`/`VAR_OUTPUT` 标量传地址。输出会以最小逃逸方式被观察，防止编译器把整个调用优化掉。
 
 Harness 本身不嵌入“输出应该等于什么”的功能 oracle，也不植入指针 canary oracle。故障依据来自 sanitizer、进程退出、信号和超时，语义目标命中则来自插桩。
 
 ### 6.2 FUNCTION_BLOCK Harness
 
-FB Harness 生成包含 vtable 指针及声明顺序字段的 C struct，调用构造函数后，在同一个实例上顺序执行周期。inout 字段使用单独存储并把地址交给实例。
+FB Harness 按 IR 字段顺序生成包含 vtable 指针的 C struct，并对实例大小和每个字段偏移生成 `_Static_assert`，布局与编译结果不一致时 Harness 无法编译。调用构造函数后，在同一个实例上顺序执行周期。inout 字段使用按 pointee 类型分配的单独存储并把地址交给实例。
 
 周期记录按输入流的“周期 ID 发生变化”触发上一组执行，而不是先把整个文件按 ID 全局分组。因此记录顺序具有语义；同一个 ID 若不连续出现，可能造成多次周期执行。SemantiST 自己生成和变异的 seed 会规范化 cycle ID 与顺序，从而避免这一歧义，但手工 testcase 仍应保持周期块连续且递增。没有周期前缀的配置/inout 记录被当作共享记录，并在生成 seed 中放在周期记录之前。
 
@@ -297,10 +285,10 @@ FB Harness 生成包含 vtable 指针及声明顺序字段的 C struct，调用�
 
 - 标量、数组等字段按其 Harness 存储字节参与摘要；
 - 普通指针字段摘要的是指针值，而不是任意长度的 pointee 内容；
-- inout 指针路径从 `inst->field` 指向的位置读取 `sizeof(void *)` 个字节参与摘要；这既不是完整 pointee 状态，也要求该地址在该范围内可读；
+- inout 字段从 `inst->field` 指向的存储读取一个 pointee 对象的字节参与摘要；
 - 摘要变化反映所观察字节变化，不等价于完整 PLC 状态等价判定。
 
-Harness 提供弱符号 `__semantist_semantic_cycle` 和 `__semantist_semantic_state`；语义 runtime 链接后用强实现记录实际扫描序号、有序目标事件和抽象状态。固定 benchmark harness 在构建副本中补充同一反馈，原始 fixture 不变，无法识别的 FB 布局显式报错。
+Harness 提供弱符号 `__semantist_semantic_cycle` 和 `__semantist_semantic_state`；语义 runtime 链接后用强实现记录实际扫描序号、有序目标事件和抽象状态。固定 benchmark harness 由 `benchmarks/generate_harness.py` 从基准的编译结果生成；`build_target.sh` 用本次构建的 IR 和 STG 重新生成并要求与 fixture 逐字节一致，否则拒绝构建。
 
 ## 7. Semantic Target Graph（STG）
 
@@ -944,16 +932,13 @@ artifacts/
 - `--build-only`、`--report-only`、`--skip-report`；
 - 报告 provider、输出目录、批量 target-corpus 回放限制/超时、跳过该批量回放和最小化选项。
 
-`semantist-harness` 是一个简单位置参数入口，调用形式为 `semantist-harness <st-file> <pou-name>`，输出路径和 generated seed 目录分别由 `HARNESS_OUT`、`GENERATED_SEED_DIR` 控制。该入口没有 argparse 帮助处理，直接执行 `semantist-harness --help` 会因缺少第二个位置参数而失败；正常使用通常由 `build_target.sh` 代为设置环境并调用。
+`semantist-harness` 的调用形式为 `semantist-harness <pou-name> --ir <target.ll> --stg-model <stg-model.json> [--out harness.c] [--seed-out seed] [--verify fixed_harness.c]`；正常使用由 `build_target.sh` 调用。
 
 ### 20.2 重要环境变量
 
 | 变量 | 含义 |
 | --- | --- |
 | `SEMANTIST_ARTIFACT_DIR` | artifact root |
-| `SEMANTIST_STRING_LENGTH` | Harness 默认字符串长度，默认 250 |
-| `SEMANTIST_POINTER_BYTES` | 未知 pointee 的默认 backing bytes，默认 4096 |
-| `SEMANTIST_MAX_ARRAY_ELEMENTS` | Harness 数组最大扁平元素数，默认 65536 |
 | `SEMANTIST_LLVM_BIN` | LLVM 21 工具目录 |
 | `SEMANTIST_ARRAY_BOUNDS_SANITIZER` | IR bounds-checking 开关，默认开 |
 | `SEMANTIST_MEMORY_BOUNDS_CHECKS` | SysMem checked rewrite 开关，默认开 |
@@ -1018,7 +1003,7 @@ artifacts/
 以下限制直接来自源码，应在后续论文中如实界定：
 
 1. **端到端目标范围。** STG 可表示多类 POU，但自动 Harness 只支持 FUNCTION 与 FUNCTION_BLOCK。
-2. **轻量 Harness 类型模型不是 ABI 模型。** 数组被扁平化，未知命名类型退化为 byte pointer；FB 的 C struct 也由 vtable 指针加 ST 声明顺序字段手工生成，而非读取编译器输出的布局描述。复杂 struct/alias/padding 或 RuSTy ABI 变化需要额外验证、支持或显式兼容层。
+2. **Harness ABI 绑定 RuSTy 的代码生成约定。** 布局读取依赖 RuSTy 在 FB 入口为每个成员生成命名 GEP、在函数入口把参数存入同名 alloca；RuSTy 改变这些约定时生成器会报错而不是猜测。不透明成员（嵌套 FB、STRUCT）只按字节 fuzz，不展开其内部字段。
 3. **configuration/constant input 不由 Harness 强制不可写。** 它们在 planner 和 seed 作用域中被区别对待，但名称匹配的 testcase 仍可赋值。
 4. **FB 状态是有限观察。** 默认抽象反馈不纳入指针；可选精确快照也只观察地址或有限 backing bytes，不是任意 pointee heap graph。state hash 相同不证明完整状态相同。
 5. **周期语义依赖记录顺序。** 手工 seed 应保证相同 cycle ID 连续；工具生成/变异路径会规范化。
@@ -1086,7 +1071,7 @@ mutation 既保持文本 schema 合法，又利用 type bounds、guard expressio
 | 运行时消融开关 | `fuzzer/engine/src/config.rs`、`experiments/comparison/ablations.py` |
 | 公共实验计量与逐 trial 导出 | `experiments/comparison/lib/metrics.py`、`experiments/comparison/analysis/compare_tools.py` |
 | artifact 路径 | `fuzzer/runtime/paths.py` |
-| ST 声明和类型模型 | `compiler/parser/st.py` |
+| 目标 ABI（STG 类型 + IR 布局） | `compiler/harness/abi.py`、`compiler/harness/llvm_ir.py` |
 | Harness/seed/FB 状态 | `compiler/harness/generator.py` |
 | 方言规则与 intake | `compiler/parser/st-to-rusty-converter/scripts/` |
 | compatibility manifest/native provider | `compiler/toolchain/compatibility/` |

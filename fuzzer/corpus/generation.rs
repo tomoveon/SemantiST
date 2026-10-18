@@ -771,15 +771,17 @@ mod semantic_generation_tests {
         let root = env::temp_dir().join(format!("semantist-real-scan-order-{}", current_nanos()));
         fs::create_dir_all(&root).unwrap();
         let repository = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        fs::write(root.join("target.st"), "FUNCTION_BLOCK SCAN\nVAR_INPUT\n X : INT;\n Y : INT;\nEND_VAR\nVAR\n ACC : DINT;\nEND_VAR\nACC := ACC + X * Y;\nEND_FUNCTION_BLOCK\n").unwrap();
         let script = r#"
 import sys
 from pathlib import Path
-from compiler.parser.st import parse_target
-from compiler.harness.generator import generate_function_block_harness
+from compiler.harness.abi import Param, TargetAbi, scalar_spec
+from compiler.harness.generator import generate_harness
 root = Path(sys.argv[1])
-target = parse_target(str(root / 'target.st'), 'SCAN')
-source = generate_function_block_harness(target.name, target.params, target.outputs, target.state_fields, target.snapshot_fields)
+x = Param('X', scalar_spec('INT'), 'VAR_INPUT', offset=8, index=1)
+y = Param('Y', scalar_spec('INT'), 'VAR_INPUT', offset=10, index=2)
+acc = Param('ACC', scalar_spec('DINT'), 'VAR', offset=12, index=3)
+source = generate_harness(TargetAbi('FUNCTION_BLOCK', 'SCAN', [x, y], state_fields=[x, y, acc],
+                                    snapshot_fields=[acc], instance_size=16, instance_align=8))
 source += '\nvoid SCAN__ctor(semantist_fb_state_t *p) { p->f2 = 0; }\n'
 source += 'void SCAN(semantist_fb_state_t *p) { printf("%d,%d,%d\\n", p->f0, p->f1, p->f2); p->f2 += p->f0 * p->f1; }\n'
 (root / 'harness.c').write_text(source)

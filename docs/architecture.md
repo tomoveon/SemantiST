@@ -23,14 +23,16 @@ experiment entry is a repository script, not an installed Python console command
 
 ## Single-target pipeline
 
-1. `compiler/parser/st.py` reads `FUNCTION` and `FUNCTION_BLOCK` declarations
-   and supported seed fields: scalar IEC types, strings, arrays and pointers.
-   Library/dialect compatibility is handled by explicit compatibility manifests
-   and profiles; parsing a declaration does not guarantee that every ST construct
-   or vendor library can be compiled.
-2. `compiler/instrumentation/compile.py` and `compiler/scripts/` invoke the
+1. `compiler/instrumentation/compile.py` and `compiler/scripts/` invoke the
    pinned RuSTy toolchain, build compiler-semantic STG artifacts and LLVM IR,
-   instrument semantic targets, and generate/build a C harness.
+   and instrument semantic targets. Library/dialect compatibility is handled by
+   explicit compatibility manifests and profiles.
+2. `compiler/harness/abi.py` derives the target ABI from that build only: STG
+   types (resolved constants, bounds, string capacities, VAR_IN_OUT pointees)
+   and IR layout (FB member offsets, FUNCTION argument positions). The C
+   harness in `compiler/harness/generator.py` asserts the IR offsets at compile
+   time; a fixed benchmark harness must equal the one regenerated from the
+   build.
 3. `fuzzer/semantic/planning.py` derives semantic tasks from STG targets and
    typed dependencies. User seed ingestion and corpus metadata are managed by
    `fuzzer/corpus/store.py`; bounded semantic initial generation is implemented

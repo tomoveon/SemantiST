@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -182,6 +183,9 @@ def main() -> int:
                 str(args.stdlib.resolve() / "*.st"),
                 "--work-dir",
                 str(target_dir / "project"),
+                "--semantic-ir",
+                "--stg-output",
+                str(target_dir / "stg"),
             ]
         if compatibility_manifest:
             compile_command.extend(("--compatibility-manifest", str(compatibility_manifest)))
@@ -202,14 +206,25 @@ def main() -> int:
             targets.append({"pou": pou, "compile": "failed", "link": "not_run"})
             continue
 
+        # --semantic-ir only provides the STG model the harness ABI needs.
+        # Validation and its outputs keep RuSTy's uninstrumented IR.
+        shutil.copyfile(target_dir / "project" / f"{llvm_ir.stem}.compiler.ll", llvm_ir)
         declared_symbols.update(ir_declarations(llvm_ir))
         harness = target_dir / "harness.c"
-        harness_env = os.environ.copy()
-        harness_env["HARNESS_OUT"] = str(harness)
         harness_result = run_logged(
-            [sys.executable, "-m", "compiler.scripts.generate_harness", str(selected_source), pou],
+            [
+                sys.executable,
+                "-m",
+                "compiler.harness.generator",
+                pou,
+                "--ir",
+                str(llvm_ir),
+                "--stg-model",
+                str(target_dir / "stg" / "stg-model.json"),
+                "--out",
+                str(harness),
+            ],
             target_dir / "harness.log",
-            harness_env,
         )
         prepared = target_dir / "prepared.ll"
         prepare_result = run_logged(

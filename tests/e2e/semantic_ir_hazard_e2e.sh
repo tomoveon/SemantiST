@@ -36,6 +36,7 @@ SEMANTIST_STG_CODEGEN_MAP="${WORK}/stg/stg-codegen-map.json" \
   --diagnostics "${WORK}/stg/stg-ir-diagnostics.json"
 
 SEMANTIST_SEMANTIC_INSTRUMENTATION=ir \
+SEMANTIST_STG_DIR="${WORK}/stg" \
 OUT_LL="${WORK}/target.ll" \
 PREPARED_LL="${WORK}/target.prepared.ll" \
 OUT_OBJ="${WORK}/target.o" \

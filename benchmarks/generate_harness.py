@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Compile target.st + program.st with RuSTy and generate the precise harness.c.
+"""Compile target.st + program.st with RuSTy and generate both fixed harnesses.
 
-The harness layout is derived from the RuSTy LLVM IR so that the C struct ABI
-(size, input field offsets) matches the compiled PLC_PRG exactly.
+harness.c (AFL++/ICSQuartz) takes its PLC_PRG layout from the RuSTy LLVM IR.
+semantist_harness.c and semantist.seed take the target POU's ABI from the
+same IR plus the STG model, so neither harness re-parses ST declarations.
 
 Usage:
     python3 benchmarks/generate_harness.py [--suite SUITE] [--id ID] [--runtime docker]
@@ -28,6 +29,9 @@ from benchmarks.lib.generator import (
     pointer_element_size,
 )
 from benchmarks.lib.st_extract import extract_pou_text, extract_signature, strip_pou
+from compiler.harness.abi import load_target_abi
+from compiler.harness.generator import generate_harness as generate_semantist_harness
+from compiler.harness.generator import generate_seed
 
 STDLIB_GLOB = "/opt/rusty-semantic/libs/stdlib/iec61131-st/*.st"
 OSCAT_SRC = "/work/SemantiST/benchmarks/oscat_basic/source/oscat.st"
@@ -107,11 +111,16 @@ def main() -> int:
     if not args.skip_compile:
         script_lines = ["set -e"]
         for t in targets:
+            work = f"/work/SemantiST/artifacts/benchmarks/harness-work/{t.id}"
             script_lines.append(
-                f"{PLC} build /work/SemantiST/artifacts/benchmarks/harness-work/{t.id}/plc.json "
+                f"{PLC} build {work}/plc.json "
                 f"--ir --single-module --error-format none "
-                f"--build-location /work/SemantiST/artifacts/benchmarks/harness-work/{t.id}/build "
-                f"-o /work/SemantiST/artifacts/benchmarks/harness-work/{t.id}/main.ll"
+                f"--build-location {work}/build "
+                f"-o {work}/main.ll"
+            )
+            script_lines.append(
+                f"./compiler/scripts/generate_stg.sh --project-root /work/SemantiST --output {work}/stg "
+                f"--pou {t.function} --pretty false {work}/plc.json"
             )
         script = "\n".join(script_lines) + "\n"
         (work_root / "compile_all.sh").write_text(script, encoding="utf-8", newline="\n")
@@ -157,6 +166,13 @@ def main() -> int:
             )
             (Path(t.st_file).parent / "harness.c").write_text(
                 harness, encoding="utf-8", newline="\n"
+            )
+            abi = load_target_abi(work_root / t.id / "stg" / "stg-model.json", ll_path, t.function)
+            (Path(t.st_file).parent / "semantist_harness.c").write_text(
+                generate_semantist_harness(abi), encoding="utf-8", newline="\n"
+            )
+            (Path(t.st_file).parent / "semantist.seed").write_text(
+                generate_seed(abi), encoding="utf-8", newline="\n"
             )
             ok += 1
             print(f"[harness] {t.id}: size={instance_size} input={input_size} fields={len(fields)}", flush=True)
