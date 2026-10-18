@@ -6,7 +6,6 @@
 enum Phase {
     SchedulerNext,
     SchedulerOnAdd,
-    InputFilter,
     Mutate,
     ObserversPre,
     TargetExecution,
@@ -25,10 +24,9 @@ enum Phase {
     IoFinding,
 }
 
-const PHASES: [Phase; 19] = [
+const PHASES: [Phase; 18] = [
     Phase::SchedulerNext,
     Phase::SchedulerOnAdd,
-    Phase::InputFilter,
     Phase::Mutate,
     Phase::ObserversPre,
     Phase::TargetExecution,
@@ -52,7 +50,6 @@ impl Phase {
         match self {
             Self::SchedulerNext => "scheduler next",
             Self::SchedulerOnAdd => "scheduler on_add",
-            Self::InputFilter => "input filter",
             Self::Mutate => "mutate",
             Self::ObserversPre => "observers pre_exec",
             Self::TargetExecution => "target execution",
@@ -94,7 +91,14 @@ struct PhaseTotals {
     nanos: [u128; PHASES.len()],
     counts: [u64; PHASES.len()],
     open: [Option<std::time::Instant>; 2],
+    // Executed inputs equal to one of the last REPEAT_WINDOW executed inputs.
+    // Only a profiling run hashes inputs; the engine itself never does.
+    repeated_inputs: u64,
+    recent_inputs: HashSet<u64>,
+    recent_order: std::collections::VecDeque<u64>,
 }
+
+const REPEAT_WINDOW: usize = 65_536;
 
 thread_local! {
     static PHASE_TOTALS: std::cell::RefCell<Option<PhaseTotals>> = const { std::cell::RefCell::new(None) };
@@ -123,7 +127,31 @@ fn phase_profile_begin(output: Option<PathBuf>) {
             nanos: [0; PHASES.len()],
             counts: [0; PHASES.len()],
             open: [None; 2],
+            repeated_inputs: 0,
+            recent_inputs: HashSet::new(),
+            recent_order: std::collections::VecDeque::new(),
         });
+    });
+}
+
+fn phase_count_input(bytes: &[u8]) {
+    use std::hash::{Hash, Hasher};
+    PHASE_TOTALS.with(|totals| {
+        let mut totals = totals.borrow_mut();
+        let Some(totals) = totals.as_mut() else { return; };
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        bytes.hash(&mut hasher);
+        let hash = hasher.finish();
+        if !totals.recent_inputs.insert(hash) {
+            totals.repeated_inputs += 1;
+            return;
+        }
+        totals.recent_order.push_back(hash);
+        if totals.recent_order.len() > REPEAT_WINDOW {
+            if let Some(oldest) = totals.recent_order.pop_front() {
+                totals.recent_inputs.remove(&oldest);
+            }
+        }
     });
 }
 
@@ -200,6 +228,11 @@ fn phase_profile_table(totals: &PhaseTotals) -> String {
             if executions == 0 { 0.0 } else { nanos as f64 / executions as f64 / 1e3 },
         ));
     }
+    out.push_str(&format!(
+        "repeated inputs executed (within the last {REPEAT_WINDOW}): {} ({:.1}% of executions)\n",
+        totals.repeated_inputs,
+        if executions == 0 { 0.0 } else { totals.repeated_inputs as f64 * 100.0 / executions as f64 },
+    ));
     let other = wall_nanos.saturating_sub(exclusive);
     out.push_str(&format!(
         "{:<34} {:>12} {:>12.3} {:>12} {:>9.2} {:>12.3}\n",
@@ -374,10 +407,13 @@ impl<E: HasObservers> HasObservers for ProfiledExecutor<E> {
     }
 }
 
-impl<E: libafl::executors::Executor<EM, I, S, Z>, EM, I, S, Z> libafl::executors::Executor<EM, I, S, Z>
+impl<E: libafl::executors::Executor<EM, I, S, Z>, EM, I: AsRef<Vec<u8>>, S, Z> libafl::executors::Executor<EM, I, S, Z>
     for ProfiledExecutor<E>
 {
     fn run_target(&mut self, fuzzer: &mut Z, state: &mut S, mgr: &mut EM, input: &I) -> Result<ExitKind, Error> {
+        if phase_profiling_enabled() {
+            phase_count_input(input.as_ref());
+        }
         let _timer = PhaseTimer::start(Phase::TargetExecution);
         self.inner.run_target(fuzzer, state, mgr, input)
     }
@@ -396,6 +432,9 @@ mod phase_profile_tests {
             nanos: [0; PHASES.len()],
             counts: [0; PHASES.len()],
             open: [None; 2],
+            repeated_inputs: 1,
+            recent_inputs: HashSet::new(),
+            recent_order: std::collections::VecDeque::new(),
         };
         totals.nanos[phase_index(Phase::TargetExecution)] = 2_000;
         totals.counts[phase_index(Phase::TargetExecution)] = 2;
@@ -403,6 +442,7 @@ mod phase_profile_tests {
         totals.counts[phase_index(Phase::StageMutational)] = 1;
         let table = phase_profile_table(&totals);
         assert!(table.contains("target executions 2"));
+        assert!(table.contains("repeated inputs executed (within the last 65536): 1 (50.0% of executions)"));
         let line = table.lines().find(|line| line.starts_with("target execution ")).unwrap();
         assert!(line.contains("1.00"), "{line}");
         assert!(PHASES.iter().all(|phase| table.contains(phase.label())));

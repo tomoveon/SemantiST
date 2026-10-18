@@ -190,18 +190,6 @@ fn state_signatures_ignore_sequence_length_but_distinguish_state_progress() {
 }
 
 #[test]
-fn input_deduplication_uses_bounded_fifo_retention() {
-    let mut filter = ContentHashInputFilter::default();
-    for value in 0..INPUT_HASH_CAPACITY as u64 { assert!(filter.admit_hash(value)); }
-    assert!(!filter.admit_hash(0));
-    assert!(filter.admit_hash(INPUT_HASH_CAPACITY as u64));
-    assert_eq!(filter.seen_hashes.len(), INPUT_HASH_CAPACITY);
-    assert_eq!(filter.insertion_order.len(), INPUT_HASH_CAPACITY);
-    assert!(filter.admit_hash(0));
-    assert_eq!(filter.seen_hashes.len(), INPUT_HASH_CAPACITY);
-}
-
-#[test]
 fn definitions_keep_symbol_identity_and_mark_ambiguous_writes() {
     let expression = serde_json::json!({"kind": {"kind": "literal", "value": {"value": "1"}}});
     let selection = ActiveSelection {

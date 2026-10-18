@@ -7,7 +7,7 @@ use libafl::{
     executors::{forkserver::ForkserverExecutor, ExitKind, HasObservers, StdChildArgs},
     feedback_or,
     feedbacks::{Feedback, MaxMapFeedback, StateInitializer, TimeFeedback},
-    fuzzer::{Evaluator, ExecutesInput, Fuzzer, HasScheduler, InputFilter, StdFuzzer},
+    fuzzer::{Evaluator, ExecutesInput, Fuzzer, HasScheduler, StdFuzzer},
     inputs::BytesInput,
     monitors::{
         stats::{AggregatorOps, UserStats, UserStatsValue},
@@ -177,7 +177,6 @@ fn main() -> Result<(), Error> {
         .scheduler(scheduler)
         .feedback(feedback)
         .objective(objective)
-        .input_filter(ContentHashInputFilter::default())
         .build();
 
     // 7. ForkserverExecutor 启动 AFL instrumentation 目标，执行每个结构化输入文件。
@@ -1079,20 +1078,6 @@ mod tests {
         assert_eq!(seed.cycles.get(&0).unwrap()[0].value, "0");
         assert_eq!(seed.cycles.get(&1).unwrap()[0].value, "0");
         assert_eq!(seed.cycles.get(&2).unwrap()[0].value, "1");
-    }
-
-    #[test]
-    fn runtime_filter_rejects_duplicate_seed_contents() {
-        let mut filter = ContentHashInputFilter::default();
-        let mut state = ();
-        let mut manager = ();
-        let input = BytesInput::new(b"X,INT,0\n".to_vec());
-        assert!(filter
-            .should_execute(&input, &mut state, &mut manager)
-            .unwrap());
-        assert!(!filter
-            .should_execute(&input, &mut state, &mut manager)
-            .unwrap());
     }
 
     #[test]

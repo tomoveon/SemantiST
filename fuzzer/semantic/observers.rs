@@ -837,59 +837,6 @@ where
     Some(content_hash(input.as_ref()))
 }
 
-const INPUT_HASH_CAPACITY: usize = 65_536;
-
-fn compact_content_hash(bytes: &[u8]) -> u64 {
-    use std::hash::Hasher;
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    hasher.write(bytes);
-    hasher.finish()
-}
-
-#[derive(Debug)]
-struct ContentHashInputFilter {
-    seen_hashes: HashSet<u64>,
-    insertion_order: std::collections::VecDeque<u64>,
-}
-
-impl Default for ContentHashInputFilter {
-    fn default() -> Self {
-        Self {
-            seen_hashes: HashSet::with_capacity(INPUT_HASH_CAPACITY),
-            insertion_order: std::collections::VecDeque::with_capacity(INPUT_HASH_CAPACITY),
-        }
-    }
-}
-
-impl ContentHashInputFilter {
-    fn admit_hash(&mut self, hash: u64) -> bool {
-        if self.seen_hashes.contains(&hash) { return false; }
-        if self.seen_hashes.len() == INPUT_HASH_CAPACITY {
-            if let Some(oldest) = self.insertion_order.pop_front() {
-                self.seen_hashes.remove(&oldest);
-            }
-        }
-        self.seen_hashes.insert(hash);
-        self.insertion_order.push_back(hash);
-        true
-    }
-}
-
-impl<EM, I, S> InputFilter<EM, I, S> for ContentHashInputFilter
-where
-    I: AsRef<Vec<u8>>,
-{
-    fn should_execute(
-        &mut self,
-        input: &I,
-        _state: &mut S,
-        _manager: &mut EM,
-    ) -> Result<bool, Error> {
-        let _timer = PhaseTimer::start(Phase::InputFilter);
-        Ok(self.admit_hash(compact_content_hash(input.as_ref())))
-    }
-}
-
 #[cfg(test)]
 mod semantic_objective_regressions {
     use super::*;
