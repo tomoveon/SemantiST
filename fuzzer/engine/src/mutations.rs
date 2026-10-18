@@ -76,6 +76,65 @@ impl StructuredStMutator {
             ablation,
         }
     }
+
+    fn mutate_with_context<S>(
+        &mut self,
+        state: &mut S,
+        input: &mut BytesInput,
+        context: &TargetContext,
+    ) -> Result<MutationResult, Error>
+    where
+        S: HasRand,
+    {
+        // LibAFL 的 input 仍然是 BytesInput；这里先把 bytes 当 UTF-8 文本解析成记录。
+        let text = String::from_utf8_lossy(input.as_ref());
+        if has_cycle_record(&text) {
+            let mut seed = parse_cycle_aware_seed(&text);
+            if seed.cycles.is_empty() {
+                seed.cycles.insert(
+                    0,
+                    vec![StRecord {
+                        name: "IN".to_string(),
+                        ty: "INT".to_string(),
+                        value: "0".to_string(),
+                    }],
+                );
+            }
+            let use_semantic = self.ablation.targeted_mutation()
+                && context.target_id.is_some()
+                && state
+                    .rand_mut()
+                    .coinflip(SEMANTIC_MUTATION_PROBABILITY);
+            if !use_semantic
+                || !semantic_mutate_cycle_seed(state.rand_mut(), &mut seed, context, self.ablation)
+            {
+                mutate_cycle_aware_seed(state.rand_mut(), &mut seed);
+            }
+            *input = BytesInput::new(serialize_cycle_aware_seed(&seed).into_bytes());
+            return Ok(MutationResult::Mutated);
+        }
+
+        let mut records = parse_structured_records(&text);
+        if records.is_empty() {
+            records.push(StRecord {
+                name: "IN".to_string(),
+                ty: "INT".to_string(),
+                value: "0".to_string(),
+            });
+        }
+
+        let use_semantic = self.ablation.targeted_mutation()
+            && context.target_id.is_some()
+            && state
+                .rand_mut()
+                .coinflip(SEMANTIC_MUTATION_PROBABILITY);
+        if !use_semantic || !semantic_mutate_records(state.rand_mut(), &mut records, context) {
+            mutate_records_fallback(state.rand_mut(), &mut records);
+        }
+
+        *input = BytesInput::new(serialize_records(&records).into_bytes());
+        Ok(MutationResult::Mutated)
+    }
 }
 
 impl Named for StructuredStMutator {
@@ -100,55 +159,14 @@ where
             });
             return Ok(MutationResult::Skipped);
         }
-        // LibAFL 的 input 仍然是 BytesInput；这里先把 bytes 当 UTF-8 文本解析成记录。
-        let text = String::from_utf8_lossy(input.as_ref());
-        let context = target_context(state);
-        if has_cycle_record(&text) {
-            let mut seed = parse_cycle_aware_seed(&text);
-            if seed.cycles.is_empty() {
-                seed.cycles.insert(
-                    0,
-                    vec![StRecord {
-                        name: "IN".to_string(),
-                        ty: "INT".to_string(),
-                        value: "0".to_string(),
-                    }],
-                );
-            }
-            let use_semantic = self.ablation.targeted_mutation()
-                && context.target_id.is_some()
-                && state
-                    .rand_mut()
-                    .coinflip(SEMANTIC_MUTATION_PROBABILITY);
-            if !use_semantic
-                || !semantic_mutate_cycle_seed(state.rand_mut(), &mut seed, &context, self.ablation)
-            {
-                mutate_cycle_aware_seed(state.rand_mut(), &mut seed);
-            }
-            *input = BytesInput::new(serialize_cycle_aware_seed(&seed).into_bytes());
-            return Ok(MutationResult::Mutated);
+        // The semantic guidance is only read here. Moving it out of the
+        // metadata map for one mutation avoids cloning its expression trees.
+        let context = state.metadata_map_mut().remove::<TargetContext>();
+        let result = self.mutate_with_context(state, input, context.as_deref().unwrap_or(&TargetContext::default()));
+        if let Some(context) = context {
+            state.metadata_map_mut().insert_boxed(context);
         }
-
-        let mut records = parse_structured_records(&text);
-        if records.is_empty() {
-            records.push(StRecord {
-                name: "IN".to_string(),
-                ty: "INT".to_string(),
-                value: "0".to_string(),
-            });
-        }
-
-        let use_semantic = self.ablation.targeted_mutation()
-            && context.target_id.is_some()
-            && state
-                .rand_mut()
-                .coinflip(SEMANTIC_MUTATION_PROBABILITY);
-        if !use_semantic || !semantic_mutate_records(state.rand_mut(), &mut records, &context) {
-            mutate_records_fallback(state.rand_mut(), &mut records);
-        }
-
-        *input = BytesInput::new(serialize_records(&records).into_bytes());
-        Ok(MutationResult::Mutated)
+        result
     }
 
     fn post_exec(&mut self, _state: &mut S, _new_corpus_id: Option<CorpusId>) -> Result<(), Error> {
