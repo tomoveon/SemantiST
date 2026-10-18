@@ -12,6 +12,7 @@
 | 通用流水线的漏洞证据、重放、去重和报告 | [Vulnerability reporting](vulnerability_reporting.md) |
 | 主实验参数和输出目录 | [实验入口说明](../experiments/comparison/README.md) |
 | 七种运行时配置及消融解释 | [消融说明](../experiments/ablations/README.md) |
+| CODESYS 与 fuzz 环境的平台语义对照 | [平台语义校准](../experiments/calibration/README_zh.md) |
 
 对照实验入口是宿主机仓库根目录的 `python run_experiment.py`。`main` 默认使用 SemantiST、AFL++、ICSQuartz，全部 90 个目标，每目标每工具 300 秒、5 次；`smoke` 使用三个代表目标，20 秒、1 次。用新 `--run-id` 和实际可用的 `--cpus` 启动，其他条件可显式覆盖。成功后自动导出逐次指标；比较和解释另行执行。
 
@@ -37,6 +38,7 @@
 | --- | --- |
 | [Layout migration](migration.md) | 旧目录/接口到当前布局的迁移参考 |
 | [Restructure report](restructure-report.md) | 重构时的结果与验证；历史行数和测试数不表示当前规模 |
+| [现状说明，2026-10-18](project_status_20261018_zh.md) | 当前主线、已完成的工作、已知问题与接下来的计划 |
 | [审稿式评审与顶会改进路线，2026-10-18](top_venue_review_20261018_zh.md) | 主实验崩溃的重放分类、P0 缺陷、主线与投稿路线 |
 | [算法实现审查，2026-10-08](algorithm_review_20261008_zh.md) | 修复前反例与问题清单，开头说明后续处理状态 |
 | [算法修订与验收记录，2026-10-08](algorithm_validation_20261008_zh.md) | 算法验收的条件、局部性能证据及后续接口回归补充 |

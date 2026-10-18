@@ -1,0 +1,103 @@
+id,kind,group,case,trap,expect_codesys,relates
+101,int,A,"WORD 65535+1 在比较中是否大于 65535",no,"x64 上为 1（中间结果 64 位）",中间结果宽度
+102,int,A,"INT 32767+1 在比较中是否大于 32767",no,"x64 上为 1",中间结果宽度
+103,int,A,"INT 32767+1 赋值后的值",no,-32768,赋值时截断
+104,int,A,"UINT 100*3600 赋给 DINT",no,360000,普查 F_LAMP D-3
+105,int,A,"UINT 100*3600 在比较中是否大于 300000",no,1,普查 F_LAMP D-3
+106,int,A,"BYTE 0-1 在比较中是否等于 255",no,"0（SA0066 示例）",中间结果宽度
+107,int,A,"DINT 2147483647+1 在比较中是否大于 0",no,"x64 上为 1",中间结果宽度；溢出谓词
+108,int,A,"SHL(DWORD 16#01000000, 8)/256，不经赋值",no,待测,普查 FRMP_B D-1
+109,int,A,"SHL 结果先赋给 DWORD 再 /256",no,0,普查 FRMP_B D-1
+110,int,A,"INT 30000+30000 在比较中是否小于 0",no,"x64 上为 0",中间结果宽度
+111,int,A,"LINT 最大值+1 在比较中是否大于 0",no,"0（64 位回绕）",对照
+112,int,A,"ABS(INT -32768)",no,待测,
+113,int,A,"-(INT -32768)",no,待测,
+114,int,A,"SINT 127+1 赋值后的值",no,-128,赋值时截断
+115,int,A,"USINT 0-1 赋值后的值",no,255,赋值时截断
+116,int,A,DINT_TO_INT(40000),no,-25536,显式窄化
+117,int,A,INT_TO_BYTE(300),no,44,显式窄化
+118,int,A,INT_TO_UINT(-1),no,65535,符号转换
+201,int,B,INT 7 / 0,yes,依赖目标系统,除零；INC/INC2
+202,int,B,INT 7 MOD 0,yes,"依赖目标系统（笔记中 Control Win 返回 0）",除零；INC/INC2
+203,int,B,DINT 7 / 0,yes,依赖目标系统,除零
+204,int,B,DINT 7 MOD 0,yes,依赖目标系统,除零
+205,int,B,UDINT 7 / 0,yes,依赖目标系统,除零
+206,int,B,DINT 最小值 / -1,yes,"待测（x86 上可能异常）",除法溢出
+207,int,B,LINT 最小值 / -1,yes,"待测（x86 上可能异常）",除法溢出
+208,int,B,"INT -32768 / -1 赋值后的值",yes,待测,除法溢出
+301,int,C,REAL_TO_DINT(3.0E9),no,待测,REAL_TO_STRF
+302,int,C,REAL_TO_DINT(-3.0E9),no,待测,REAL_TO_STRF
+303,int,C,REAL_TO_INT(40000.0),no,待测,
+304,int,C,REAL_TO_DINT(2.5),no,"待测（取整方式）",
+305,int,C,REAL_TO_DINT(3.5),no,"待测（取整方式）",
+306,int,C,REAL_TO_DINT(-2.5),no,"待测（取整方式）",
+307,int,C,LREAL_TO_DINT(1.0E300),no,待测,
+308,int,C,LREAL_TO_LINT(1.0E19),no,待测,
+309,int,C,REAL_TO_UDINT(-1.0),no,待测,
+401,int,D,SIZEOF(TIME),no,4,TIME 位宽
+402,int,D,SIZEOF(LTIME),no,8,
+403,int,D,SIZEOF(DATE),no,4,
+404,int,D,SIZEOF(DT),no,4,
+405,int,D,SIZEOF(TOD),no,4,
+406,int,D,TIME_TO_DWORD(T#1ms),no,1,TIME 单位
+407,int,D,TIME_TO_DWORD(T#1s),no,1000,TIME 单位
+408,int,D,"DWORD_TO_TIME(16#FFFFFFFF)+T#1ms，再转回 DWORD",no,0,TIME 回绕
+409,int,D,"上式的和是否大于加之前的值",no,"0（回绕）",TIME 回绕
+410,int,D,"时钟回绕后 tx-tn >= T#500ms",no,"1（模差写法正确）",A1 模差写法
+411,int,D,"时钟回绕后 tx-tn 的毫秒数",no,512,A1 模差写法
+412,int,D,"DWORD_TO_TIME(16#80000000) > T#0ms",no,"1（TIME 无符号）",TIME 符号
+413,int,D,TIME_TO_DINT(DWORD_TO_TIME(16#80000000)),no,-2147483648,TIME 符号
+414,int,D,TIME_TO_DINT(T#1ms),no,1,TIME 单位
+415,int,D,"T#1ms / 2，再转回 DWORD",no,0,亚毫秒；FILTER_I
+416,int,D,"T#1ms / 2 是否大于 T#0ms",no,0,亚毫秒；FILTER_I、RMP_B
+501,int,E,LEN('$D7'),no,"1（Latin-1）",字符串字节语义
+502,int,E,"LEN(CONCAT('$D7', 'A'))",no,2,T1 UTF-8 panic
+503,int,E,"LEN(LEFT('abc', 10))",no,待测,T2 字符串函数越界
+504,int,E,"LEN(MID('abc', 5, 2))",no,待测,T2
+505,int,E,"LEN(MID('abc', 2, 5))",no,待测,T2
+506,int,E,"LEN(RIGHT('abc', 10))",no,待测,T2
+507,int,E,"LEN(DELETE('abc', 5, 2))",no,待测,T2
+508,int,E,"LEN(INSERT('abc', 'X', 10))",no,待测,T2
+509,int,E,"FIND('abc', '')",no,待测,
+510,int,E,"LEN(LEFT('abc', -1))",no,待测,T2
+511,int,E,"两个 200 字符的串 CONCAT 后的长度",no,255,字符串长度上限
+512,int,E,STRING_TO_INT('abc'),no,待测,
+513,int,E,STRING_TO_INT('99999'),no,待测,
+514,int,E,LEN(INT_TO_STRING(-32768)),no,6,
+601,int,F,"DT 最大值转 DATE，再转 DWORD",no,待测,T2 DT_TO_DATE panic
+602,int,F,"DWORD_TO_DT(1) 再转回 DWORD",no,1,DT 单位
+801,real,R,REAL 16777216.0+1.0,no,16777216,浮点精度停滞
+802,real,R,LREAL 1.0E16+1.0-1.0E16,no,"0 或 2",浮点精度
+803,real,R,SQRT(-1.0),no,"待测（NaN？）",
+804,real,R,DINT_TO_REAL(16777217),no,16777216,
+805,real,R,TIME_TO_REAL(T#1500ms),no,1500,TIME 单位
+806,real,R,REAL 1.0E38*10,no,"待测（INF？）",
+851,real,R,REAL 1.0/0.0,yes,待测,浮点除零
+852,real,R,REAL 0.0/0.0,yes,待测,浮点除零
+853,real,R,LREAL 1.0/0.0,yes,待测,浮点除零
+901,str,S,"LEFT('abc', 10)",no,待测,T2
+902,str,S,"MID('abc', 5, 2)",no,待测,T2
+903,str,S,"MID('abc', 2, 5)",no,待测,T2
+904,str,S,"RIGHT('abc', 10)",no,待测,T2
+905,str,S,"DELETE('abc', 5, 2)",no,待测,T2
+906,str,S,"INSERT('abc', 'X', 10)",no,待测,T2
+907,str,S,"REPLACE('abc', 'X', 10, 2)",no,待测,T2
+908,str,S,"CONCAT('$D7', 'A')",no,待测,T1
+909,str,S,INT_TO_STRING(-32768),no,-32768,
+910,str,S,"LEFT('abc', -1)",no,待测,T2
+951,oscat,O,"INC(X:=0, D:=1, M:=-1)",yes,"笔记：Control Win 上返回 0，无异常",INC
+952,oscat,O,"INC2(X:=0, D:=1, L:=0, U:=-1)",yes,"笔记：返回 L=0，无异常",INC2
+953,oscat,O,"REAL_TO_STRF(-3599.0, 6, '.')",no,"笔记：'--695.966720'",REAL_TO_STRF
+954,oscat,O,CHARNAME(255),no,待测,"T1（smoke 中 SemantiST 在此触发 panic）"
+955,oscat,O,CHARNAME(65),no,待测,对照
+956,oscat,O,"CLEAN('a$D7b', 'ab')",no,'ab',T1
+H1,codesys,H,"ADR(BYTE 数组) + 2 后解引用",no,"3（按字节）",P0-3 ADR 算术
+H2,codesys,H,"ADR(WORD 数组) + 2 后解引用",no,"20（按字节）",P0-3 ADR 算术
+H3,codesys,H,"POINTER TO WORD 加 2 后解引用",no,"待测（按字节为 20，按元素为 30）",方言规则 27 的边界
+G1,codesys,G,"程序内数组越界写 arr[4] 后相邻变量的值（970=EXCEPTION 表示 H1–G2 这一步触发异常）",no,"7（未启用 CheckBounds 时）",实例内越界
+G2,codesys,G,"越界读 arr[4]（相邻变量为 9）",no,9,实例内越界
+T0,codesys,T,"第一个周期 TIME() 的毫秒值",no,,时钟
+T100,codesys,T,"100 个周期后 TIME() 增加的毫秒数",no,"约 100 × 任务周期",时钟；虚拟时钟
+960,codesys,O,"FILTER_I(X:=100, T:=T#1ms) 运行 50 个周期后的 Y",no,待测,FILTER_I
+961,codesys,O,"FILTER_I(X:=100, T:=T#0ms) 连续运行",yes,待测,FILTER_I
+962,codesys,O,"RMP_B(PT:=T#0ms, E, UP) 连续运行",yes,待测,RMP_B

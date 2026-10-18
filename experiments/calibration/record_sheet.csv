@@ -1,0 +1,103 @@
+﻿id,case,trap,expect_codesys,rusty,codesys,note,relates
+101,WORD 65535+1 在比较中是否大于 65535,no,x64 上为 1（中间结果 64 位）,1,,,中间结果宽度
+102,INT 32767+1 在比较中是否大于 32767,no,x64 上为 1,1,,,中间结果宽度
+103,INT 32767+1 赋值后的值,no,-32768,-32768,,,赋值时截断
+104,UINT 100*3600 赋给 DINT,no,360000,360000,,,普查 F_LAMP D-3
+105,UINT 100*3600 在比较中是否大于 300000,no,1,1,,,普查 F_LAMP D-3
+106,BYTE 0-1 在比较中是否等于 255,no,0（SA0066 示例）,0,,,中间结果宽度
+107,DINT 2147483647+1 在比较中是否大于 0,no,x64 上为 1,0,,,中间结果宽度；溢出谓词
+108,"SHL(DWORD 16#01000000, 8)/256，不经赋值",no,待测,0,,,普查 FRMP_B D-1
+109,SHL 结果先赋给 DWORD 再 /256,no,0,0,,,普查 FRMP_B D-1
+110,INT 30000+30000 在比较中是否小于 0,no,x64 上为 0,0,,,中间结果宽度
+111,LINT 最大值+1 在比较中是否大于 0,no,0（64 位回绕）,0,,,对照
+112,ABS(INT -32768),no,待测,-32768,,,
+113,-(INT -32768),no,待测,-32768,,,
+114,SINT 127+1 赋值后的值,no,-128,-128,,,赋值时截断
+115,USINT 0-1 赋值后的值,no,255,255,,,赋值时截断
+116,DINT_TO_INT(40000),no,-25536,-25536,,,显式窄化
+117,INT_TO_BYTE(300),no,44,44,,,显式窄化
+118,INT_TO_UINT(-1),no,65535,65535,,,符号转换
+201,INT 7 / 0,yes,依赖目标系统,ASan: FPE,,,除零；INC/INC2
+202,INT 7 MOD 0,yes,依赖目标系统（笔记中 Control Win 返回 0）,ASan: FPE,,,除零；INC/INC2
+203,DINT 7 / 0,yes,依赖目标系统,ASan: FPE,,,除零
+204,DINT 7 MOD 0,yes,依赖目标系统,ASan: FPE,,,除零
+205,UDINT 7 / 0,yes,依赖目标系统,ASan: FPE,,,除零
+206,DINT 最小值 / -1,yes,待测（x86 上可能异常）,ASan: FPE,,,除法溢出
+207,LINT 最小值 / -1,yes,待测（x86 上可能异常）,ASan: FPE,,,除法溢出
+208,INT -32768 / -1 赋值后的值,yes,待测,-32768,,,除法溢出
+301,REAL_TO_DINT(3.0E9),no,待测,-2147483648,,,REAL_TO_STRF
+302,REAL_TO_DINT(-3.0E9),no,待测,-2147483648,,,REAL_TO_STRF
+303,REAL_TO_INT(40000.0),no,待测,-25536,,,
+304,REAL_TO_DINT(2.5),no,待测（取整方式）,3,,,
+305,REAL_TO_DINT(3.5),no,待测（取整方式）,4,,,
+306,REAL_TO_DINT(-2.5),no,待测（取整方式）,-3,,,
+307,LREAL_TO_DINT(1.0E300),no,待测,-2147483648,,,
+308,LREAL_TO_LINT(1.0E19),no,待测,-9223372036854775808,,,
+309,REAL_TO_UDINT(-1.0),no,待测,4294967295,,,
+401,SIZEOF(TIME),no,4,8,,,TIME 位宽
+402,SIZEOF(LTIME),no,8,8,,,
+403,SIZEOF(DATE),no,4,8,,,
+404,SIZEOF(DT),no,4,8,,,
+405,SIZEOF(TOD),no,4,8,,,
+406,TIME_TO_DWORD(T#1ms),no,1,1,,,TIME 单位
+407,TIME_TO_DWORD(T#1s),no,1000,1000,,,TIME 单位
+408,DWORD_TO_TIME(16#FFFFFFFF)+T#1ms，再转回 DWORD,no,0,0,,,TIME 回绕
+409,上式的和是否大于加之前的值,no,0（回绕）,1,,,TIME 回绕
+410,时钟回绕后 tx-tn >= T#500ms,no,1（模差写法正确）,0,,,A1 模差写法
+411,时钟回绕后 tx-tn 的毫秒数,no,512,512,,,A1 模差写法
+412,DWORD_TO_TIME(16#80000000) > T#0ms,no,1（TIME 无符号）,1,,,TIME 符号
+413,TIME_TO_DINT(DWORD_TO_TIME(16#80000000)),no,-2147483648,-2147483648,,,TIME 符号
+414,TIME_TO_DINT(T#1ms),no,1,1,,,TIME 单位
+415,T#1ms / 2，再转回 DWORD,no,0,0,,,亚毫秒；FILTER_I
+416,T#1ms / 2 是否大于 T#0ms,no,0,1,,,亚毫秒；FILTER_I、RMP_B
+501,LEN('$D7'),no,1（Latin-1）,1,,,字符串字节语义
+502,"LEN(CONCAT('$D7', 'A'))",no,2,2,,,T1 UTF-8 panic
+503,"LEN(LEFT('abc', 10))",no,待测,panic: Requested substring length exceeds string length.,,,T2 字符串函数越界
+504,"LEN(MID('abc', 5, 2))",no,待测,panic: Requested substring length 5 from position 1 exceeds string length.,,,T2
+505,"LEN(MID('abc', 2, 5))",no,待测,panic: Position is out of bounds.,,,T2
+506,"LEN(RIGHT('abc', 10))",no,待测,panic: Requested substring length exceeds string length.,,,T2
+507,"LEN(DELETE('abc', 5, 2))",no,待测,panic: Cannot delete 5 characters starting from index 2.,,,T2
+508,"LEN(INSERT('abc', 'X', 10))",no,待测,panic: Positional parameter is out of bounds.,,,T2
+509,"FIND('abc', '')",no,待测,0,,,
+510,"LEN(LEFT('abc', -1))",no,待测,panic: Length parameter cannot be negative.,,,T2
+511,两个 200 字符的串 CONCAT 后的长度,no,255,400,,,字符串长度上限
+512,STRING_TO_INT('abc'),no,待测,ASan: global-buffer-overflow,,,
+513,STRING_TO_INT('99999'),no,待测,ASan: global-buffer-overflow,,,
+514,LEN(INT_TO_STRING(-32768)),no,6,6,,,
+601,DT 最大值转 DATE，再转 DWORD,no,待测,4294944000,,,T2 DT_TO_DATE panic
+602,DWORD_TO_DT(1) 再转回 DWORD,no,1,1,,,DT 单位
+801,REAL 16777216.0+1.0,no,16777216,16777216,,,浮点精度停滞
+802,LREAL 1.0E16+1.0-1.0E16,no,0 或 2,0,,,浮点精度
+803,SQRT(-1.0),no,待测（NaN？）,-nan,,,
+804,DINT_TO_REAL(16777217),no,16777216,16777216,,,
+805,TIME_TO_REAL(T#1500ms),no,1500,1500,,,TIME 单位
+806,REAL 1.0E38*10,no,待测（INF？）,inf,,,
+851,REAL 1.0/0.0,yes,待测,inf,,,浮点除零
+852,REAL 0.0/0.0,yes,待测,-nan,,,浮点除零
+853,LREAL 1.0/0.0,yes,待测,inf,,,浮点除零
+901,"LEFT('abc', 10)",no,待测,panic: Requested substring length exceeds string length.,,,T2
+902,"MID('abc', 5, 2)",no,待测,panic: Requested substring length 5 from position 1 exceeds string length.,,,T2
+903,"MID('abc', 2, 5)",no,待测,panic: Position is out of bounds.,,,T2
+904,"RIGHT('abc', 10)",no,待测,panic: Requested substring length exceeds string length.,,,T2
+905,"DELETE('abc', 5, 2)",no,待测,panic: Cannot delete 5 characters starting from index 2.,,,T2
+906,"INSERT('abc', 'X', 10)",no,待测,panic: Positional parameter is out of bounds.,,,T2
+907,"REPLACE('abc', 'X', 10, 2)",no,待测,panic: Cannot replace 10 characters starting from index 2.,,,T2
+908,"CONCAT('$D7', 'A')",no,待测,'$EF$BF$BDA',,,T1
+909,INT_TO_STRING(-32768),no,-32768,'-32768',,,
+910,"LEFT('abc', -1)",no,待测,panic: Length parameter cannot be negative.,,,T2
+951,"INC(X:=0, D:=1, M:=-1)",yes,笔记：Control Win 上返回 0，无异常,ASan: FPE,,,INC
+952,"INC2(X:=0, D:=1, L:=0, U:=-1)",yes,笔记：返回 L=0，无异常,ASan: FPE,,,INC2
+953,"REAL_TO_STRF(-3599.0, 6, '.')",no,笔记：'--695.966720','--2147.483648',,,REAL_TO_STRF
+954,CHARNAME(255),no,待测,"panic: called `Result::unwrap()` on an `Err` value: Utf8Error { valid_up_to: 0, error_len: Some(1) }",,,T1（smoke 中 SemantiST 在此触发 panic）
+955,CHARNAME(65),no,待测,'A',,,对照
+956,"CLEAN('a$D7b', 'ab')",no,'ab',ASan: global-buffer-overflow,,,T1
+H1,ADR(BYTE 数组) + 2 后解引用,no,3（按字节）,仅 CODESYS,,,P0-3 ADR 算术
+H2,ADR(WORD 数组) + 2 后解引用,no,20（按字节）,仅 CODESYS,,,P0-3 ADR 算术
+H3,POINTER TO WORD 加 2 后解引用,no,待测（按字节为 20，按元素为 30）,仅 CODESYS,,,方言规则 27 的边界
+G1,程序内数组越界写 arr[4] 后相邻变量的值（970=EXCEPTION 表示 H1–G2 这一步触发异常）,no,7（未启用 CheckBounds 时）,仅 CODESYS,,,实例内越界
+G2,越界读 arr[4]（相邻变量为 9）,no,9,仅 CODESYS,,,实例内越界
+T0,第一个周期 TIME() 的毫秒值,no,,仅 CODESYS,,,时钟
+T100,100 个周期后 TIME() 增加的毫秒数,no,约 100 × 任务周期,仅 CODESYS,,,时钟；虚拟时钟
+960,"FILTER_I(X:=100, T:=T#1ms) 运行 50 个周期后的 Y",no,待测,仅 CODESYS,,,FILTER_I
+961,"FILTER_I(X:=100, T:=T#0ms) 连续运行",yes,待测,仅 CODESYS,,,FILTER_I
+962,"RMP_B(PT:=T#0ms, E, UP) 连续运行",yes,待测,仅 CODESYS,,,RMP_B
