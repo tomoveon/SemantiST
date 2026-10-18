@@ -68,6 +68,7 @@ fn solution_collection_precedes_classification_and_deduplicates_targets() {
     let metadata = state.metadata::<SemanticCoverageMetadata>().unwrap();
     assert_eq!(metadata.last_cycle_ids, [0, 1]);
     assert_eq!(metadata.last_scan_count, 2);
+    assert_eq!(metadata.total_scan_cycles, 4);
     assert_eq!(metadata.last_state_signatures, initial_states);
     assert!(metadata.last_new_state_signatures.is_empty());
     assert!(metadata.last_ordered_trace_complete);
@@ -87,6 +88,7 @@ fn solution_collection_precedes_classification_and_deduplicates_targets() {
     assert!(metadata.last_state_signatures.is_empty());
     assert!(metadata.last_ordered_target_ids.is_empty());
     assert!(!metadata.last_ordered_trace_complete);
+    assert_eq!(metadata.total_scan_cycles, 5);
 }
 
 #[test]

@@ -3,13 +3,16 @@ mod semantic;
 
 use libafl::{
     corpus::{Corpus, CorpusId, InMemoryOnDiskCorpus, OnDiskCorpus, Testcase},
-    events::SimpleEventManager,
+    events::{Event, EventFirer, EventWithStats, SimpleEventManager},
     executors::{forkserver::ForkserverExecutor, ExitKind, HasObservers, StdChildArgs},
     feedback_or,
     feedbacks::{Feedback, MaxMapFeedback, StateInitializer, TimeFeedback},
     fuzzer::{Evaluator, ExecutesInput, Fuzzer, HasScheduler, InputFilter, StdFuzzer},
     inputs::BytesInput,
-    monitors::SimpleMonitor,
+    monitors::{
+        stats::{AggregatorOps, UserStats, UserStatsValue},
+        SimpleMonitor,
+    },
     mutators::{MutationResult, Mutator, Tokens},
     observers::{CanTrack, HitcountsMapObserver, MapObserver, StdMapObserver, TimeObserver},
     schedulers::{QueueScheduler, RemovableScheduler, Scheduler},

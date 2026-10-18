@@ -7,6 +7,7 @@ struct SemanticTaskBudgetStage {
     successes_by_guide: HashMap<String, u64>,
     budget: u64,
     state_file: PathBuf,
+    last_scan_report: Option<std::time::Instant>,
 }
 
 impl SemanticTaskBudgetStage {
@@ -19,6 +20,7 @@ impl SemanticTaskBudgetStage {
             successes_by_guide: HashMap::new(),
             budget: budget.max(1),
             state_file,
+            last_scan_report: None,
         }
     }
 
@@ -144,6 +146,7 @@ fn persist_semantic_task_state(
 
 impl<E, EM, S, Z> Stage<E, EM, S, Z> for SemanticTaskBudgetStage
 where
+    EM: EventFirer<BytesInput, S>,
     S: HasCorpus<BytesInput> + HasExecutions + HasMetadata,
 {
     fn perform(
@@ -151,9 +154,21 @@ where
         _fuzzer: &mut Z,
         _executor: &mut E,
         state: &mut S,
-        _manager: &mut EM,
+        manager: &mut EM,
     ) -> Result<(), Error> {
         let executions = *state.executions();
+        if self.last_scan_report.is_none_or(|last| last.elapsed() >= Duration::from_secs(1)) {
+            // The monitor line carries the executed scan cycles next to the
+            // execution count, so scans/s needs no extra output file.
+            self.last_scan_report = Some(std::time::Instant::now());
+            let scan_cycles = state.metadata_map().get::<SemanticCoverageMetadata>()
+                .map_or(0, |semantic| semantic.total_scan_cycles);
+            manager.fire(state, EventWithStats::with_current_time(Event::UpdateUserStats {
+                name: Cow::Borrowed("scan_cycles"),
+                value: UserStats::new(UserStatsValue::Number(scan_cycles), AggregatorOps::Sum),
+                phantom: std::marker::PhantomData,
+            }, executions))?;
+        }
         let guide = state
             .metadata_map()
             .get::<TargetContext>()

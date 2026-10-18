@@ -343,6 +343,7 @@ where
             semantic.last_ordered_target_ids.clone_from(&ordered_target_ids);
             semantic.last_ordered_trace_complete = ordered_trace_complete;
             semantic.last_scan_count = telemetry.as_ref().map_or(0, |item| item.scan_count);
+            semantic.total_scan_cycles = semantic.total_scan_cycles.saturating_add(u64::from(semantic.last_scan_count));
             semantic.last_telemetry_truncated = telemetry.as_ref().is_some_and(|item| item.truncated);
             if telemetry.is_some() {
                 // The ordinal records real calls, independent of cycle labels in

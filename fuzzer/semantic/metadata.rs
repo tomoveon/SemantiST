@@ -241,6 +241,9 @@ struct SemanticCoverageMetadata {
     last_ordered_trace_complete: bool,
     #[serde(default)]
     last_scan_count: u32,
+    // Scan cycles the harness executed over the whole run, for scans/s.
+    #[serde(default)]
+    total_scan_cycles: u64,
     #[serde(default)]
     last_telemetry_truncated: bool,
     #[serde(default)]
