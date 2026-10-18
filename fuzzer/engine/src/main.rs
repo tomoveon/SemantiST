@@ -1,105 +1,30 @@
-#[path = "../../semantic/runtime_module.rs"]
-mod semantic;
-
+include!("campaign.rs");
 use libafl::{
-    corpus::{Corpus, CorpusId, InMemoryOnDiskCorpus, OnDiskCorpus, Testcase},
-    events::{Event, EventFirer, EventWithStats, SimpleEventManager},
-    executors::{forkserver::ForkserverExecutor, ExitKind, HasObservers, StdChildArgs},
-    feedback_or,
-    feedbacks::{Feedback, MaxMapFeedback, StateInitializer, TimeFeedback},
-    fuzzer::{Evaluator, ExecutesInput, Fuzzer, HasScheduler, StdFuzzer},
-    inputs::BytesInput,
-    monitors::{
-        stats::{AggregatorOps, UserStats, UserStatsValue},
-        SimpleMonitor,
-    },
-    mutators::{MutationResult, Mutator, Tokens},
-    observers::{CanTrack, HitcountsMapObserver, MapObserver, StdMapObserver, TimeObserver},
-    schedulers::{QueueScheduler, RemovableScheduler, Scheduler},
-    stages::{Restartable, Stage, StdMutationalStage},
-    state::{HasCorpus, HasExecutions, HasRand, StdState},
-    Error, HasMetadata, SerdeAny,
+    events::SimpleEventManager,
+    executors::{forkserver::ForkserverExecutor, StdChildArgs},
 };
-use libafl_bolts::{
-    current_nanos,
-    rands::{Rand, StdRand},
-    shmem::{ShMem, ShMemProvider, UnixShMemProvider},
-    tuples::{tuple_list, Handle, Handled, MatchName, MatchNameRef},
-    AsIter, AsSliceMut, Named, StdTargetArgs, Truncate,
-};
-use semantic::{ActiveSelection, ControllableSeedField, SeedProfile, SemanticRuntimeMetadata};
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use std::{
-    borrow::Cow,
-    collections::{BTreeMap, HashMap, HashSet},
-    env, fs,
-    fs::OpenOptions,
-    io::{Read, Seek, SeekFrom, Write},
-    path::{Path, PathBuf},
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
-
-const DEFAULT_TARGET: &str = "./artifacts/build/targets/fuzz_target";
-const DEFAULT_FUNCTION: &str = "inc2";
-const DEFAULT_TIMEOUT_MS: u64 = 1_000;
-const MAP_SIZE: usize = 65_536;
-
-include!("../../semantic/metadata.rs");
-include!("../../semantic/observers.rs");
-include!("../../semantic/io.rs");
-include!("../../scheduler/engine.rs");
-include!("../../corpus/generation.rs");
-include!("mutations.rs");
-include!("config.rs");
-include!("cli.rs");
-include!("../../stages/semantic_budget.rs");
-include!("profile.rs");
-include!("consistency.rs");
+use libafl_bolts::{shmem::ShMem, StdTargetArgs, Truncate};
 #[cfg(test)]
 mod algorithm_regressions;
+
 fn main() -> Result<(), Error> {
-    let fuzz_started = std::time::Instant::now();
+    let started = std::time::Instant::now();
     // 1. 解析配置并确认目标程序存在。
     let config = Config::from_args()?;
-    env::set_var("SEMANTIST_FB_MAX_CYCLES", fb_max_cycles().to_string());
-    if let Some(path) = config.semantic_runtime_ids.as_deref() {
-        env::set_var("SEMANTIST_SEMANTIC_RUNTIME_IDS", path);
-    }
     if !Path::new(&config.target).exists() {
         return Err(Error::unknown(format!(
             "{} does not exist; run ./compiler/scripts/compile_st.sh and ./compiler/scripts/build_target.sh first",
             config.target.display()
         )));
     }
-    ensure_dirs(&config)?;
-    let sanitizer_log_dir = config.findings_dir.join("sanitizer-logs");
-    fs::create_dir_all(&sanitizer_log_dir)?;
-    set_default_sanitizer_env(&sanitizer_log_dir, config.execution);
-
-    let runtime_ids = load_runtime_id_table(config.semantic_runtime_ids.as_deref())?;
-    let target_names = stable_target_names(&runtime_ids);
-    let mapped_semantic_targets =
-        load_mapped_semantic_targets(config.semantic_runtime_ids.as_deref(), &runtime_ids)?;
-    let semantic_plan_path = config.semantic_task_plan.as_deref().ok_or_else(|| {
-        Error::illegal_argument(
-            "compiler-semantic fuzzing requires --semantic-task-plan or SEMANTIST_SEMANTIC_TASK_PLAN",
-        )
-    })?;
-    let semantic_plan = semantic::load_plan(semantic_plan_path)
-        .map_err(|message| Error::illegal_argument(message))?;
-    let semantic_generation_plan = semantic_plan.clone();
-    let semantic_map_size = runtime_ids
-        .entries
-        .iter()
-        .map(|entry| entry.runtime_id as usize + 1)
-        .max()
-        .unwrap_or(1);
+    let setup = prepare_campaign(config, started)?;
+    let config = &setup.config;
+    set_default_sanitizer_env(&setup.sanitizer_log_dir, config.execution);
 
     // 2. 创建相互独立的 AFL edge map 和 STG semantic map。
     let mut shmem_provider = UnixShMemProvider::new()?;
     let mut shmem = shmem_provider.new_shmem(MAP_SIZE)?;
-    let mut semantic_shmem = shmem_provider.new_shmem(semantic_map_size)?;
+    let mut semantic_shmem = shmem_provider.new_shmem(setup.semantic_map_size)?;
     let mut telemetry_shmem = shmem_provider.new_shmem(TELEMETRY_SIZE)?;
     unsafe {
         shmem.write_to_env("__AFL_SHM_ID")?;
@@ -107,66 +32,11 @@ fn main() -> Result<(), Error> {
         telemetry_shmem.write_to_env("SEMANTIST_TELEMETRY_SHM_ID")?;
     }
     env::set_var("AFL_MAP_SIZE", MAP_SIZE.to_string());
-    env::set_var("SEMANTIST_SEMANTIC_MAP_SIZE", semantic_map_size.to_string());
-    // 3. observers 负责观察目标执行：覆盖率 map 和执行时间。
-    let shmem_buf = shmem.as_slice_mut();
-    let edges_observer = unsafe {
-        HitcountsMapObserver::new(StdMapObserver::new("shared_mem", shmem_buf)).track_indices()
-    };
-    let observer_handle = edges_observer.handle();
-    let semantic_observer =
-        unsafe { StdMapObserver::new("semantic_shared_mem", semantic_shmem.as_slice_mut()) };
-    // The observer clears the telemetry header before every target execution,
-    // including executions later classified as solutions.
-    let telemetry_observer = unsafe {
-        TelemetryObserver::new("semantic_telemetry", telemetry_shmem.as_slice_mut())
-    };
-    let semantic_handle = semantic_observer.handle();
-    let telemetry_handle = telemetry_observer.handle();
-    let time_observer = TimeObserver::new("time");
-
-    // 4. feedback 决定哪些输入进入 corpus；objective 决定哪些输入是 crash/solution。
-    let runtime_findings = RuntimeFindingFeedback::new(
-        config.findings_dir.clone(),
-        config.crashes_dir.clone(),
-        config.metadata_bootstrap.clone(),
-        config.events_file.clone(),
-        sanitizer_log_dir.clone(),
-    )
-    .with_start(fuzz_started);
-    let semantic_objective = SemanticViolationObjective::new(&semantic_observer, &runtime_ids)
-        .with_pending_findings(runtime_findings.pending_semantic_findings());
-    let semantic_evidence = SemanticEvidenceCollector(
-        SemanticIrCoverageFeedback::new(&semantic_observer, runtime_ids)
-            .with_telemetry(&telemetry_observer));
-    let mut feedback = feedback_or!(
-        ProfiledFeedback::new(SemanticNoveltyFeedback, Phase::FeedbackSemanticNovelty),
-        ProfiledFeedback::new(MaxMapFeedback::new(&edges_observer), Phase::FeedbackEdges),
-        ProfiledFeedback::new(TimeFeedback::new(&time_observer), Phase::FeedbackTime)
-    );
-
-    // Eager OR: the runtime feedback runs after the semantic objective and
-    // persists the violations it reported for this input.
-    let mut objective = feedback_or!(
-        ProfiledFeedback::new(semantic_evidence, Phase::ObjectiveSemanticEvidence),
-        ProfiledFeedback::new(semantic_objective, Phase::ObjectiveSemanticViolation),
-        ProfiledFeedback::new(runtime_findings, Phase::ObjectiveRuntimeFindings)
-    );
-
-    // 5. state 保存 RNG、corpus、crashes，以及 feedback 的元数据。
-    let mut state = StdState::new(
-        StdRand::with_seed(config.rng_seed.unwrap_or_else(current_nanos)),
-        InMemoryOnDiskCorpus::<BytesInput>::new(&config.queue_dir)?,
-        OnDiskCorpus::new(&config.crashes_dir)?,
-        &mut feedback,
-        &mut objective,
-    )?;
-    state.add_metadata(SeedSourceContext {
-        source: SeedSource::Initial,
-    });
-    let mut semantic_runtime = SemanticRuntimeMetadata::new(semantic_plan, &mapped_semantic_targets);
-    semantic_runtime.set_target_names(target_names);
-    state.add_metadata(semantic_runtime);
+    env::set_var("SEMANTIST_SEMANTIC_MAP_SIZE", setup.semantic_map_size.to_string());
+    let (time_observer, edges_observer, semantic_observer, telemetry_observer, mut feedback, mut objective) =
+        semantist_feedbacks!(&setup, shmem.as_slice_mut(), semantic_shmem.as_slice_mut(), telemetry_shmem.as_slice_mut());
+    let handles = (edges_observer.handle(), semantic_observer.handle(), telemetry_observer.handle());
+    let mut state = semantist_new_state!(&setup, &mut feedback, &mut objective);
 
     let monitor = SimpleMonitor::new(|s| println!("{s}"));
     let mut mgr = SimpleEventManager::new(monitor);
@@ -181,7 +51,7 @@ fn main() -> Result<(), Error> {
 
     // 7. ForkserverExecutor 启动 AFL instrumentation 目标，执行每个结构化输入文件。
     let mut tokens = Tokens::new();
-    let mut executor = ForkserverExecutor::builder()
+    let executor = ForkserverExecutor::builder()
         .program(config.target.to_string_lossy().to_string())
         .debug_child(config.debug_child)
         .shmem_provider(&mut shmem_provider)
@@ -197,239 +67,15 @@ fn main() -> Result<(), Error> {
             telemetry_observer,
             PhaseMarkerObserver::closing()
         ))?;
+    let mut executor = ProfiledExecutor { inner: executor };
 
     // AFL 目标可能报告真实 map size；observer 跟着截断，减少无效 map 区域。
-    if let Some(dynamic_map_size) = executor.coverage_map_size() {
-        executor.observers_mut()[&observer_handle]
+    if let Some(dynamic_map_size) = executor.inner.coverage_map_size() {
+        executor.observers_mut()[&handles.0]
             .as_mut()
             .truncate(dynamic_map_size);
     }
-    let mut executor = ProfiledExecutor { inner: executor };
-
-    if let Some(dump_path) = config.consistency_dump.as_deref() {
-        let list = config.consistency_inputs.as_deref().ok_or_else(|| {
-            Error::illegal_argument("--consistency-dump requires --consistency-inputs")
-        })?;
-        let mut records = String::new();
-        for (index, path) in consistency_input_paths(list)?.into_iter().enumerate() {
-            let input = BytesInput::new(fs::read(&path)?);
-            let exit_kind = fuzzer.execute_input(&mut state, &mut executor, &mut mgr, &input)?;
-            let observers = executor.observers();
-            let record = consistency_record(
-                index,
-                &path,
-                &exit_kind,
-                &observers[&observer_handle].as_ref().to_vec(),
-                &observers[&semantic_handle].to_vec(),
-                observers[&telemetry_handle].as_slice(),
-            );
-            records.push_str(&record.to_string());
-            records.push('\n');
-        }
-        fs::write(dump_path, records)?;
-        return Ok(());
-    }
-
-    // 8. 加载初始种子和已有 queue；如果没有种子，用一条合法结构化输入兜底。
-    state.load_initial_inputs(
-        &mut fuzzer,
-        &mut executor,
-        &mut mgr,
-        &initial_corpus_dirs(&config),
-    )?;
-    if let Some(model_path) = config
-        .ablation
-        .semantic_initial_generation()
-        .then_some(config.semantic_model.as_deref())
-        .flatten()
-    {
-        let mut generator = SemanticInitialGenerator::from_stg(
-            model_path,
-            &config.function,
-            &config.seed_dir,
-            &semantic_generation_plan,
-        )?;
-        let proposed = generator.len();
-        if proposed > 0 {
-            let before = state.corpus().count();
-            state.add_metadata(SeedSourceContext {
-                source: SeedSource::SemanticGeneration,
-            });
-            state.generate_initial_inputs(
-                &mut fuzzer,
-                &mut executor,
-                &mut generator,
-                &mut mgr,
-                proposed,
-            )?;
-            state.add_metadata(SeedSourceContext {
-                source: SeedSource::Fuzzing,
-            });
-            let admitted = state.corpus().count().saturating_sub(before);
-            append_json_value(
-                &config.events_file,
-                &serde_json::json!({
-                    "event": "semantic_generation",
-                    "provider": "libafl_generator",
-                    "model": model_path,
-                    "stateful": generator.stateful,
-                    "proposed": proposed,
-                    "admitted": admitted,
-                    "executions": *state.executions(),
-                    "unix_time_seconds": unix_time_seconds(),
-                }),
-            )?;
-            println!("Semantic initial generation: proposed {proposed}, admitted {admitted}");
-        }
-    }
-    if state.corpus().is_empty() {
-        println!(
-            "No non-objective seeds found in {}; replaying structured bootstrap variants.",
-            config.seed_dir.display()
-        );
-        for candidate in bootstrap_seed_variants(&config.seed_dir) {
-            fuzzer.add_input(&mut state, &mut executor, &mut mgr, candidate)?;
-            if !state.corpus().is_empty() {
-                break;
-            }
-        }
-    }
-    if state.corpus().is_empty() {
-        // Every startup input was an objective. Those findings are already
-        // recorded near t=0; queue the base seed anyway so the campaign still
-        // explores the rest of the target instead of ending here.
-        queue_without_evaluation(&mut fuzzer, &mut state, startup_corpus_seed(&config.seed_dir))?;
-        append_json_value(
-            &config.events_file,
-            &serde_json::json!({
-                "event": "startup_objectives_seeded_corpus",
-                "reason": "all startup inputs were classified as objectives",
-                "executions": *state.executions(),
-                "elapsed_seconds": fuzz_started.elapsed().as_secs_f64(),
-                "unix_time_seconds": unix_time_seconds(),
-            }),
-        )?;
-        println!("All startup inputs were objectives; continuing from the base seed.");
-    }
-    state.add_metadata(SeedSourceContext {
-        source: SeedSource::Fuzzing,
-    });
-    state.add_metadata(tokens);
-
-    // 9. 运行语义预算 stage 和结构化 ST 变异 stage。
-    println!(
-        "Starting ST forkserver fuzzer for {} ({} execution)",
-        config.target.display(),
-        config.execution.as_str()
-    );
-    println!("Function: {}", config.function);
-    println!(
-        "Corpus: {}, seeds: {}, queue: {}, target: {}, findings: {}, events: {}, timeout: {:?}",
-        config.corpus_dir.display(),
-        config.seed_dir.display(),
-        config.queue_dir.display(),
-        config.crashes_dir.display(),
-        config.findings_dir.display(),
-        config.events_file.display(),
-        config.timeout
-    );
-    println!(
-        "Strategy mix: semantic scheduling {:.0}% / queue {:.0}%, semantic mutation {:.0}% / structured havoc {:.0}%",
-        SEMANTIC_SCHEDULING_PROBABILITY * 100.0,
-        (1.0 - SEMANTIC_SCHEDULING_PROBABILITY) * 100.0,
-        SEMANTIC_MUTATION_PROBABILITY * 100.0,
-        (1.0 - SEMANTIC_MUTATION_PROBABILITY) * 100.0,
-    );
-    println!("Ablation profile: {}", config.ablation.as_str());
-    let mutator = StructuredStMutator::new(config.ablation);
-    let budget_stage = SemanticTaskBudgetStage::new(
-        config.semantic_task_budget,
-        config.semantic_task_state_file.clone(),
-    );
-    let mut stages = tuple_list!(
-        ProfiledStage::new(budget_stage, Phase::StageSemanticBudget),
-        ProfiledStage::new(StdMutationalStage::new(mutator), Phase::StageMutational)
-    );
-    phase_profile_begin(Some(config.events_file.with_file_name("phase-profile.txt")));
-    if let Some(iterations) = config.fuzz_iterations {
-        fuzzer.fuzz_loop_for(&mut stages, &mut executor, &mut state, &mut mgr, iterations)?;
-        flush_scheduler_records(&mut fuzzer, &state)?;
-        if let Some(runtime) = state.metadata_map().get::<SemanticRuntimeMetadata>() {
-            persist_semantic_task_state(&config.semantic_task_state_file, runtime)?;
-        }
-    } else {
-        fuzzer.fuzz_loop(&mut stages, &mut executor, &mut state, &mut mgr)?;
-    }
-    phase_profile_flush(true);
-    println!("SemantiST final executions: {}, elapsed_seconds: {:.6}",
-        state.executions(), fuzz_started.elapsed().as_secs_f64());
-    Ok(())
-}
-
-fn set_default_sanitizer_env(log_dir: &Path, execution: ExecutionMode) {
-    let asan_log = log_dir.join("asan");
-    let ubsan_log = log_dir.join("ubsan");
-    // One process runs many inputs outside fork mode. A recoverable UBSan
-    // report would then be deduplicated per source location across inputs,
-    // and later reports appended to an earlier input's log, so it ends the
-    // process instead, as an ASan report does.
-    let halt = if execution == ExecutionMode::Fork { "" } else { ":halt_on_error=1" };
-    set_env_if_missing(
-        "ASAN_OPTIONS",
-        &format!(
-            "abort_on_error=1:symbolize=0:detect_leaks=0:log_path={}",
-            asan_log.display()
-        ),
-    );
-    set_env_if_missing(
-        "UBSAN_OPTIONS",
-        &format!(
-            "abort_on_error=1:symbolize=0:print_stacktrace=1{halt}:log_path={}",
-            ubsan_log.display()
-        ),
-    );
-    set_env_if_missing("LSAN_OPTIONS", "detect_leaks=0");
-}
-
-fn set_env_if_missing(key: &str, value: &str) {
-    if env::var_os(key).is_none() {
-        env::set_var(key, value);
-    }
-}
-
-fn flush_scheduler_records<F, S>(fuzzer: &mut F, state: &S) -> Result<(), Error>
-where
-    F: HasScheduler<BytesInput, S, Scheduler = TargetAwareScheduler>,
-    S: HasCorpus<BytesInput>,
-{
-    fuzzer.scheduler_mut().flush_bootstrap(state)
-}
-
-fn queue_without_evaluation<F, S>(fuzzer: &mut F, state: &mut S, input: BytesInput) -> Result<CorpusId, Error>
-where
-    F: HasScheduler<BytesInput, S>,
-    S: HasCorpus<BytesInput>,
-{
-    let id = state.corpus_mut().add(Testcase::from(input))?;
-    fuzzer.scheduler_mut().on_add(state, id)?;
-    Ok(id)
-}
-
-fn startup_corpus_seed(seed_dir: &Path) -> BytesInput {
-    let mut paths = fs::read_dir(seed_dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|entry| entry.path())
-        .collect::<Vec<_>>();
-    paths.sort();
-    paths
-        .into_iter()
-        .filter_map(|path| fs::read(path).ok())
-        .find(|bytes| is_valid_structured_seed(bytes))
-        .map(BytesInput::new)
-        .or_else(|| bootstrap_seed_variants(seed_dir).into_iter().next())
-        .unwrap_or_else(|| BytesInput::new(b"IN,INT,0\n".to_vec()))
+    semantist_campaign!(&setup, fuzzer, executor, state, mgr, handles, tokens, true, config.execution.as_str())
 }
 
 #[cfg(test)]
