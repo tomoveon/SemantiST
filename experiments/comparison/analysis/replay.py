@@ -112,7 +112,9 @@ def replay_seed(
                 "reason": "path_outside_experiment",
             }
         container_target = "/replay/" + relative_target.as_posix()
-        inner_command = [container_target]
+        # The budget covers the target only; container start-up alone can
+        # exceed a few seconds on a loaded host.
+        inner_command = ["timeout", f"{timeout_seconds:g}", container_target]
         command = container_run_command(
             container_runtime,
             semantist_image,
@@ -133,7 +135,7 @@ def replay_seed(
             input=data,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=timeout_seconds,
+            timeout=timeout_seconds + CONTAINER_STARTUP_ALLOWANCE_SECONDS if container_runtime else timeout_seconds,
             check=False,
         )
     except OSError as error:
@@ -150,6 +152,9 @@ def replay_seed(
         }
     stdout = completed.stdout.decode("utf-8", errors="replace")
     stderr = completed.stderr.decode("utf-8", errors="replace")
+    if container_runtime and completed.returncode == TIMEOUT_EXIT_STATUS:
+        return {"status": "unstable", "confirmed": False, "returncode": None,
+                "stderr": stderr, "reason": "timeout"}
     combined = f"{stdout}\n{stderr}"
     startup_reason = _startup_failure_reason(combined)
     if startup_reason:
@@ -180,6 +185,9 @@ def replay_seed(
         ),
     }
 
+
+CONTAINER_STARTUP_ALLOWANCE_SECONDS = 60.0
+TIMEOUT_EXIT_STATUS = 124  # coreutils timeout(1) when the target overran.
 
 # Symbolized stacks let one rule classify every tool's replay the same way.
 REPLAY_SANITIZER_ENV = {

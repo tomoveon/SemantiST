@@ -402,6 +402,24 @@ class ComparisonExperimentTests(unittest.TestCase):
         self.assertTrue(outcome["confirmed"])
         self.assertEqual(outcome["returncode"], 1)
 
+    @patch("experiments.comparison.analysis.replay.subprocess.run")
+    def test_container_replay_budget_excludes_container_startup(self, run_mock):
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp_path = Path(raw_tmp)
+            target = tmp_path / "fuzz_target"
+            seed = tmp_path / "seed"
+            target.write_bytes(b"")
+            seed.write_bytes(b"X,INT,1\n")
+            run_mock.return_value = SimpleNamespace(returncode=124, stdout=b"", stderr=b"")
+            outcome = replay_seed(tmp_path, target, seed, 2.0, container_runtime="podman", semantist_image="img")
+            run_mock.return_value = SimpleNamespace(returncode=134, stdout=b"", stderr=b"panicked at x.rs:1:1")
+            crashed = replay_seed(tmp_path, target, seed, 2.0, container_runtime="podman", semantist_image="img")
+        command = run_mock.call_args.args[0]
+        self.assertEqual(command[-3:], ["timeout", "2", "/replay/fuzz_target"])
+        self.assertGreater(run_mock.call_args.kwargs["timeout"], 2.0)
+        self.assertEqual((outcome["status"], outcome["reason"]), ("unstable", "timeout"))
+        self.assertEqual((crashed["status"], crashed["fault_class"]), ("confirmed", "toolchain_panic"))
+
     @patch("experiments.comparison.analysis.coverage.subprocess.run")
     def test_coverage_showmap_feeds_testcase_on_stdin(self, run_mock):
         run_mock.return_value = SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
