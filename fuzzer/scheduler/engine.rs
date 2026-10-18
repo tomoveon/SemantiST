@@ -212,21 +212,21 @@ impl TargetAwareScheduler {
             // An execution with no semantic hits must clear stale bootstrap
             // evidence as well; profiles describe this input's actual run.
                 metadata.semantic_coverage.clear();
-                metadata.new_st_branch_sides = semantic.last_new_branch_sides.clone();
-                metadata.new_state_transitions = semantic.last_new_state_transitions.clone();
-                metadata.covered_target = semantic.last_covered_target.clone().or_else(|| {
-                    semantic
-                        .last_new_branch_sides
+                metadata.new_st_branch_sides = semantic.last_new_branch_sides();
+                metadata.new_state_transitions = semantic.last_new_state_transitions();
+                metadata.covered_target = semantic.last_covered_target().or_else(|| {
+                    metadata
+                        .new_st_branch_sides
                         .first()
-                        .or_else(|| semantic.last_new_state_transitions.first())
+                        .or_else(|| metadata.new_state_transitions.first())
                         .cloned()
                 });
-                metadata.covered_target_ids = semantic.last_covered_target_ids.clone();
-                metadata.ordered_target_ids = semantic.last_ordered_target_ids.clone();
+                metadata.covered_target_ids = semantic.last_covered_target_ids();
+                metadata.ordered_target_ids = semantic.last_ordered_target_ids();
                 metadata.ordered_trace_complete = semantic.last_ordered_trace_complete;
-                metadata.covered_targets_by_cycle = semantic.last_covered_targets_by_cycle.clone();
-                metadata.cycle_ids = semantic.last_cycle_ids.clone();
-                metadata.state_signatures = semantic.last_state_signatures.clone();
+                metadata.covered_targets_by_cycle = semantic.last_covered_targets_by_cycle();
+                metadata.cycle_ids = semantic.last_cycle_ids();
+                metadata.state_signatures = semantic.last_state_signatures();
         }
         if let Some(runtime) = state.metadata_map().get::<SemanticRuntimeMetadata>() {
             let covered = metadata

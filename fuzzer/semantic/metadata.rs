@@ -225,6 +225,72 @@ struct TargetContext {
     hazard_kind: Option<String>,
 }
 
+// Multiply-rotate hashing (FxHash's scheme) for integer keys on the
+// execution path; std's SipHash is built for untrusted keys and costs more.
+#[derive(Clone, Copy, Debug, Default)]
+struct IdHasher(u64);
+
+impl IdHasher {
+    #[inline]
+    fn add(&mut self, word: u64) {
+        self.0 = (self.0.rotate_left(5) ^ word).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+    }
+}
+
+impl std::hash::Hasher for IdHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        for chunk in bytes.chunks(8) {
+            let mut word = [0u8; 8];
+            word[..chunk.len()].copy_from_slice(chunk);
+            self.add(u64::from_le_bytes(word));
+        }
+    }
+
+    fn write_u8(&mut self, value: u8) {
+        self.add(u64::from(value));
+    }
+
+    fn write_u32(&mut self, value: u32) {
+        self.add(u64::from(value));
+    }
+
+    fn write_u64(&mut self, value: u64) {
+        self.add(value);
+    }
+
+    fn write_usize(&mut self, value: usize) {
+        self.add(value as u64);
+    }
+}
+
+type IdBuildHasher = std::hash::BuildHasherDefault<IdHasher>;
+
+// An abstract FB state, a transition between two, or a hash line from the
+// legacy text trace. Display gives the form stored in seed metadata.
+#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+enum StateSignature {
+    State(u64),
+    Transition(u64),
+    Legacy(String),
+}
+
+impl std::fmt::Display for StateSignature {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::State(value) => write!(formatter, "state:{value:016x}"),
+            Self::Transition(value) => write!(formatter, "transition:{value:016x}"),
+            Self::Legacy(text) => formatter.write_str(text),
+        }
+    }
+}
+
+// Evidence of the last execution, plus what all executions have covered.
+// Targets are indices into `target_names`; string forms are built only when
+// a seed keeps this evidence (attach_metadata) or a trace line is written.
 #[derive(Clone, Debug, Default, Deserialize, SerdeAny, Serialize)]
 struct SemanticCoverageMetadata {
     #[serde(default)]
@@ -232,11 +298,16 @@ struct SemanticCoverageMetadata {
     offset: u64,
     runtime_trace_offset: u64,
     state_trace_offset: u64,
-    seen_targets: HashSet<String>,
-    seen_state_signatures: HashSet<u64>,
-    last_covered_target_ids: Vec<String>,
     #[serde(default)]
-    last_ordered_target_ids: Vec<String>,
+    target_names: Vec<String>,
+    #[serde(default)]
+    seen_targets: Vec<bool>,
+    #[serde(default)]
+    seen_state_signatures: HashSet<StateSignature, IdBuildHasher>,
+    #[serde(default)]
+    last_covered: Vec<u32>,
+    #[serde(default)]
+    last_ordered: Vec<u32>,
     #[serde(default)]
     last_ordered_trace_complete: bool,
     #[serde(default)]
@@ -247,13 +318,74 @@ struct SemanticCoverageMetadata {
     #[serde(default)]
     last_telemetry_truncated: bool,
     #[serde(default)]
-    last_new_state_signatures: Vec<String>,
-    last_new_branch_sides: Vec<String>,
-    last_new_state_transitions: Vec<String>,
-    last_covered_target: Option<String>,
-    last_covered_targets_by_cycle: BTreeMap<String, Vec<String>>,
-    last_cycle_ids: Vec<usize>,
-    last_state_signatures: Vec<String>,
+    last_new_states: Vec<StateSignature>,
+    #[serde(default)]
+    last_new_branches: Vec<u32>,
+    #[serde(default)]
+    last_new_transitions: Vec<u32>,
+    #[serde(default)]
+    last_covered_index: Option<u32>,
+    // (cycle, target) pairs, sorted and unique.
+    #[serde(default)]
+    last_cycle_targets: Vec<(i32, u32)>,
+    // Cycles 0..last_cycle_count ran; extra cycle labels beyond that range.
+    #[serde(default)]
+    last_cycle_count: usize,
+    #[serde(default)]
+    last_extra_cycles: Vec<usize>,
+    #[serde(default)]
+    last_states: Vec<StateSignature>,
+}
+
+impl SemanticCoverageMetadata {
+    fn names(&self, indices: &[u32]) -> Vec<String> {
+        indices.iter().filter_map(|index| self.target_names.get(*index as usize)).cloned().collect()
+    }
+
+    fn last_covered_target_ids(&self) -> Vec<String> {
+        let mut ids = self.names(&self.last_covered);
+        ids.sort();
+        ids.dedup();
+        ids
+    }
+
+    fn last_ordered_target_ids(&self) -> Vec<String> {
+        self.names(&self.last_ordered)
+    }
+
+    fn last_new_branch_sides(&self) -> Vec<String> {
+        self.names(&self.last_new_branches)
+    }
+
+    fn last_new_state_transitions(&self) -> Vec<String> {
+        self.names(&self.last_new_transitions)
+    }
+
+    fn last_covered_target(&self) -> Option<String> {
+        self.last_covered_index.and_then(|index| self.target_names.get(index as usize).cloned())
+    }
+
+    fn last_covered_targets_by_cycle(&self) -> BTreeMap<String, Vec<String>> {
+        let mut by_cycle = BTreeMap::<String, Vec<String>>::new();
+        for (cycle, index) in &self.last_cycle_targets {
+            if let Some(name) = self.target_names.get(*index as usize) {
+                by_cycle.entry(cycle.to_string()).or_default().push(name.clone());
+            }
+        }
+        for targets in by_cycle.values_mut() {
+            targets.sort();
+            targets.dedup();
+        }
+        by_cycle
+    }
+
+    fn last_cycle_ids(&self) -> Vec<usize> {
+        (0..self.last_cycle_count).chain(self.last_extra_cycles.iter().copied()).collect()
+    }
+
+    fn last_state_signatures(&self) -> Vec<String> {
+        self.last_states.iter().map(ToString::to_string).collect()
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]

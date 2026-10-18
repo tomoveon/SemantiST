@@ -9,55 +9,115 @@ const MAX_GLOBAL_STATE_SIGNATURES: usize = 4096;
 struct SemanticTelemetry {
     scan_count: u32,
     ordered_runtime_ids: Vec<u32>,
-    cycles_by_runtime: BTreeMap<u32, Vec<i32>>,
-    state_signatures: Vec<String>,
+    // (runtime ID, cycle) per event in event order, for cycles that fit i32.
+    cycle_events: Vec<(u32, i32)>,
+    state_signatures: Vec<StateSignature>,
     ordered_complete: bool,
     truncated: bool,
 }
 
-fn read_semantic_telemetry(mut bytes: impl Iterator<Item = u8>) -> SemanticTelemetry {
-    fn u32_from(bytes: &mut impl Iterator<Item = u8>) -> u32 {
-        u32::from_ne_bytes(std::array::from_fn(|_| bytes.next().unwrap_or(0)))
+impl SemanticTelemetry {
+    /// The cycles one probe fired in, without consecutive repeats.
+    fn cycles_of(&self, runtime_id: u32) -> Vec<i32> {
+        let mut cycles = Vec::new();
+        for (id, cycle) in &self.cycle_events {
+            if *id == runtime_id && cycles.last() != Some(cycle) {
+                cycles.push(*cycle);
+            }
+        }
+        cycles
     }
-    fn u64_from(bytes: &mut impl Iterator<Item = u8>) -> u64 {
-        u64::from_ne_bytes(std::array::from_fn(|_| bytes.next().unwrap_or(0)))
-    }
-    let scan_count = u32_from(&mut bytes);
-    let event_count = u32_from(&mut bytes) as usize;
-    let state_count = u32_from(&mut bytes) as usize;
-    let flags = u32_from(&mut bytes);
+}
+
+// Reads only the header and the event and state slots it counts; bytes past
+// the end of a short buffer read as zero.
+fn read_semantic_telemetry(bytes: &[u8]) -> SemanticTelemetry {
+    let u32_at = |offset: usize| {
+        bytes.get(offset..offset + 4).map_or(0, |word| u32::from_ne_bytes(word.try_into().unwrap()))
+    };
+    let u64_at = |offset: usize| {
+        bytes.get(offset..offset + 8).map_or(0, |word| u64::from_ne_bytes(word.try_into().unwrap()))
+    };
+    let scan_count = u32_at(0);
+    let event_count = u32_at(4) as usize;
+    let state_count = u32_at(8) as usize;
+    let flags = u32_at(12);
     let mut result = SemanticTelemetry {
         scan_count,
         ordered_complete: flags & 4 != 0 && flags & 1 == 0 && event_count <= TELEMETRY_EVENT_CAPACITY,
         truncated: flags & 3 != 0 || event_count > TELEMETRY_EVENT_CAPACITY || state_count > TELEMETRY_STATE_CAPACITY,
         ..SemanticTelemetry::default()
     };
-    for _ in 0..event_count.min(TELEMETRY_EVENT_CAPACITY) {
-        let runtime_id = u32_from(&mut bytes);
-        let cycle = u32_from(&mut bytes);
+    for event in 0..event_count.min(TELEMETRY_EVENT_CAPACITY) {
+        let runtime_id = u32_at(16 + event * 8);
+        let cycle = u32_at(20 + event * 8);
         result.ordered_runtime_ids.push(runtime_id);
         if let Ok(cycle) = i32::try_from(cycle) {
-            let cycles = result.cycles_by_runtime.entry(runtime_id).or_default();
-            if cycles.last() != Some(&cycle) { cycles.push(cycle); }
+            result.cycle_events.push((runtime_id, cycle));
         }
     }
     if state_count > 0 {
-        let skip = (TELEMETRY_EVENT_CAPACITY - event_count.min(TELEMETRY_EVENT_CAPACITY)) * 8;
-        if skip > 0 { bytes.nth(skip - 1); }
-        let mut seen = HashSet::new();
-        for _ in 0..state_count.min(TELEMETRY_STATE_CAPACITY) {
-            let before = u64_from(&mut bytes);
-            let after = u64_from(&mut bytes);
+        let state_base = 16 + TELEMETRY_EVENT_CAPACITY * 8;
+        let mut seen = HashSet::<(u8, u64), IdBuildHasher>::default();
+        for state in 0..state_count.min(TELEMETRY_STATE_CAPACITY) {
+            let before = u64_at(state_base + state * 16);
+            let after = u64_at(state_base + state * 16 + 8);
             // No cycle ordinal in the signature: repeating an unchanged state
             // must not create fresh feedback merely by lengthening an input.
             for (kind, signature) in [(0u8, before), (0, after), (1, before.rotate_left(17) ^ after)] {
                 if result.state_signatures.len() < MAX_EXECUTION_STATE_SIGNATURES && seen.insert((kind, signature)) {
-                    result.state_signatures.push(format!("{}:{signature:016x}", if kind == 0 { "state" } else { "transition" }));
+                    result.state_signatures.push(if kind == 0 {
+                        StateSignature::State(signature)
+                    } else {
+                        StateSignature::Transition(signature)
+                    });
                 }
             }
         }
     }
     result
+}
+
+// Telemetry written by the target's semantic runtime. Readers stop at the
+// event and state counts in the 16-byte header, so only the header is
+// cleared before an execution, not the whole ~41 KB region.
+#[derive(Debug, Deserialize, Serialize)]
+struct TelemetryObserver<'a> {
+    name: Cow<'static, str>,
+    bytes: libafl_bolts::ownedref::OwnedMutSlice<'a, u8>,
+}
+
+impl TelemetryObserver<'static> {
+    /// # Safety
+    /// `bytes` (shared memory in the engine) must stay valid, and only the
+    /// target may write it, while the observer exists.
+    unsafe fn new(name: &'static str, bytes: &mut [u8]) -> Self {
+        Self {
+            name: Cow::Borrowed(name),
+            bytes: unsafe { libafl_bolts::ownedref::OwnedMutSlice::from_raw_parts_mut(bytes.as_mut_ptr(), bytes.len()) },
+        }
+    }
+
+}
+
+impl TelemetryObserver<'_> {
+    fn as_slice(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+impl Named for TelemetryObserver<'_> {
+    fn name(&self) -> &Cow<'static, str> {
+        &self.name
+    }
+}
+
+impl<I, S> libafl::observers::Observer<I, S> for TelemetryObserver<'_> {
+    fn pre_exec(&mut self, _state: &mut S, _input: &I) -> Result<(), Error> {
+        let header = self.bytes.len().min(16);
+        self.bytes.as_slice_mut()[..header].fill(0);
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -176,12 +236,30 @@ struct RuntimeTargetEntry {
     modeling: String,
 }
 
+// Stable target IDs of a runtime table, sorted and unique. Their positions are
+// the dense target indices shared by the feedback and the semantic runtime.
+fn stable_target_names(table: &RuntimeIdTable) -> Vec<String> {
+    let mut names = table.entries.iter().map(|entry| entry.stable_id.clone()).collect::<Vec<_>>();
+    names.sort();
+    names.dedup();
+    names
+}
+
 #[derive(Debug)]
 struct SemanticIrCoverageFeedback<C, O> {
     name: Cow<'static, str>,
     map_ref: Handle<C>,
-    telemetry_ref: Option<Handle<C>>,
-    entries: Vec<Option<RuntimeTargetEntry>>,
+    telemetry_ref: Option<Handle<TelemetryObserver<'static>>>,
+    // Per runtime ID: dense target index and whether the probe is a state
+    // probe; u32::MAX for runtime IDs the table does not define.
+    target_index: Vec<u32>,
+    state_probe: Vec<bool>,
+    target_names: Vec<String>,
+    // Scratch buffers reused across executions.
+    hits: Vec<u32>,
+    hit_mask: Vec<bool>,
+    ordered: Vec<u32>,
+    covered: Vec<u32>,
     trace_path: Option<PathBuf>,
     runtime_trace_path: Option<PathBuf>,
     state_trace_path: Option<PathBuf>,
@@ -199,6 +277,7 @@ where
             .map(|entry| entry.runtime_id as usize)
             .max()
             .unwrap_or(0);
+        let target_names = stable_target_names(&table);
         let mut entries = vec![None; max_id.saturating_add(1)];
         for entry in table.entries {
             let index = entry.runtime_id as usize;
@@ -207,11 +286,27 @@ where
             }
             entries[index] = Some(entry);
         }
+        let target_index = entries.iter().map(|entry: &Option<RuntimeTargetEntry>| {
+            entry.as_ref().map_or(u32::MAX, |entry| {
+                target_names.binary_search(&entry.stable_id).map_or(u32::MAX, |index| index as u32)
+            })
+        }).collect();
+        let state_probe = entries.iter().map(|entry: &Option<RuntimeTargetEntry>| {
+            entry.as_ref().is_some_and(|entry| {
+                entry.kind == "cycle" || matches!(entry.role.as_deref(), Some("cycle_entry" | "cycle_exit"))
+            })
+        }).collect();
         Self {
             name: Cow::Borrowed("SemanticIrCoverageFeedback"),
             map_ref: map_observer.handle(),
             telemetry_ref: None,
-            entries,
+            hit_mask: vec![false; entries.len()],
+            target_index,
+            state_probe,
+            target_names,
+            hits: Vec::new(),
+            ordered: Vec::new(),
+            covered: Vec::new(),
             trace_path: env::var("SEMANTIST_SEMANTIC_TRACE_FILE")
                 .ok()
                 .map(PathBuf::from),
@@ -225,7 +320,7 @@ where
         }
     }
 
-    fn with_telemetry(mut self, observer: &C) -> Self {
+    fn with_telemetry(mut self, observer: &TelemetryObserver<'static>) -> Self {
         self.telemetry_ref = Some(observer.handle());
         self
     }
@@ -254,11 +349,13 @@ where
             .and_then(|path| fs::metadata(path).ok())
             .map(|metadata| metadata.len())
             .unwrap_or(0);
-        state.metadata_or_insert_with(|| SemanticCoverageMetadata {
+        let semantic = state.metadata_or_insert_with(|| SemanticCoverageMetadata {
             runtime_trace_offset,
             state_trace_offset,
             ..SemanticCoverageMetadata::default()
         });
+        semantic.seen_targets.resize(self.target_names.len(), false);
+        semantic.target_names.clone_from(&self.target_names);
         Ok(())
     }
 }
@@ -283,148 +380,159 @@ where
             .expect("semantic MapObserver not found")
             .as_ref();
         let initial = observer.initial();
-        let hits = observer
-            .as_iter()
-            .map(|value| *value)
-            .enumerate()
-            .filter(|(_, value)| *value != initial)
-            .filter_map(|(runtime_id, _)| {
-                self.entries
-                    .get(runtime_id)
-                    .and_then(Option::as_ref)
-            })
-            .collect::<Vec<_>>();
+        for runtime_id in self.hits.drain(..) {
+            self.hit_mask[runtime_id as usize] = false;
+        }
+        for (runtime_id, value) in observer.as_iter().enumerate() {
+            if *value != initial && self.target_index.get(runtime_id).is_some_and(|index| *index != u32::MAX) {
+                self.hits.push(runtime_id as u32);
+                self.hit_mask[runtime_id] = true;
+            }
+        }
         let (runtime_offset, state_offset) = state
             .metadata_map()
             .get::<SemanticCoverageMetadata>()
             .map(|metadata| (metadata.runtime_trace_offset, metadata.state_trace_offset))
             .unwrap_or_default();
         let telemetry = self.telemetry_ref.as_ref().map(|handle| {
-            let observer = observers.get(handle).expect("semantic telemetry observer missing").as_ref();
-            read_semantic_telemetry(observer.as_iter().map(|value| *value))
+            read_semantic_telemetry(observers.get(handle).expect("semantic telemetry observer missing").as_slice())
         });
         // Text traces remain a legacy debugging fallback; the default path
         // reads only shared memory and never opens a per-execution trace file.
-        let (next_runtime_offset, cycles_by_runtime) = if let Some(telemetry) = &telemetry {
-            (runtime_offset, telemetry.cycles_by_runtime.clone())
+        let (next_runtime_offset, legacy_cycles) = if telemetry.is_some() {
+            (runtime_offset, BTreeMap::new())
         } else {
             self.runtime_trace_path.as_deref()
                 .map(|path| read_runtime_cycle_trace_window(path, runtime_offset))
                 .unwrap_or((runtime_offset, BTreeMap::new()))
         };
-        let (next_state_offset, state_signatures) = if let Some(telemetry) = &telemetry {
-            (state_offset, telemetry.state_signatures.clone())
+        let (next_state_offset, legacy_states) = if telemetry.is_some() {
+            (state_offset, Vec::new())
         } else {
             self.state_trace_path.as_deref()
                 .map(|path| read_state_signature_window(path, state_offset))
                 .unwrap_or((state_offset, Vec::new()))
         };
         let mut ordered_trace_complete = telemetry.as_ref().is_some_and(|item| item.ordered_complete);
-        let ordered_target_ids = telemetry.as_ref().map(|telemetry| {
-            telemetry.ordered_runtime_ids.iter().filter_map(|id| {
-                let entry = self.entries.get(*id as usize).and_then(Option::as_ref);
-                if entry.is_none() { ordered_trace_complete = false; }
-                entry.map(|entry| entry.stable_id.clone())
-            }).collect::<Vec<_>>()
-        }).unwrap_or_default();
+        self.ordered.clear();
+        if let Some(telemetry) = &telemetry {
+            for runtime_id in &telemetry.ordered_runtime_ids {
+                match self.target_index.get(*runtime_id as usize) {
+                    Some(index) if *index != u32::MAX => self.ordered.push(*index),
+                    _ => ordered_trace_complete = false,
+                }
+            }
+        }
 
         let mut trace_events = Vec::new();
-        let mut hit_target_ids = Vec::new();
         let mut interesting = {
             let semantic = state.metadata_or_insert_with(SemanticCoverageMetadata::default);
             semantic.runtime_trace_offset = next_runtime_offset;
             semantic.state_trace_offset = next_state_offset;
-            semantic.last_covered_target_ids.clear();
-            semantic.last_new_branch_sides.clear();
-            semantic.last_new_state_transitions.clear();
-            semantic.last_covered_target = None;
-            semantic.last_covered_targets_by_cycle.clear();
-            semantic.last_cycle_ids.clear();
-            semantic.last_ordered_target_ids.clone_from(&ordered_target_ids);
+            semantic.last_covered.clear();
+            semantic.last_new_branches.clear();
+            semantic.last_new_transitions.clear();
+            semantic.last_covered_index = None;
+            semantic.last_cycle_targets.clear();
+            semantic.last_extra_cycles.clear();
+            semantic.last_ordered.clone_from(&self.ordered);
             semantic.last_ordered_trace_complete = ordered_trace_complete;
             semantic.last_scan_count = telemetry.as_ref().map_or(0, |item| item.scan_count);
             semantic.total_scan_cycles = semantic.total_scan_cycles.saturating_add(u64::from(semantic.last_scan_count));
             semantic.last_telemetry_truncated = telemetry.as_ref().is_some_and(|item| item.truncated);
-            if telemetry.is_some() {
-                // The ordinal records real calls, independent of cycle labels in
-                // the input. Retention is bounded even for an invalid harness.
-                semantic.last_cycle_ids.extend(0..(semantic.last_scan_count as usize).min(10_000));
-            }
-            semantic.last_new_state_signatures.clear();
-            semantic.last_state_signatures = state_signatures.into_iter()
-                .take(MAX_EXECUTION_STATE_SIGNATURES).collect();
-            for signature in &semantic.last_state_signatures {
+            // The ordinal records real calls, independent of cycle labels in
+            // the input. Retention is bounded even for an invalid harness.
+            semantic.last_cycle_count = if telemetry.is_some() {
+                (semantic.last_scan_count as usize).min(10_000)
+            } else {
+                0
+            };
+            semantic.last_new_states.clear();
+            semantic.last_states.clear();
+            let signatures = telemetry.as_ref().map_or_else(
+                || legacy_states.into_iter().map(StateSignature::Legacy).collect(),
+                |item| item.state_signatures.clone(),
+            );
+            for signature in signatures.into_iter().take(MAX_EXECUTION_STATE_SIGNATURES) {
                 if semantic.seen_state_signatures.len() < MAX_GLOBAL_STATE_SIGNATURES
-                    && semantic.seen_state_signatures.insert(compact_content_hash(signature.as_bytes()))
+                    && semantic.seen_state_signatures.insert(signature.clone())
                 {
-                    semantic.last_new_state_signatures.push(signature.clone());
+                    semantic.last_new_states.push(signature.clone());
                 }
+                semantic.last_states.push(signature);
             }
 
-            for entry in hits {
-                let target_type = if entry.kind == "cycle"
-                    || matches!(entry.role.as_deref(), Some("cycle_entry" | "cycle_exit"))
-                {
-                    "state"
-                } else {
-                    "branch"
-                };
-                let cycles = cycles_by_runtime
-                    .get(&entry.runtime_id)
-                    .cloned()
-                    .unwrap_or_default();
-                for cycle in &cycles {
-                    semantic
-                        .last_covered_targets_by_cycle
-                        .entry(cycle.to_string())
-                        .or_default()
-                        .push(entry.stable_id.clone());
-                    if let Ok(cycle) = usize::try_from(*cycle) {
-                        semantic.last_cycle_ids.push(cycle);
+            // (cycle, runtime ID) of every probe hit this execution.
+            let cycle_count = semantic.last_cycle_count;
+            let record_cycle = |semantic: &mut SemanticCoverageMetadata, cycle: i32, target: u32| {
+                semantic.last_cycle_targets.push((cycle, target));
+                if let Ok(cycle) = usize::try_from(cycle) {
+                    if cycle >= cycle_count {
+                        semantic.last_extra_cycles.push(cycle);
                     }
                 }
-                semantic.last_covered_target_ids.push(entry.stable_id.clone());
-                let new_target = semantic.seen_targets.insert(entry.stable_id.clone());
+            };
+            if let Some(telemetry) = &telemetry {
+                for (runtime_id, cycle) in &telemetry.cycle_events {
+                    if self.hit_mask.get(*runtime_id as usize).copied().unwrap_or(false) {
+                        record_cycle(semantic, *cycle, self.target_index[*runtime_id as usize]);
+                    }
+                }
+            } else {
+                for runtime_id in &self.hits {
+                    for cycle in legacy_cycles.get(runtime_id).into_iter().flatten() {
+                        record_cycle(semantic, *cycle, self.target_index[*runtime_id as usize]);
+                    }
+                }
+            }
+            if semantic.seen_targets.len() < self.target_names.len() {
+                semantic.seen_targets.resize(self.target_names.len(), false);
+            }
+            for runtime_id in &self.hits {
+                let target = self.target_index[*runtime_id as usize];
+                semantic.last_covered.push(target);
+                let new_target = !semantic.seen_targets[target as usize];
                 if new_target {
-                    if target_type == "state" {
-                        semantic
-                            .last_new_state_transitions
-                            .push(entry.stable_id.clone());
+                    semantic.seen_targets[target as usize] = true;
+                    if self.state_probe[*runtime_id as usize] {
+                        semantic.last_new_transitions.push(target);
                     } else {
-                        semantic.last_new_branch_sides.push(entry.stable_id.clone());
+                        semantic.last_new_branches.push(target);
                     }
-                    semantic.last_covered_target = Some(entry.stable_id.clone());
+                    semantic.last_covered_index = Some(target);
                 }
-                hit_target_ids.push(entry.stable_id.clone());
                 if new_target && self.trace_path.is_some() {
+                    let cycles = telemetry.as_ref().map_or_else(
+                        || legacy_cycles.get(runtime_id).cloned().unwrap_or_default(),
+                        |item| item.cycles_of(*runtime_id),
+                    );
                     trace_events.push(serde_json::json!({
                         "probe": "semantic_ir",
-                        "runtime_id": entry.runtime_id,
-                        "target_id": entry.stable_id,
-                        "target_type": target_type,
+                        "runtime_id": runtime_id,
+                        "target_id": self.target_names[target as usize],
+                        "target_type": if self.state_probe[*runtime_id as usize] { "state" } else { "branch" },
                         "cycle_id": cycles.last(),
                         "cycles": cycles,
                     }));
                 }
             }
-            semantic.last_cycle_ids.sort_unstable();
-            semantic.last_cycle_ids.dedup();
-            semantic.last_covered_target_ids.sort();
-            semantic.last_covered_target_ids.dedup();
-            for targets in semantic.last_covered_targets_by_cycle.values_mut() {
-                targets.sort();
-                targets.dedup();
-            }
-            semantic.last_interesting = !semantic.last_new_branch_sides.is_empty()
-                || !semantic.last_new_state_transitions.is_empty()
-                || !semantic.last_new_state_signatures.is_empty();
+            semantic.last_extra_cycles.sort_unstable();
+            semantic.last_extra_cycles.dedup();
+            semantic.last_cycle_targets.sort_unstable();
+            semantic.last_cycle_targets.dedup();
+            semantic.last_covered.sort_unstable();
+            semantic.last_covered.dedup();
+            self.covered.clone_from(&semantic.last_covered);
+            semantic.last_interesting = !semantic.last_new_branches.is_empty()
+                || !semantic.last_new_transitions.is_empty()
+                || !semantic.last_new_states.is_empty();
             semantic.last_interesting
         };
         if let Some(runtime) = state
             .metadata_map_mut()
             .get_mut::<SemanticRuntimeMetadata>()
         {
-            interesting |= runtime.record_execution(hit_target_ids, ordered_target_ids, ordered_trace_complete);
+            interesting |= runtime.record_indexed_execution(&self.covered, &self.ordered, ordered_trace_complete);
         }
         state.metadata_or_insert_with(SemanticCoverageMetadata::default).last_interesting = interesting;
         if !trace_events.is_empty() {
@@ -434,9 +542,9 @@ where
         }
         if let Some(path) = self.trace_path.as_deref() {
             if let Some(semantic) = state.metadata_map().get::<SemanticCoverageMetadata>() {
-                for signature in &semantic.last_new_state_signatures {
+                for signature in &semantic.last_new_states {
                     append_json_value(path, &serde_json::json!({
-                        "probe": "semantic_state", "state_signature": signature,
+                        "probe": "semantic_state", "state_signature": signature.to_string(),
                         "scan_count": semantic.last_scan_count,
                         "cycle_id": semantic.last_scan_count.checked_sub(1),
                     }))?;

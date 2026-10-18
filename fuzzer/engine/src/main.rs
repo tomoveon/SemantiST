@@ -78,6 +78,7 @@ fn main() -> Result<(), Error> {
     set_default_sanitizer_env(&sanitizer_log_dir);
 
     let runtime_ids = load_runtime_id_table(config.semantic_runtime_ids.as_deref())?;
+    let target_names = stable_target_names(&runtime_ids);
     let mapped_semantic_targets =
         load_mapped_semantic_targets(config.semantic_runtime_ids.as_deref(), &runtime_ids)?;
     let semantic_plan_path = config.semantic_task_plan.as_deref().ok_or_else(|| {
@@ -115,10 +116,10 @@ fn main() -> Result<(), Error> {
     let observer_handle = edges_observer.handle();
     let semantic_observer =
         unsafe { StdMapObserver::new("semantic_shared_mem", semantic_shmem.as_slice_mut()) };
-    // StdMapObserver clears this bounded buffer before every target execution,
+    // The observer clears the telemetry header before every target execution,
     // including executions later classified as solutions.
     let telemetry_observer = unsafe {
-        StdMapObserver::new("semantic_telemetry", telemetry_shmem.as_slice_mut())
+        TelemetryObserver::new("semantic_telemetry", telemetry_shmem.as_slice_mut())
     };
     let semantic_handle = semantic_observer.handle();
     let telemetry_handle = telemetry_observer.handle();
@@ -163,10 +164,9 @@ fn main() -> Result<(), Error> {
     state.add_metadata(SeedSourceContext {
         source: SeedSource::Initial,
     });
-    state.add_metadata(SemanticRuntimeMetadata::new(
-        semantic_plan,
-        &mapped_semantic_targets,
-    ));
+    let mut semantic_runtime = SemanticRuntimeMetadata::new(semantic_plan, &mapped_semantic_targets);
+    semantic_runtime.set_target_names(target_names);
+    state.add_metadata(semantic_runtime);
 
     let monitor = SimpleMonitor::new(|s| println!("{s}"));
     let mut mgr = SimpleEventManager::new(monitor);
@@ -222,7 +222,7 @@ fn main() -> Result<(), Error> {
                 &exit_kind,
                 &observers[&observer_handle].as_ref().to_vec(),
                 &observers[&semantic_handle].to_vec(),
-                &observers[&telemetry_handle].to_vec(),
+                observers[&telemetry_handle].as_slice(),
             );
             records.push_str(&record.to_string());
             records.push('\n');

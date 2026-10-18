@@ -1,6 +1,6 @@
 use libafl::SerdeAny;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 pub const PLAN_SCHEMA: &str = "semantist.semantic-task-plan/1.0.0";
 const FAILURE_DECAY_RHO: f64 = 0.25;
@@ -321,6 +321,16 @@ pub struct SemanticRuntimeMetadata {
     pub ranking_statistics: RankingStatistics,
     #[serde(default)]
     pub last_rerank_reason: Option<String>,
+    /// Stable target IDs by the dense index executions report. Executions
+    /// test coverage with `covered_mask`; `covered_target_ids` only grows.
+    #[serde(default)]
+    pub target_names: Vec<String>,
+    #[serde(default)]
+    target_indices: HashMap<String, u32>,
+    #[serde(default)]
+    covered_mask: Vec<bool>,
+    #[serde(default)]
+    active_path_indices: Vec<Option<u32>>,
 }
 
 fn default_true() -> bool {
@@ -496,6 +506,30 @@ impl SemanticRuntimeMetadata {
         }
     }
 
+    pub fn set_target_names(&mut self, names: Vec<String>) {
+        self.target_indices = names.iter().enumerate()
+            .map(|(index, name)| (name.clone(), index as u32)).collect();
+        self.covered_mask = names.iter().map(|name| self.covered_target_ids.contains(name)).collect();
+        self.target_names = names;
+        self.active_path_indices = self.index_path(&self.active_path);
+    }
+
+    fn target_index(&mut self, name: &str) -> u32 {
+        if let Some(index) = self.target_indices.get(name) {
+            return *index;
+        }
+        let index = self.target_names.len() as u32;
+        self.target_names.push(name.to_string());
+        self.target_indices.insert(name.to_string(), index);
+        // A path entry unknown until now may be observed from here on.
+        self.active_path_indices = self.index_path(&self.active_path);
+        index
+    }
+
+    fn index_path(&self, path: &[String]) -> Vec<Option<u32>> {
+        path.iter().map(|target_id| self.target_indices.get(target_id).copied()).collect()
+    }
+
     #[cfg(test)]
     pub fn record_coverage(&mut self, target_ids: impl IntoIterator<Item = String>) -> bool {
         let targets = target_ids.into_iter().collect::<Vec<_>>();
@@ -503,11 +537,30 @@ impl SemanticRuntimeMetadata {
     }
 
     pub fn record_execution(&mut self, target_ids: impl IntoIterator<Item = String>,
-        ordered_target_ids: Vec<String>, _ordered_trace_complete: bool) -> bool
+        ordered_target_ids: Vec<String>, ordered_trace_complete: bool) -> bool
+    {
+        let hits = target_ids.into_iter().map(|target_id| self.target_index(&target_id)).collect::<Vec<_>>();
+        let ordered = ordered_target_ids.iter().map(|target_id| self.target_index(target_id)).collect::<Vec<_>>();
+        self.record_indexed_execution(&hits, &ordered, ordered_trace_complete)
+    }
+
+    /// One execution's hits and ordered trace as indices into `target_names`.
+    pub fn record_indexed_execution(&mut self, hits: &[u32], ordered: &[u32],
+        _ordered_trace_complete: bool) -> bool
     {
         let mut advanced = false;
-        for target_id in target_ids {
-            advanced |= self.covered_target_ids.insert(target_id);
+        for &index in hits {
+            let index = index as usize;
+            if index >= self.target_names.len() {
+                continue;
+            }
+            if index >= self.covered_mask.len() {
+                self.covered_mask.resize(index + 1, false);
+            }
+            if !self.covered_mask[index] {
+                self.covered_mask[index] = true;
+                advanced |= self.covered_target_ids.insert(self.target_names[index].clone());
+            }
         }
         if advanced {
             self.coverage_epoch = self.coverage_epoch.saturating_add(1);
@@ -519,7 +572,7 @@ impl SemanticRuntimeMetadata {
         if let Some(task_id) = self.active_task_id.as_ref() {
             // Only this execution's observed order can prove a prefix. Missing
             // tail events cannot invalidate the positive prefix already seen.
-            let prefix = ordered_prefix_len(&self.active_path, &ordered_target_ids);
+            let prefix = ordered_prefix_len_indexed(&self.active_path_indices, ordered);
             if let (Some(runtime), Some(path_key)) = (
                 self.task_states.get_mut(task_id), self.active_path_key.as_ref(),
             ) {
@@ -562,6 +615,7 @@ impl SemanticRuntimeMetadata {
         self.guide_target_id = None;
         self.best_seed_id = None;
         self.active_path.clear();
+        self.active_path_indices.clear();
         self.active_path_key = None;
         self.active_guide_index = None;
         self.active_selection_succeeded = false;
@@ -831,6 +885,7 @@ impl SemanticRuntimeMetadata {
         self.active_task_id = Some(task_id.to_string());
         self.guide_target_id = Some(guide_target_id.clone());
         self.active_path = active_path.clone();
+        self.active_path_indices = self.index_path(&self.active_path);
         self.active_guide_index = Some(prefix);
         self.active_path_key = Some(task.candidate_paths.iter()
             .position(|path| path.target_ids == active_path)
@@ -1094,6 +1149,19 @@ fn ordered_prefix_len(path: &[String], observed: &[String]) -> usize {
     let mut matched = 0;
     for target in observed {
         if path.get(matched) == Some(target) {
+            matched += 1;
+            if matched == path.len() { break; }
+        }
+    }
+    matched
+}
+
+// ordered_prefix_len over interned targets; an entry absent from the runtime
+// table can never be observed, exactly as with the string comparison.
+fn ordered_prefix_len_indexed(path: &[Option<u32>], observed: &[u32]) -> usize {
+    let mut matched = 0;
+    for target in observed {
+        if path.get(matched) == Some(&Some(*target)) {
             matched += 1;
             if matched == path.len() { break; }
         }
