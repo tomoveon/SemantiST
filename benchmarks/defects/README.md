@@ -1,3 +1,8 @@
-# Defect suite
+# Defect regression suite
 
-Frozen 2026-10-27. `manifest.json` indexes six known defects (existing OSCAT and ICSQuartz targets) and ten designed defects. Each designed case has `buggy/target.st`, `fixed/target.st` (same POU name, only the fix differs) and, where already verified, `witness.txt`. Do not edit the designed sources without updating their expected triggers and regression tests.
+`manifest.json` defines 16 cases: six sourced targets (one OSCAT and five
+ICSQuartz-derived) and ten designed cases. The sourced targets are listed by
+their ST file and compatibility manifest. Each designed case has
+`buggy/target.st` and `fixed/target.st` with the same POU name; verified cases
+may also include `witness.txt`. Keep the manifest's trigger descriptions and
+regression tests consistent with any source changes.

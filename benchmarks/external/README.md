@@ -1,8 +1,7 @@
-# External defect-regression fixtures
+# External benchmark sources
 
-This directory contains only the ICSQuartz targets referenced by
-`benchmarks/defects/manifest.json` and the CODESYS memory compatibility model
-needed to run them. It is not a standalone benchmark index. The default
-OSCAT evaluation uses `benchmarks/oscat/manifest.json`; the defect suite has
-its own frozen manifest and expected triggers. The upstream ICSQuartz license
-is in `icsquartz/LICENSE`.
+This directory contains five ICSQuartz-derived targets used by
+`benchmarks/defects/manifest.json`: three under `icsquartz/scan_cycle/` and two
+under `icsquartz/icsfuzz/`. The `compatibility/codesys-memory/` provider supplies
+their memory operations. Their test cases and expected triggers are defined in
+the defect-suite manifest. The source license is in `icsquartz/LICENSE`.
