@@ -1,0 +1,1 @@
+{"rule": "sysmac-en-eno-call", "dialect": "sysmac", "reject_codes": ["E032", "E037"], "expected_output": "30 20\n"}

@@ -1,0 +1,184 @@
+thread_local! {
+    static APPEND_FILES: std::cell::RefCell<HashMap<PathBuf, fs::File>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
+// The engine appends to a few report files for the whole run, so each is
+// opened once: an open costs a journal update, which on the experiment
+// volume took milliseconds while corpus files were being written. Each
+// record is still one unbuffered write, so a killed process keeps it.
+fn append_bytes(path: &Path, bytes: &[u8]) -> Result<(), Error> {
+    APPEND_FILES.with(|files| {
+        let mut files = files.borrow_mut();
+        if !files.contains_key(path) {
+            let file = OpenOptions::new().create(true).append(true).open(path)?;
+            files.insert(path.to_path_buf(), file);
+        }
+        files.get_mut(path).map_or(Ok(()), |file| file.write_all(bytes))?;
+        Ok(())
+    })
+}
+
+// Each record is serialized first and appended with one write: serde_json
+// writes token by token, which into a bare File is one syscall per token.
+fn append_json_line(path: &Path, value: &impl Serialize, what: &str) -> Result<(), Error> {
+    let mut line = serde_json::to_vec(value)
+        .map_err(|error| Error::serialize(format!("unable to serialize {what}: {error}")))?;
+    line.push(b'\n');
+    append_bytes(path, &line)
+}
+
+fn append_runtime_finding_event(path: &Path, event: &RuntimeFindingEvent) -> Result<(), Error> {
+    append_json_line(path, event, "runtime finding event")
+}
+
+fn append_json_value(path: &Path, value: &serde_json::Value) -> Result<(), Error> {
+    let _timer = PhaseTimer::start(Phase::IoEvents);
+    append_json_line(path, value, "semantic coverage event")
+}
+
+fn load_runtime_id_table(path: Option<&Path>) -> Result<RuntimeIdTable, Error> {
+    let Some(path) = path else {
+        return Ok(RuntimeIdTable {
+            schema_version: "semantist.runtime-ids/1.0.0".to_string(),
+            entries: Vec::new(),
+        });
+    };
+    let contents = fs::read_to_string(path)?;
+    let table: RuntimeIdTable = serde_json::from_str(&contents).map_err(|error| {
+        Error::serialize(format!(
+            "unable to parse semantic runtime ID table {}: {error}",
+            path.display()
+        ))
+    })?;
+    if table.schema_version != "semantist.runtime-ids/1.0.0" {
+        return Err(Error::illegal_argument(format!(
+            "unsupported semantic runtime ID schema {}",
+            table.schema_version
+        )));
+    }
+    Ok(table)
+}
+
+fn load_mapped_semantic_targets(
+    runtime_ids_path: Option<&Path>,
+    table: &RuntimeIdTable,
+) -> Result<HashSet<String>, Error> {
+    let Some(mapping_path) =
+        runtime_ids_path.map(|path| path.with_file_name("stg-ir-mapping.json"))
+    else {
+        return Ok(table
+            .entries
+            .iter()
+            .map(|entry| entry.stable_id.clone())
+            .collect());
+    };
+    if !mapping_path.exists() {
+        return Ok(table
+            .entries
+            .iter()
+            .map(|entry| entry.stable_id.clone())
+            .collect());
+    }
+    let mapping: serde_json::Value = serde_json::from_str(&fs::read_to_string(&mapping_path)?)
+        .map_err(|error| {
+            Error::serialize(format!(
+                "unable to parse semantic IR mapping {}: {error}",
+                mapping_path.display()
+            ))
+        })?;
+    Ok(mapping
+        .get("mappings")
+        .and_then(|mappings| mappings.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.get("stable_id").and_then(|value| value.as_str()))
+        .map(str::to_string)
+        .collect())
+}
+
+fn read_runtime_cycle_trace_window(path: &Path, offset: u64) -> (u64, BTreeMap<u32, Vec<i32>>) {
+    let (end_offset, text) = read_text_window(path, offset);
+    let mut cycles = BTreeMap::<u32, Vec<i32>>::new();
+    for line in text.lines() {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        let Some(runtime_id) = value
+            .get("runtime_id")
+            .and_then(|value| value.as_u64())
+            .and_then(|value| u32::try_from(value).ok())
+        else {
+            continue;
+        };
+        let Some(cycle) = value
+            .get("cycle")
+            .and_then(|value| value.as_i64())
+            .and_then(|value| i32::try_from(value).ok())
+        else {
+            continue;
+        };
+        cycles.entry(runtime_id).or_default().push(cycle);
+    }
+    for values in cycles.values_mut() {
+        values.sort_unstable();
+        values.dedup();
+    }
+    (end_offset, cycles)
+}
+
+fn read_state_signature_window(path: &Path, offset: u64) -> (u64, Vec<String>) {
+    let (end_offset, text) = read_text_window(path, offset);
+    let mut signatures = Vec::new();
+    let mut sequence = Vec::new();
+    for line in text.lines() {
+        let mut cycle = None;
+        let mut state_hash_after = None;
+        for item in line.split_whitespace() {
+            let Some((key, value)) = item.split_once('=') else {
+                continue;
+            };
+            match key {
+                "cycle" => cycle = value.parse::<i32>().ok(),
+                "state_hash_after" if !value.is_empty() => {
+                    state_hash_after = Some(value.to_string())
+                }
+                _ => {}
+            }
+        }
+        if let Some(hash) = state_hash_after {
+            signatures.push(hash.clone());
+            sequence.push(format!("{}:{hash}", cycle.unwrap_or(-1)));
+        }
+    }
+    if !sequence.is_empty() {
+        signatures.push(format!(
+            "state-sequence:{}",
+            content_hash(sequence.join("|").as_bytes())
+        ));
+    }
+    signatures.sort();
+    signatures.dedup();
+    (end_offset, signatures)
+}
+
+fn read_text_window(path: &Path, offset: u64) -> (u64, String) {
+    let Ok(mut file) = fs::File::open(path) else {
+        return (offset, String::new());
+    };
+    let Ok(metadata) = file.metadata() else {
+        return (offset, String::new());
+    };
+    let end_offset = metadata.len();
+    // A truncated/recreated trace starts at zero. Read only the new window,
+    // never the whole growing debug log on every fuzz execution.
+    let start = if offset <= end_offset { offset } else { 0 };
+    if file.seek(SeekFrom::Start(start)).is_err() {
+        return (offset, String::new());
+    }
+    let mut bytes = Vec::new();
+    if file.take(end_offset - start).read_to_end(&mut bytes).is_err() {
+        return (offset, String::new());
+    }
+    (end_offset, String::from_utf8_lossy(&bytes).into_owned())
+}

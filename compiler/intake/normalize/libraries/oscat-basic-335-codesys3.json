@@ -1,0 +1,12 @@
+{
+  "id": "oscat-basic-335-codesys3",
+  "version": 1,
+  "match": ["oscat_basic_335.st"],
+  "description": "OSCAT Basic 3.3.5.0 whole-library export from CODESYS 3 (user provided)",
+  "supplement": {
+    "vendor": "02_CODESYS23",
+    "library": "native_oscat_basic_335.st",
+    "kinds": ["TYPE", "VAR_GLOBAL"],
+    "reason": "The CODESYS 3 export contains the POUs but not the DUT and global variable list objects (STRING_LENGTH, LIST_LENGTH, MATH, SETUP, ... are used but not declared). The CODESYS 2.3 export of the same release 3.35 contains them; only types and global variables the CODESYS 3 export lacks are taken."
+  }
+}

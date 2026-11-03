@@ -1,0 +1,25 @@
+{
+  "schema_version": "semantist.dialect-profile/1.0.0",
+  "id": "simatic-ax",
+  "version": 2,
+  "family": "simatic-ax",
+  "description": "Siemens SIMATIC AX",
+  "rules": [
+    "ax-namespace-flatten",
+    "pou-access-modifier",
+    "ax-var-section-reorder",
+    "keyword-identifier-rename",
+    "standard-name-collision-rename"
+  ],
+  "identifier_words": [
+    "ACTION"
+  ],
+  "compiler_args": [],
+  "compatibility_profiles": [],
+  "rule_order_evidence": "artifacts/intake/stats/raw/summary.json (simatic-ax): NAMESPACE/END_NAMESPACE (71 libraries), USING (70), PUBLIC/INTERNAL on CLASS, TYPE and other POUs (56), VAR sections after methods (unexpected_keyword:VAR, 40 root libraries), Action as identifier (40 libraries), namespaced enum literals (unexpected_cast_prefix, 15)",
+  "string": {
+    "encoding": "single-byte",
+    "evidence": "SIMATIC AX STRING holds single-byte characters; WSTRING holds UTF-16"
+  },
+  "identifier_words_evidence": "The SIMATIC AX ST language reference (rusty_compatibility/30_Siemens_SIMATIC_AX/该厂商st规范/spec/SIMATIC_AX_ST_10.2.95.html) has no ACTION construct; AXOpen uses Action as a member name (keyword_as_identifier:ACTION in 40 libraries)."
+}

@@ -1,0 +1,1 @@
+{"rule": "standard-formal-arguments", "dialect": "siemens-scl", "reject_codes": ["E089", "E032"], "expected_output": "3 7\n"}

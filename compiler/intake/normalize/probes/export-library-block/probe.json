@@ -1,0 +1,1 @@
+{"rule": "export-library-block", "dialect": "codesys", "reject_codes": ["E007"], "expected_output": "42\n"}

@@ -1,0 +1,1 @@
+{"rule": "pou-access-modifier", "dialect": "codesys", "reject_codes": ["E007"], "expected_output": "2\n", "note": "FUNCTION_BLOCK PUBLIC is the CODESYS 3 form; TYPE PUBLIC is the SIMATIC AX form (67 occurrences in the AX corpus). The rule handles both token shapes the same way."}

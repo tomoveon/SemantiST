@@ -1,0 +1,22 @@
+{
+  "schema_version": "semantist.compatibility/1.1.0",
+  "name": "oscat_network_building",
+  "dialect": "codesys",
+  "profiles": [],
+  "library": {
+    "normalized_sources": ["../../oscat_basic/source/oscat.st", "network_types.st"],
+    "compatibility_sources": ["../../oscat_basic/source/stubs.st", "network_fallbacks.st"]
+  },
+  "native": {
+    "sources": [],
+    "objects": [],
+    "libraries": [],
+    "compile_args": [],
+    "link_args": []
+  },
+  "compiler": {"args": ["--byte-pointer-arithmetic"]},
+  "semantic_fidelity": "approximate",
+  "support_status": "approximate",
+  "stub_used": ["benchmarks/oscat/support/network_fallbacks.st"],
+  "toolchain": {"stdlib_glob": "artifacts/rusty-semantic/libs/stdlib/iec61131-st/*.st"}
+}

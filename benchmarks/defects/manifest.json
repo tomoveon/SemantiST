@@ -1,0 +1,295 @@
+{
+  "schema_version": "semantist.defect-suite/1.0.0",
+  "frozen": "2026-10-27",
+  "description": "Defect suite for checking SemantiST's correctness and feasibility. See docs/impl/defect_suite.md. Designed sources are frozen: do not edit target.st files; record any discrepancy in the doc instead.",
+  "depth_definition": "number of frames from initialization up to and including the frame whose scan triggers the defect",
+  "scan_period": "T#10ms, fixed",
+  "timer_semantics": "iec_ge (Q when ET >= PT), measured on CODESYS 2026-10-27; depths of D07/D08/D10 assume it",
+  "cases": [
+    {
+      "id": "K1",
+      "set": "known",
+      "kind": "FUNCTION_BLOCK",
+      "function": "DELAY",
+      "st_file": "benchmarks/oscat/targets/oscat_basic_delay/target.st",
+      "compatibility_manifest": "benchmarks/oscat_basic/source/compatibility.json",
+      "defect": "array_access",
+      "cycles": "multi",
+      "time_dependent": false,
+      "trigger": "N >= 33 held constant; i := INC1(i, N) passes 31 and OUT := buf[i] reads buf[32] (buf is 0..31)",
+      "shortest_known_depth": 34,
+      "depth_status": "verified",
+      "mechanisms": [
+        "prefix extension",
+        "input relation held across frames"
+      ]
+    },
+    {
+      "id": "K2",
+      "set": "known",
+      "kind": "FUNCTION_BLOCK",
+      "function": "STFZ_SCAN_SCAN_CYCLE_AIRCRAFT_OOBR",
+      "st_file": "benchmarks/external/icsquartz/scan_cycle/scan_cycle_aircraft_oobr/target.st",
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json",
+      "defect": "memory_copy_read",
+      "cycles": "multi",
+      "time_dependent": false,
+      "trigger": "three LREAL ranges on InRecv[0..2] on even CycleCount add 10 to offset; MemCpy of offset bytes from the 64-byte InRecv reads out of bounds once offset > 64",
+      "shortest_known_depth": 32,
+      "depth_status": "verified-crash",
+      "mechanisms": [
+        "floating-point ranges (concrete in KLEE)",
+        "counter parity",
+        "prefix extension"
+      ]
+    },
+    {
+      "id": "K3",
+      "set": "known",
+      "kind": "FUNCTION_BLOCK",
+      "function": "STFZ_SCAN_SCAN_CYCLE_ANAEROBIC_OOBW_1",
+      "st_file": "benchmarks/external/icsquartz/scan_cycle/scan_cycle_anaerobic_oobw_1/target.st",
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json",
+      "defect": "memory_set_write",
+      "cycles": "multi",
+      "time_dependent": false,
+      "trigger": "size grows in SS_STEP while In1 in (3.14, 3.68) and In2 in (2.5, 3.14); In1 in (2.0, 3.5) returns to SS_INITIALIZE whose MemSet of size bytes overflows the 8-byte Integrator_DSTATE",
+      "shortest_known_depth": 13,
+      "depth_status": "verified-native-cold (FB-internal MemSet member bounds; approximate in-process campaign candidate cold-replay confirmed)",
+      "mechanisms": [
+        "floating-point ranges (concrete in KLEE)",
+        "mode re-entry",
+        "prefix extension"
+      ]
+    },
+    {
+      "id": "K4",
+      "set": "known",
+      "kind": "FUNCTION_BLOCK",
+      "function": "STFZ_SCAN_SCAN_CYCLE_SMART_OOBW_1",
+      "st_file": "benchmarks/external/icsquartz/scan_cycle/scan_cycle_smart_oobw_1/target.st",
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json",
+      "defect": "memory_copy_write",
+      "cycles": "multi",
+      "time_dependent": false,
+      "trigger": "ByteNum starts at 16 and grows by 12 whenever In[0] in (4, 4.13); MemCpy of ByteNum bytes into the 56-byte In overflows once ByteNum > 56",
+      "shortest_known_depth": 1,
+      "depth_status": "verified-crash",
+      "mechanisms": [
+        "pointer input",
+        "floating-point range (concrete in KLEE)",
+        "counter growth"
+      ]
+    },
+    {
+      "id": "K5",
+      "set": "known",
+      "kind": "FUNCTION",
+      "function": "STFZ_ICSF_ICSFUZZ_OOB_2_5",
+      "st_file": "benchmarks/external/icsquartz/icsfuzz/icsfuzz_oob_2_5/target.st",
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json",
+      "defect": "array_access",
+      "cycles": "single",
+      "time_dependent": false,
+      "trigger": "index := input1/256 + 32 exceeds 100 for input1 >= 17664; the read happens only if some iter <= 100 exceeds input1/512, i.e. input1 <= 51199",
+      "shortest_known_depth": 1,
+      "depth_status": "verified",
+      "mechanisms": [
+        "integer relation"
+      ]
+    },
+    {
+      "id": "K6",
+      "set": "known",
+      "kind": "FUNCTION",
+      "function": "STFZ_ICSF_ICSFUZZ_BF_MCPY_1",
+      "st_file": "benchmarks/external/icsquartz/icsfuzz/icsfuzz_bf_mcpy_1/target.st",
+      "compatibility_manifest": "benchmarks/external/compatibility/codesys-memory/compatibility.json",
+      "defect": "memory_copy_read",
+      "cycles": "single",
+      "time_dependent": false,
+      "trigger": "SysMemCpy of input1/128 + 124 bytes from the 258-byte WSTRING[128] reads past it for input1 large enough",
+      "shortest_known_depth": 1,
+      "depth_status": "verified",
+      "mechanisms": [
+        "integer relation"
+      ]
+    },
+    {
+      "id": "D01",
+      "set": "designed",
+      "kind": "FUNCTION",
+      "function": "D01_MAGIC_INDEX",
+      "dir": "benchmarks/defects/designed/d01_magic_index",
+      "defect": "array_access",
+      "cycles": "single",
+      "time_dependent": false,
+      "trigger": "X = 12345 and Y = 3*X - 7 and IDX >= 4",
+      "shortest_known_depth": 1,
+      "depth_status": "verified",
+      "mechanisms": [
+        "exact integer equalities (KLEE startup seed)"
+      ]
+    },
+    {
+      "id": "D02",
+      "set": "designed",
+      "kind": "FUNCTION",
+      "function": "D02_FRAME_CHECK",
+      "dir": "benchmarks/defects/designed/d02_frame_check",
+      "defect": "array_access",
+      "cycles": "single",
+      "time_dependent": false,
+      "trigger": "B0 = 16#A5 and B0 XOR B1 XOR B2 = B3 and B1 >= 232",
+      "shortest_known_depth": 1,
+      "depth_status": "verified",
+      "mechanisms": [
+        "XOR checksum relation"
+      ]
+    },
+    {
+      "id": "D03",
+      "set": "designed",
+      "kind": "FUNCTION",
+      "function": "D03_SPAN_SCALE",
+      "dir": "benchmarks/defects/designed/d03_span_scale",
+      "defect": "division_by_zero",
+      "cycles": "single",
+      "time_dependent": false,
+      "trigger": "HI - LO = 7 and RAW > LO",
+      "shortest_known_depth": 1,
+      "depth_status": "verified",
+      "mechanisms": [
+        "exact difference relation"
+      ]
+    },
+    {
+      "id": "D04",
+      "set": "designed",
+      "kind": "FUNCTION_BLOCK",
+      "function": "D04_BATCH_QUEUE",
+      "dir": "benchmarks/defects/designed/d04_batch_queue",
+      "defect": "array_access",
+      "cycles": "multi",
+      "time_dependent": false,
+      "trigger": "drain path leaves Head = 4 (wrap test Head > 4); a later Write then Take reads Buffer[4]; draining needs BatchId > 100 and AckBatch = ActiveBatch",
+      "shortest_known_depth": 9,
+      "depth_status": "verified",
+      "mechanisms": [
+        "rising edges",
+        "cross-cycle integer equality",
+        "prefix selection",
+        "mode switch"
+      ]
+    },
+    {
+      "id": "D05",
+      "set": "designed",
+      "kind": "FUNCTION_BLOCK",
+      "function": "D05_ALARM_LOG",
+      "dir": "benchmarks/defects/designed/d05_alarm_log",
+      "defect": "array_access",
+      "cycles": "multi",
+      "time_dependent": false,
+      "trigger": "11 rising edges of Alarm with Code > 0 and no Clear; the 11th writes log[10]",
+      "shortest_known_depth": 21,
+      "depth_status": "verified",
+      "mechanisms": [
+        "pulse insertion",
+        "counter distance"
+      ]
+    },
+    {
+      "id": "D06",
+      "set": "designed",
+      "kind": "FUNCTION_BLOCK",
+      "function": "D06_SERVICE_COUNTER",
+      "dir": "benchmarks/defects/designed/d06_service_counter",
+      "defect": "array_access",
+      "cycles": "multi",
+      "time_dependent": false,
+      "trigger": "120 frames with Run and Speed in 1450..1550 and no ResetService; Hours = 120 reads plan[12]",
+      "shortest_known_depth": 120,
+      "depth_status": "verified",
+      "mechanisms": [
+        "counter-to-threshold distance",
+        "long prefix via snapshots",
+        "input range held across frames"
+      ]
+    },
+    {
+      "id": "D07",
+      "set": "designed",
+      "kind": "FUNCTION_BLOCK",
+      "function": "D07_OVERPRESSURE_TRIP",
+      "dir": "benchmarks/defects/designed/d07_overpressure_trip",
+      "defect": "array_access",
+      "cycles": "multi",
+      "time_dependent": true,
+      "trigger": "four TON expirations of Pressure > 800 held for more than T#500ms, each separated by at least one frame with Pressure <= 800; the 4th writes tripLog[4]",
+      "shortest_known_depth": 11,
+      "default_scan_depth": 207,
+      "depth_status": "verified-native-cold-with-frame-dt; default_scan_depth derived_iec_ge at 10ms",
+      "mechanisms": [
+        "timer remaining time as progress",
+        "hold input across frames",
+        "edge on timer output"
+      ]
+    },
+    {
+      "id": "D08",
+      "set": "designed",
+      "kind": "FUNCTION_BLOCK",
+      "function": "D08_PIN_LOCKOUT",
+      "dir": "benchmarks/defects/designed/d08_pin_lockout",
+      "defect": "array_access",
+      "cycles": "multi",
+      "time_dependent": true,
+      "trigger": "three wrong codes lock; after the T#500ms lock expires failures is still 3; two more wrong entries write attempts[3] and attempts[4]",
+      "shortest_known_depth": 9,
+      "default_scan_depth": 58,
+      "depth_status": "verified-native-cold-with-frame-dt; default_scan_depth derived_iec_ge at 10ms",
+      "mechanisms": [
+        "rising edges",
+        "waiting for a timer",
+        "missing reset under a timer"
+      ]
+    },
+    {
+      "id": "D09",
+      "set": "designed",
+      "kind": "FUNCTION_BLOCK",
+      "function": "D09_SAMPLE_AVERAGER",
+      "dir": "benchmarks/defects/designed/d09_sample_averager",
+      "defect": "array_access",
+      "cycles": "multi",
+      "time_dependent": false,
+      "trigger": "at least one sample, then Reset (clears count but not wr), then enough samples to write buf[8]",
+      "shortest_known_depth": 17,
+      "depth_status": "verified",
+      "mechanisms": [
+        "reset interleaving",
+        "pulse insertion"
+      ]
+    },
+    {
+      "id": "D10",
+      "set": "designed",
+      "kind": "FUNCTION_BLOCK",
+      "function": "D10_RECIPE_SEQUENCER",
+      "dir": "benchmarks/defects/designed/d10_recipe_sequencer",
+      "defect": "array_access",
+      "cycles": "multi",
+      "time_dependent": true,
+      "trigger": "Start edge, Level >= 700, RecipeCode 4711 or 4718 (stored as recipe 11 or 18), T#1s hold in step 3, then step 4 reads setpoints[recipe]",
+      "shortest_known_depth": 6,
+      "default_scan_depth": 105,
+      "depth_status": "verified-native-cold-with-frame-dt; default_scan_depth derived_iec_ge at 10ms",
+      "mechanisms": [
+        "mode sequence",
+        "exact integer relation stored in state (KLEE)",
+        "waiting for a timer"
+      ]
+    }
+  ]
+}

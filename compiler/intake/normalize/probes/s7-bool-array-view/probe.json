@@ -1,0 +1,1 @@
+{"rule": "s7-bool-array-view", "dialect": "siemens-scl", "reject_codes": ["E037"], "expected_output": "2147483649 1 0 1\n16777216 0 1 1\n"}

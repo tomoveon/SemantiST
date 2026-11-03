@@ -1,0 +1,85 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.tox/
+.nox/
+.cache/
+.coverage
+htmlcov/
+/build/
+/dist/
+
+# Local research and design notes; runtime prompts live in source code.
+/docs/
+
+# Local environment/config
+.env
+.env.*
+.envrc
+*.local
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+
+# Rust/Cargo build output
+target/
+artifacts/
+/tmp/
+
+# SemantiST generated runtime/build outputs
+# Keep this root-anchored: fuzzer/corpus/ contains required source code.
+/corpus/
+crashes/
+findings/
+llm-corpus/
+target-corpus/
+unified-corpus/
+runs/
+semantic_extraction/
+/st/
+st-to-rusty-converter-old/
+.semantist-runtime/
+.runtime/
+.cur_input_*
+*.seed.tmp
+*.metadata
+*.jsonl
+*.log
+*.profraw
+*.profdata
+/core
+/core.[0-9]*
+*.dmp
+
+# Native build products
+fuzz_target
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+*.ll
+*.bc
+*.dSYM/
+
+# Editor/OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Local vendor ST library/spec collection for the RuSTy compatibility layer
+# (extraction code: compiler/intake/extract)
+/rusty_compatibility/

@@ -1,0 +1,1 @@
+{"rule": "var-block-constant", "dialect": "codesys", "reject_codes": ["E034"], "expected_output": "21\n"}

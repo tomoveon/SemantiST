@@ -1,0 +1,3 @@
+RAW,INT,1
+LO,INT,0
+HI,INT,7

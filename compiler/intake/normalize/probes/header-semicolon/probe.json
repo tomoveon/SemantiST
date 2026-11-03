@@ -1,0 +1,1 @@
+{"rule": "header-semicolon", "dialect": "codesys", "reject_codes": ["E007"], "expected_output": "6 7.000000\n"}

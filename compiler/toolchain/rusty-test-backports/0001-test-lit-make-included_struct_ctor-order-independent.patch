@@ -1,0 +1,45 @@
+From 4a118fea4f9e8bff7794271cdae21b8a849892f1 Mon Sep 17 00:00:00 2001
+From: Volkan Sagcan <volkanxvs@gmail.com>
+Date: Thu, 10 Sep 2026 07:32:07 +0000
+Subject: [PATCH] test(lit): make included_struct_ctor order independent
+ (#1913)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Problem: The test asserts that the declaration of `IncludedStruct__ctor`
+follows the definition of `Main__ctor`. The compiler does not guarantee
+this order; inside the dev container the declaration is emitted first,
+so the test fails there while it passes in CI.
+
+Solution: Match the definition, the call and the declaration with
+`CHECK-DAG`, and keep `CHECK-NOT` guards on both sides so a definition
+of the included constructor still fails the test.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+Co-authored-by: Claude Fable 5.1 <noreply@anthropic.com>
+---
+ tests/lit/ir_tests/included_struct_ctor.st | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/tests/lit/ir_tests/included_struct_ctor.st b/tests/lit/ir_tests/included_struct_ctor.st
+index 0c837754e37..f6a2382e1b3 100644
+--- a/tests/lit/ir_tests/included_struct_ctor.st
++++ b/tests/lit/ir_tests/included_struct_ctor.st
+@@ -6,7 +6,9 @@ VAR
+ END_VAR
+ END_PROGRAM
+ 
+-// CHECK: define void @Main__ctor(ptr %0) {
+-// CHECK: call void @IncludedStruct__ctor(ptr %s)
+-// CHECK: declare void @IncludedStruct__ctor(ptr)
++// The declaration may precede or follow Main__ctor depending on the unit order
++// CHECK-NOT: define{{.*}}@IncludedStruct__ctor
++// CHECK-DAG: define void @Main__ctor(ptr %0) {
++// CHECK-DAG: call void @IncludedStruct__ctor(ptr %s)
++// CHECK-DAG: declare void @IncludedStruct__ctor(ptr)
+ // CHECK-NOT: define{{.*}}@IncludedStruct__ctor
+-- 
+2.43.0
+

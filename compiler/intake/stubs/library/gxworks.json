@@ -1,0 +1,1614 @@
+{
+ "schema_version": "semantist.environment-stubs/1.0.0",
+ "family": "gxworks",
+ "stubs": [
+  {
+   "name": "BMOV",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION BMOV : BOOL\nVAR_INPUT\n    EN : BOOL;\n    s : INT;\n    n : INT;\nEND_VAR\nVAR_OUTPUT\n    d : INT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Mitsubishi block move: copies n words starting at s to d (EN, s, n, d). A block copy of n words cannot be written with scalar parameters, so the body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/AlarmManager/AlarmManager.md",
+     "line": 277,
+     "sha256": "e4217e0551a465cf7b46c1fe54ed61257e3816bea3bc5a74ce3969e3c66a26bf"
+    },
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/AlarmManager/CHANGELOG.md",
+     "line": 19,
+     "sha256": "10dc163de027b79c8969f5fec087c8c64ed0e17db952d7a1257e60818d9bff08"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "f8cc7137a7d7ea376cfccbef7c1e4879a13f00193c96383eece2b9a9775ca0d2"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "BON",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION BON : BOOL\nVAR_INPUT\n    EN : BOOL;\n    s : WORD;\n    n : INT;\nEND_VAR\nVAR_OUTPUT\n    d : BOOL;\nEND_VAR\nIF EN THEN\n    d := ((SHR(s, n) AND WORD#1) <> WORD#0);\nEND_IF;\nEND_FUNCTION\n",
+   "note": "Bit ON check: d is TRUE when bit n of s is ON. The result goes to the 4th argument, not the return value.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/Utils/Utils.md",
+     "line": 58,
+     "sha256": "da2a2e3d4d73f6504349be46c359f88893b9ef1576d678dce5893b32a1482d4b"
+    },
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/skills/gxw2-libraries/references/Utils.md",
+     "line": 58,
+     "sha256": "da2a2e3d4d73f6504349be46c359f88893b9ef1576d678dce5893b32a1482d4b"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "f8cc7137a7d7ea376cfccbef7c1e4879a13f00193c96383eece2b9a9775ca0d2"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "c_AM_ALARMS_NUM",
+   "kind": "VAR_GLOBAL",
+   "category": "constant",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL CONSTANT\n    c_AM_ALARMS_NUM : INT := 127;\nEND_VAR\n",
+   "note": "Upper bound of AM_ALARMS. The application chooses the value; I used the documented maximum, 127.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/AlarmManager/AlarmManager.md",
+     "line": 9,
+     "sha256": "cdbe375900a46ebf45e3bafc9b554912c6d34fdd66a81f26297680ba1fb26fef"
+    },
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/skills/gxw2-libraries/references/AlarmManager.md",
+     "line": 9,
+     "sha256": "d4b74dff4c20e32c63263fb75293c89d308081398a5323e2b7ffaeb3f69d145b"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "f8cc7137a7d7ea376cfccbef7c1e4879a13f00193c96383eece2b9a9775ca0d2"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "c_AM_EVENTS_NUM",
+   "kind": "VAR_GLOBAL",
+   "category": "constant",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL CONSTANT\n    c_AM_EVENTS_NUM : INT := 127;\nEND_VAR\n",
+   "note": "Upper bound of AM_EVENTS. The application chooses the value; I used the documented maximum, 127.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/AlarmManager/AlarmManager.md",
+     "line": 10,
+     "sha256": "4e4085fa055f77168e5922a2203807b60377f3d6bb587616d9fe75f3430af35d"
+    },
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/skills/gxw2-libraries/references/AlarmManager.md",
+     "line": 10,
+     "sha256": "b9e1e58824b334ee8fc07e5aeab3d7a0ab97d6a56523ca424cfcba8902ba3ee5"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "f8cc7137a7d7ea376cfccbef7c1e4879a13f00193c96383eece2b9a9775ca0d2"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "D0Z4",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    D0Z4 : INT;\nEND_VAR\n",
+   "note": "Index-register device D0 offset by Z4, modelled as an INT (it is passed to F_SCALE as an INT argument).",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/ModbusDriver/CHANGELOG.md",
+     "line": 21,
+     "sha256": "0456f6a245de9cbb779dc670df7769fbb47f930cb0cf8b43d13d14a0e5b66635"
+    },
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/ModbusDriver/AGENT.md",
+     "line": 71,
+     "sha256": "c3f599b3e8dd23494fc16fad3ab8140cd5697e8b76393c48a55401007b493903"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "f8cc7137a7d7ea376cfccbef7c1e4879a13f00193c96383eece2b9a9775ca0d2"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "D0Z5",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    D0Z5 : INT;\nEND_VAR\n",
+   "note": "Index-register device D0 offset by Z5. It is read and written as an INT (a WORD value is also assigned to it).",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/Utils/AGENT.md",
+     "line": 103,
+     "sha256": "67a02f3dd92c231b3911691e7e8b67bee65c871b041ee65f6d05f90d5917ac8b"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "f8cc7137a7d7ea376cfccbef7c1e4879a13f00193c96383eece2b9a9775ca0d2"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 4
+  },
+  {
+   "name": "D0Z6",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    D0Z6 : INT;\nEND_VAR\n",
+   "note": "Index-register device D0 offset by Z6, passed to F_SCALE as an INT.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "f8cc7137a7d7ea376cfccbef7c1e4879a13f00193c96383eece2b9a9775ca0d2"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "D0Z7",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    D0Z7 : INT;\nEND_VAR\n",
+   "note": "Index-register device D0 offset by Z7, passed to F_SCALE as an INT.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "f8cc7137a7d7ea376cfccbef7c1e4879a13f00193c96383eece2b9a9775ca0d2"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "D600",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    D600 : INT;\nEND_VAR\n",
+   "note": "Data register D600 (holds packed alarm words), read as an INT.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/ModbusDriver/Modbus.md",
+     "line": 231,
+     "sha256": "a356a284eb8c78ef580c79931df6499a55e4e2daed17610bcac345796d000d84"
+    },
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/skills/gxw2-libraries/references/ModbusDriver.md",
+     "line": 231,
+     "sha256": "a356a284eb8c78ef580c79931df6499a55e4e2daed17610bcac345796d000d84"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "f8cc7137a7d7ea376cfccbef7c1e4879a13f00193c96383eece2b9a9775ca0d2"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "D610",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    D610 : INT;\nEND_VAR\n",
+   "note": "Data register D610 (holds packed event words), read as an INT.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/ModbusDriver/Modbus.md",
+     "line": 328,
+     "sha256": "9766dfcf1afa174262f3db0f0fe39fe75c584bafcb5d098a3c09e745ba16fd77"
+    },
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/skills/gxw2-libraries/references/ModbusDriver.md",
+     "line": 328,
+     "sha256": "9766dfcf1afa174262f3db0f0fe39fe75c584bafcb5d098a3c09e745ba16fd77"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "f8cc7137a7d7ea376cfccbef7c1e4879a13f00193c96383eece2b9a9775ca0d2"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "D8010",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    D8010 : INT;\nEND_VAR\n",
+   "note": "Special register holding the current scan time in 0.1 ms units.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/TimeControl/CHANGELOG.md",
+     "line": 14,
+     "sha256": "f8b8811889733d8595debb82c89af87a69d92a443103aa271939f4840369f674"
+    },
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/TimeControl/AGENT.md",
+     "line": 22,
+     "sha256": "c40fd57d9e95cf40d83bbf1ba39b50cdab8774e94c29e4ec43d7a7c304daeb7b"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "f8cc7137a7d7ea376cfccbef7c1e4879a13f00193c96383eece2b9a9775ca0d2"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "D8020Z3",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    D8020Z3 : INT;\nEND_VAR\n",
+   "note": "Input-filter-time special register offset by Z3. MOV writes an INT to it.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "f8cc7137a7d7ea376cfccbef7c1e4879a13f00193c96383eece2b9a9775ca0d2"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "D8030Z3",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    D8030Z3 : INT;\nEND_VAR\n",
+   "note": "Analog-input special register offset by Z3, read as an INT.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/Utils/AGENT.md",
+     "line": 103,
+     "sha256": "67a02f3dd92c231b3911691e7e8b67bee65c871b041ee65f6d05f90d5917ac8b"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "f8cc7137a7d7ea376cfccbef7c1e4879a13f00193c96383eece2b9a9775ca0d2"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "DBON",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DBON : BOOL\nVAR_INPUT\n    EN : BOOL;\n    s : DWORD;\n    n : INT;\nEND_VAR\nVAR_OUTPUT\n    d : BOOL;\nEND_VAR\nIF EN THEN\n    d := ((SHR(s, n) AND DWORD#1) <> DWORD#0);\nEND_IF;\nEND_FUNCTION\n",
+   "note": "32-bit version of BON: d is TRUE when bit n of the DWORD s is ON.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "f8cc7137a7d7ea376cfccbef7c1e4879a13f00193c96383eece2b9a9775ca0d2"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "DDIV",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DDIV : BOOL\nVAR_INPUT\n    EN : BOOL;\n    s1 : DWORD;\n    s2 : DINT;\nEND_VAR\nVAR_OUTPUT\n    d : ARRAY [0..1] OF DWORD;\nEND_VAR\nIF EN AND s2 <> 0 THEN\n    d[0] := DINT_TO_DWORD(DWORD_TO_DINT(s1) / s2);\n    d[1] := DINT_TO_DWORD(DWORD_TO_DINT(s1) MOD s2);\nEND_IF;\nEND_FUNCTION\n",
+   "note": "32-bit signed division: d[0] is the quotient and d[1] the remainder. The call sites pass ARRAY [0..1] OF DWORD for d.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/TimeControl/CHANGELOG.md",
+     "line": 9,
+     "sha256": "05c843e2af59f732b1038dca90553cf67155dfe752606e9ac02e41bfd98aef0e"
+    },
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/TimeControl/AGENT.md",
+     "line": 35,
+     "sha256": "b4d5902f162c026b69126b416281922cde1982e057cd939cdc183ee51d8dd6b8"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "f8cc7137a7d7ea376cfccbef7c1e4879a13f00193c96383eece2b9a9775ca0d2"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "DINC",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DINC : BOOL\nVAR_INPUT\n    EN : BOOL;\nEND_VAR\nVAR_IN_OUT\n    d : DWORD;\nEND_VAR\nIF EN THEN\n    d := d + 1;\nEND_IF;\nEND_FUNCTION\n",
+   "note": "32-bit increment of d when EN is TRUE. The call sites pass the DWORD tickers TCO_DINT_10 and TCO_DINT_50.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "f8cc7137a7d7ea376cfccbef7c1e4879a13f00193c96383eece2b9a9775ca0d2"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "DINT_TO_TIME",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DINT_TO_TIME : TIME\nVAR_INPUT\n    IN : DINT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Standard conversion from DINT milliseconds to TIME. The body is empty because RuSTy stores TIME in nanoseconds, so a direct assignment would give the wrong units.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 402,
+     "sha256": "00f4c8b31bc277d51bcf18f5c4324d513bae57f021c5cd3595c34a777e17f05b"
+    },
+    {
+     "file": "rusty_compatibility/21_Panasonic_FPWIN/该厂商st规范/ST规范/retry_0.validation.txt",
+     "line": 473,
+     "sha256": "8edf7750048e1bcb661b02420723daecaf9a604528f99354d027ee323442c6fe"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "f8cc7137a7d7ea376cfccbef7c1e4879a13f00193c96383eece2b9a9775ca0d2"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 4
+  },
+  {
+   "name": "DMOV",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DMOV : BOOL\nVAR_INPUT\n    EN : BOOL;\n    s : DWORD;\nEND_VAR\nVAR_OUTPUT\n    d : DWORD;\nEND_VAR\nIF EN THEN\n    d := s;\nEND_IF;\nEND_FUNCTION\n",
+   "note": "32-bit move: copies s to d when EN is TRUE.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/该厂商st规范/ST规范/spec_03.validation.txt",
+     "line": 662,
+     "sha256": "fbff96cb06a087ff9dcb483a6d2ac41d4ddb490fba5ce58925a75eadb2f3fce9"
+    },
+    {
+     "file": "rusty_compatibility/22_Delta_ISPSoft/该厂商st规范/ST规范/ISPSoft_RTS_mirror.validation.txt",
+     "line": 3236,
+     "sha256": "beb8888363218bdab0b446d891a1ca906896aaa5601768d5d47ae9817ccc0509"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "f8cc7137a7d7ea376cfccbef7c1e4879a13f00193c96383eece2b9a9775ca0d2"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 4
+  },
+  {
+   "name": "DMUL",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DMUL : BOOL\nVAR_INPUT\n    EN : BOOL;\n    s1 : DWORD;\n    s2 : DINT;\nEND_VAR\nVAR_IN_OUT\n    d : ARRAY[0..1] OF DWORD;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "32-bit multiply instruction (TimeControl docs). The 64-bit product goes into d[0] (low word) and d[1] (high word). The body is left empty because the signed 64-bit split is not modelled; d keeps its value.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/TimeControl/AGENT.md",
+     "line": 35,
+     "sha256": "b4d5902f162c026b69126b416281922cde1982e057cd939cdc183ee51d8dd6b8"
+    },
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/TimeControl/CHANGELOG.md",
+     "line": 9,
+     "sha256": "05c843e2af59f732b1038dca90553cf67155dfe752606e9ac02e41bfd98aef0e"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "11c085e27fdadfab1f393a77138214f9d334b9e329273cd2a6a962fc1701621c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "DROL",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DROL : BOOL\nVAR_INPUT\n    EN : BOOL;\n    n : INT;\nEND_VAR\nVAR_IN_OUT\n    d : DWORD;\nEND_VAR\nIF EN THEN\n    d := ROL(d, n);\nEND_IF;\nEND_FUNCTION\n",
+   "note": "Mitsubishi 32-bit rotate-left instruction. The argument order (EN, n, d) is taken from the call sites; d is rotated in place.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "11c085e27fdadfab1f393a77138214f9d334b9e329273cd2a6a962fc1701621c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "DSUB",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DSUB : BOOL\nVAR_INPUT\n    EN : BOOL;\n    s1 : DWORD;\n    s2 : DWORD;\nEND_VAR\nVAR_IN_OUT\n    d : DWORD;\nEND_VAR\nIF EN THEN\n    d := s1 - s2;\nEND_IF;\nEND_FUNCTION\n",
+   "note": "32-bit subtract instruction: d := s1 - s2 using raw 32-bit subtraction that wraps around safely, as the TimeControl docs describe.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/TimeControl/AGENT.md",
+     "line": 14,
+     "sha256": "e090749ebfe1126d5e4332b65dfbc2e74e506f07d63fc9b1c186d72199eaab84"
+    },
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/TimeControl/CHANGELOG.md",
+     "line": 9,
+     "sha256": "05c843e2af59f732b1038dca90553cf67155dfe752606e9ac02e41bfd98aef0e"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "11c085e27fdadfab1f393a77138214f9d334b9e329273cd2a6a962fc1701621c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 4
+  },
+  {
+   "name": "DWORD_TO_TIME",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DWORD_TO_TIME : TIME\nVAR_INPUT\n    IN : DWORD;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Standard type conversion. In GX Works, TIME is in ms; in RuSTy it is in ns. Because the units differ, the body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/TimeControl/CHANGELOG.md",
+     "line": 4,
+     "sha256": "43e50920bb4fc317ec52348b8d84d6ef3f7773aa912b1fe3aa17259b79235d26"
+    },
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 403,
+     "sha256": "c1c12f77b7403ff7390dfe3a7974a4e1a6acfe4a19a3a46df342e2c6efe12383"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "11c085e27fdadfab1f393a77138214f9d334b9e329273cd2a6a962fc1701621c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "EI",
+   "kind": "FUNCTION",
+   "category": "sink",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION EI : BOOL\nVAR_INPUT\n    EN : BOOL;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Enable-interrupts instruction. It changes CPU interrupt state, so the body is empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/TimeControl/TimeControl.md",
+     "line": 23,
+     "sha256": "af75a2fa826f4cbb3d463185f5f6aa828dbe186291b46be12b813de0e150cbe4"
+    },
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/skills/gxw2-libraries/references/TimeControl.md",
+     "line": 23,
+     "sha256": "5d8d7019a899e6902dc83b898718ff956087bbc2481ed09b12ab9654dc79c320"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "11c085e27fdadfab1f393a77138214f9d334b9e329273cd2a6a962fc1701621c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "F_SEC_TO_TCO_50",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION F_SEC_TO_TCO_50 : DWORD\nVAR_INPUT\n    iSeconds : INT;\nEND_VAR\nF_SEC_TO_TCO_50 := DINT_TO_DWORD(INT_TO_DINT(iSeconds) * 20);\nEND_FUNCTION\n",
+   "note": "Converts seconds to a 50 ms tick count (DWORD): seconds * 20.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/TimeControl/TimeControl.md",
+     "line": 48,
+     "sha256": "8bb9e1dace7d94343fc9a039c1a921a0ca875179ae663a0a46fa78489a275f81"
+    },
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/skills/gxw2-libraries/references/TimeControl.md",
+     "line": 48,
+     "sha256": "8bb9e1dace7d94343fc9a039c1a921a0ca875179ae663a0a46fa78489a275f81"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "11c085e27fdadfab1f393a77138214f9d334b9e329273cd2a6a962fc1701621c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "F_SRB",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION F_SRB : WORD\nVAR_INPUT\n    wIn : WORD;\n    iBN : INT;\n    xValue : BOOL;\nEND_VAR\nF_SRB := wIn;\nIF iBN >= 0 AND iBN <= 15 THEN\n    IF xValue THEN\n        F_SRB := wIn OR SHL(WORD#1, iBN);\n    ELSE\n        F_SRB := wIn AND NOT SHL(WORD#1, iBN);\n    END_IF;\nEND_IF;\nEND_FUNCTION\n",
+   "note": "Utils helper: sets or resets bit iBN (0-based) of a WORD according to xValue and returns the modified WORD. The parameter names are assumed.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/Utils/Utils.md",
+     "line": 22,
+     "sha256": "c51158b27ce05ba23b75e12b4a0cfdf1d5df0173dad00efd6829fb213591af7f"
+    },
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/skills/gxw2-libraries/references/Utils.md",
+     "line": 22,
+     "sha256": "c51158b27ce05ba23b75e12b4a0cfdf1d5df0173dad00efd6829fb213591af7f"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "11c085e27fdadfab1f393a77138214f9d334b9e329273cd2a6a962fc1701621c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "F_TCO_50_DIFF",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION F_TCO_50_DIFF : DWORD\nVAR_INPUT\n    dwStart : DWORD;\n    dwCurrent : DWORD;\nEND_VAR\nF_TCO_50_DIFF := dwCurrent - dwStart;\nEND_FUNCTION\n",
+   "note": "Number of ticks elapsed between a saved ticker value and the current one, using DWORD subtraction that wraps around safely.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/TimeControl/CHANGELOG.md",
+     "line": 6,
+     "sha256": "d6756df5656c1d16672bd9f062b698d3f8f64222a3897eec40666f498e6d4e48"
+    },
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/TimeControl/AGENT.md",
+     "line": 14,
+     "sha256": "e090749ebfe1126d5e4332b65dfbc2e74e506f07d63fc9b1c186d72199eaab84"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "11c085e27fdadfab1f393a77138214f9d334b9e329273cd2a6a962fc1701621c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "INC",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION INC : BOOL\nVAR_INPUT\n    EN : BOOL;\nEND_VAR\nVAR_IN_OUT\n    d : INT;\nEND_VAR\nIF EN THEN\n    d := d + 1;\nEND_IF;\nEND_FUNCTION\n",
+   "note": "16-bit increment instruction: adds 1 to d when EN is TRUE.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/07_Rockwell_Logix/库说明书/docs/LogixLibraries_Wiki.html",
+     "line": 100,
+     "sha256": "8100bb5dd727ea609686d64546220d9edf662e918f68ca6d5b0129439f7085d8"
+    },
+    {
+     "file": "rusty_compatibility/07_Rockwell_Logix/该厂商st规范/spec/Rockwell_ST_1756-PM007.sample.txt",
+     "line": 15,
+     "sha256": "e937b345bae97d15f9c5ed9fa65b13e6def7240305f16858144e1878d7085645"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "11c085e27fdadfab1f393a77138214f9d334b9e329273cd2a6a962fc1701621c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "K0",
+   "kind": "VAR_GLOBAL",
+   "category": "constant",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL CONSTANT\n    K0 : INT := 0;\nEND_VAR\n",
+   "note": "Mitsubishi decimal constant K0.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/该厂商st规范/ST规范/spec_05.validation.txt",
+     "line": 590,
+     "sha256": "15b04b09910d81f8d3e47bcf97e8a7dcdc4434117db3da45bb1a5d372192c5a8"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "11c085e27fdadfab1f393a77138214f9d334b9e329273cd2a6a962fc1701621c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "K15",
+   "kind": "VAR_GLOBAL",
+   "category": "constant",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL CONSTANT\n    K15 : INT := 15;\nEND_VAR\n",
+   "note": "Mitsubishi decimal constant K15.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "11c085e27fdadfab1f393a77138214f9d334b9e329273cd2a6a962fc1701621c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "K31",
+   "kind": "VAR_GLOBAL",
+   "category": "constant",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL CONSTANT\n    K31 : INT := 31;\nEND_VAR\n",
+   "note": "Mitsubishi decimal constant K31.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "11c085e27fdadfab1f393a77138214f9d334b9e329273cd2a6a962fc1701621c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "K4M600",
+   "kind": "VAR_GLOBAL",
+   "category": "unknown",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    K4M600 : WORD;\nEND_VAR\n",
+   "note": "Digit-specified device covering M600..M615, modelled as a WORD.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "11c085e27fdadfab1f393a77138214f9d334b9e329273cd2a6a962fc1701621c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "LIMITATION",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION LIMITATION : INT\nVAR_INPUT\n    MN : DINT;\n    IN : DINT;\n    MX : DINT;\nEND_VAR\nLIMITATION := DINT_TO_INT(LIMIT(MN, IN, MX));\nEND_FUNCTION\n",
+   "note": "GX Works standard limiter with argument order LIMITATION(MN, IN, MX). The inputs are widened to DINT so both INT and DINT arguments are accepted.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/Utils/CHANGELOG.md",
+     "line": 12,
+     "sha256": "628f99369e17a6357f160f93557c7668c810bf3164357077f996e052cae22868"
+    },
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/该厂商st规范/ST规范/spec_05.validation.txt",
+     "line": 608,
+     "sha256": "95ce090a6ca1eb64c6f0631e20953e0a1222e4d3a677aa805f534c5f4562cf78"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "11c085e27fdadfab1f393a77138214f9d334b9e329273cd2a6a962fc1701621c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 4
+  },
+  {
+   "name": "M0Z3",
+   "kind": "VAR_GLOBAL",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    M0Z3 : BOOL;\nEND_VAR\n",
+   "note": "Index-register-modified bit device M0Z3, modelled as a plain BOOL.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "11c085e27fdadfab1f393a77138214f9d334b9e329273cd2a6a962fc1701621c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "M0Z4",
+   "kind": "VAR_GLOBAL",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    M0Z4 : BOOL;\nEND_VAR\n",
+   "note": "Index-register-modified bit device M0Z4, modelled as a plain BOOL.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/Utils/AGENT.md",
+     "line": 103,
+     "sha256": "67a02f3dd92c231b3911691e7e8b67bee65c871b041ee65f6d05f90d5917ac8b"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "11c085e27fdadfab1f393a77138214f9d334b9e329273cd2a6a962fc1701621c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "M0Z5",
+   "kind": "VAR_GLOBAL",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    M0Z5 : BOOL;\nEND_VAR\n",
+   "note": "Index-register-modified bit device M0Z5, modelled as a plain BOOL.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "11c085e27fdadfab1f393a77138214f9d334b9e329273cd2a6a962fc1701621c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "M600",
+   "kind": "VAR_GLOBAL",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    M600 : BOOL;\nEND_VAR\n",
+   "note": "Internal relay device M600.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/23_Inovance_InoProShop/该厂商st规范/ST规范/retry_2.validation.txt",
+     "line": 673,
+     "sha256": "ce749310ed091bb680e442cba52ffcd1687f05b6cdcaab506de7399ebbb3e150"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "11c085e27fdadfab1f393a77138214f9d334b9e329273cd2a6a962fc1701621c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "M601",
+   "kind": "VAR_GLOBAL",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    M601 : BOOL;\nEND_VAR\n",
+   "note": "Internal relay device M601.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "11c085e27fdadfab1f393a77138214f9d334b9e329273cd2a6a962fc1701621c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "M602",
+   "kind": "VAR_GLOBAL",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    M602 : BOOL;\nEND_VAR\n",
+   "note": "Internal relay device M602.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "11c085e27fdadfab1f393a77138214f9d334b9e329273cd2a6a962fc1701621c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "M610",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    M610 : BOOL;\nEND_VAR\n",
+   "note": "Internal relay bit device M610.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5b0f97238ba2834488e0106116f14c9ba6d35071cfb949ac27da50c5cbc0f70f"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "M611",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    M611 : BOOL;\nEND_VAR\n",
+   "note": "Internal relay bit device M611.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5b0f97238ba2834488e0106116f14c9ba6d35071cfb949ac27da50c5cbc0f70f"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "M612",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    M612 : BOOL;\nEND_VAR\n",
+   "note": "Internal relay bit device M612.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5b0f97238ba2834488e0106116f14c9ba6d35071cfb949ac27da50c5cbc0f70f"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "M613",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    M613 : BOOL;\nEND_VAR\n",
+   "note": "Internal relay bit device M613.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5b0f97238ba2834488e0106116f14c9ba6d35071cfb949ac27da50c5cbc0f70f"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "M614",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    M614 : BOOL;\nEND_VAR\n",
+   "note": "Internal relay bit device M614.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5b0f97238ba2834488e0106116f14c9ba6d35071cfb949ac27da50c5cbc0f70f"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "M615",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    M615 : BOOL;\nEND_VAR\n",
+   "note": "Internal relay bit device M615.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5b0f97238ba2834488e0106116f14c9ba6d35071cfb949ac27da50c5cbc0f70f"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "M8002",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    M8002 : BOOL;\nEND_VAR\n",
+   "note": "Special relay: initial pulse, ON for the first scan after RUN. System state.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/ModbusDriver/Modbus.md",
+     "line": 36,
+     "sha256": "550ed91f0c49cc9d1ae990fd4c02550ced0567b4e96f593e873760bd35a3cb99"
+    },
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/skills/gxw2-libraries/references/ModbusDriver.md",
+     "line": 36,
+     "sha256": "550ed91f0c49cc9d1ae990fd4c02550ced0567b4e96f593e873760bd35a3cb99"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5b0f97238ba2834488e0106116f14c9ba6d35071cfb949ac27da50c5cbc0f70f"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 3
+  },
+  {
+   "name": "MEF",
+   "kind": "FUNCTION",
+   "category": "source",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION MEF : BOOL\nVAR_INPUT\n    IN : BOOL;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Falling-edge detector (TRUE for one scan when IN goes TRUE->FALSE). Needs previous-scan state, which a stub function cannot hold, so it always returns FALSE.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/TimeControl/TimeControl.md",
+     "line": 155,
+     "sha256": "420b4dd445d1bb124f2fbc66369b4d471b9c273ef101cb8f77fabb9d4f53acfc"
+    },
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/skills/gxw2-libraries/references/TimeControl.md",
+     "line": 155,
+     "sha256": "420b4dd445d1bb124f2fbc66369b4d471b9c273ef101cb8f77fabb9d4f53acfc"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5b0f97238ba2834488e0106116f14c9ba6d35071cfb949ac27da50c5cbc0f70f"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "MEP",
+   "kind": "FUNCTION",
+   "category": "source",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION MEP : BOOL\nVAR_INPUT\n    IN : BOOL;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Rising-edge detector (TRUE for one scan when IN goes FALSE->TRUE). Needs previous-scan state, which a stub function cannot hold, so it always returns FALSE.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/TimeControl/TimeControl.md",
+     "line": 152,
+     "sha256": "b8da422d8989fb2b9e1850679cc599e469ad79ad5ba59b2eacc146085f45e70c"
+    },
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/skills/gxw2-libraries/references/TimeControl.md",
+     "line": 152,
+     "sha256": "b8da422d8989fb2b9e1850679cc599e469ad79ad5ba59b2eacc146085f45e70c"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5b0f97238ba2834488e0106116f14c9ba6d35071cfb949ac27da50c5cbc0f70f"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 3
+  },
+  {
+   "name": "MOV",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION MOV : BOOL\nVAR_INPUT\n    EN : BOOL;\n    s : DINT;\nEND_VAR\nVAR_OUTPUT\n    d : INT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "GX Works MOV(EN, s, d): copies s to d when EN is TRUE, otherwise d is left unchanged. A function output cannot leave d unchanged, so the body is empty. Destinations are INT/WORD devices and labels.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/该厂商st规范/ST规范/spec_05.validation.txt",
+     "line": 543,
+     "sha256": "4c15b3e887d13debe40b8fd127c7ad5b5ba3a56c9b7601784bc6f74337e2840e"
+    },
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/该厂商st规范/ST规范/spec_03.validation.txt",
+     "line": 661,
+     "sha256": "279a912d4ae03c0f7d0ad3d626f8673932d46d39d199a0b58441d96a75708989"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5b0f97238ba2834488e0106116f14c9ba6d35071cfb949ac27da50c5cbc0f70f"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 4
+  },
+  {
+   "name": "R0Z5",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    R0Z5 : WORD;\nEND_VAR\n",
+   "note": "File register R0 indexed by Z5. Typed WORD from the assignments.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/Utils/AGENT.md",
+     "line": 103,
+     "sha256": "67a02f3dd92c231b3911691e7e8b67bee65c871b041ee65f6d05f90d5917ac8b"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5b0f97238ba2834488e0106116f14c9ba6d35071cfb949ac27da50c5cbc0f70f"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 4
+  },
+  {
+   "name": "R23500Z3",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    R23500Z3 : INT;\nEND_VAR\n",
+   "note": "File register R23500 indexed by Z3 (L02 module sensor-type area). MOV destination.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/Utils/AGENT.md",
+     "line": 103,
+     "sha256": "67a02f3dd92c231b3911691e7e8b67bee65c871b041ee65f6d05f90d5917ac8b"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5b0f97238ba2834488e0106116f14c9ba6d35071cfb949ac27da50c5cbc0f70f"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "R23600Z3",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    R23600Z3 : INT;\nEND_VAR\n",
+   "note": "File register R23600 indexed by Z3 (L02 filter setting). MOV destination.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5b0f97238ba2834488e0106116f14c9ba6d35071cfb949ac27da50c5cbc0f70f"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "R23700Z3",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    R23700Z3 : INT;\nEND_VAR\n",
+   "note": "File register R23700 indexed by Z3: L02 analog input value area.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/Utils/AGENT.md",
+     "line": 103,
+     "sha256": "67a02f3dd92c231b3911691e7e8b67bee65c871b041ee65f6d05f90d5917ac8b"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5b0f97238ba2834488e0106116f14c9ba6d35071cfb949ac27da50c5cbc0f70f"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "R23940Z3",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    R23940Z3 : INT;\nEND_VAR\n",
+   "note": "File register R23940 indexed by Z3 (sensor-type setting). MOV destination.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5b0f97238ba2834488e0106116f14c9ba6d35071cfb949ac27da50c5cbc0f70f"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "R600",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    R600 : INT;\nEND_VAR\n",
+   "note": "File register R600 (packed data word).",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5b0f97238ba2834488e0106116f14c9ba6d35071cfb949ac27da50c5cbc0f70f"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "RST",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION RST : BOOL\nVAR_INPUT\n    s : BOOL;\nEND_VAR\nVAR_IN_OUT\n    d : BOOL;\nEND_VAR\nIF s THEN\n    d := FALSE;\nEND_IF;\nEND_FUNCTION\n",
+   "note": "GX Works RST(EN, d): resets bit d to FALSE when EN is TRUE, otherwise leaves it unchanged.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/该厂商st规范/ST规范/spec_02.validation.txt",
+     "line": 121,
+     "sha256": "a1289618ebed2996de3caaeb3560dd0db943223930cd62c4814ae2c1f5f441e5"
+    },
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/TimeControl/TimeControl.md",
+     "line": 27,
+     "sha256": "fb567dbd6ccc471c32924c40fe83b81e7971a59349699d92404ea1225acb692f"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5b0f97238ba2834488e0106116f14c9ba6d35071cfb949ac27da50c5cbc0f70f"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 4
+  },
+  {
+   "name": "SET",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION SET : BOOL\nVAR_INPUT\n    s : BOOL;\nEND_VAR\nVAR_IN_OUT\n    d : BOOL;\nEND_VAR\nIF s THEN\n    d := TRUE;\nEND_IF;\nEND_FUNCTION\n",
+   "note": "GX Works SET(EN, d): sets bit d to TRUE when EN is TRUE, otherwise leaves it unchanged.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/Utils/Utils.md",
+     "line": 30,
+     "sha256": "229754c6e7f779e4c25c98b35440017a0f500186c68e6ef6f5474c8249b06e59"
+    },
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/skills/gxw2-libraries/references/Utils.md",
+     "line": 30,
+     "sha256": "229754c6e7f779e4c25c98b35440017a0f500186c68e6ef6f5474c8249b06e59"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5b0f97238ba2834488e0106116f14c9ba6d35071cfb949ac27da50c5cbc0f70f"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 4
+  },
+  {
+   "name": "TCO_DINT_50",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    TCO_DINT_50 : DWORD;\nEND_VAR\n",
+   "note": "TimeControl global ticker updated by an interrupt: one tick every 50 ms. The call sites use it as a DWORD (dwTimeStart := TCO_DINT_50; DSUB). The stub never changes it, so it stays 0.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/TimeControl/TimeControl.md",
+     "line": 3,
+     "sha256": "5f86e1481a317ca2811c876d88a2c1f523bf938a1d35be161e2b90756c06e85a"
+    },
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/skills/gxw2-libraries/references/TimeControl.md",
+     "line": 3,
+     "sha256": "5f86e1481a317ca2811c876d88a2c1f523bf938a1d35be161e2b90756c06e85a"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "15c6a43219ac7674cb6975825da1eb695d06afcbe303680f6a2a853d1934950d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 4
+  },
+  {
+   "name": "TIME_TO_DINT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TIME_TO_DINT : DINT\nVAR_INPUT\n    IN : TIME;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Standard conversion from TIME to DINT. On the PLC, TIME is a 32-bit millisecond count, but RuSTy stores TIME internally in nanoseconds. Because the scale is unclear, the body is left empty and returns 0.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_time_to.html.txt",
+     "line": 58,
+     "sha256": "50c9691a5b3b0d5ab8151b431ae1edc44845e51874d3fa9eda05ab639f996e72"
+    },
+    {
+     "file": "rusty_compatibility/21_Panasonic_FPWIN/该厂商st规范/ST规范/retry_0.validation.txt",
+     "line": 446,
+     "sha256": "c0657cec97f5c240e45f3f30346c0a637b7e9fe93a6b934e44e55ab2aba1cb50"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "15c6a43219ac7674cb6975825da1eb695d06afcbe303680f6a2a853d1934950d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "Z3",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    Z3 : INT;\nEND_VAR\n",
+   "note": "Mitsubishi FX index register Z3, a 16-bit device used to offset device addresses (D8030Z3, R23500Z3). The call sites assign INT values to it.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/Utils/AGENT.md",
+     "line": 103,
+     "sha256": "67a02f3dd92c231b3911691e7e8b67bee65c871b041ee65f6d05f90d5917ac8b"
+    },
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/PACFramework_5ff28393539b/proc/oldprj/prod_unitypro/PU_VARKA.md",
+     "line": 56,
+     "sha256": "850c9cf45a5cadb7a6b6bb56ed5161138d639348aa924db7b0bceea3b4db2522"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "15c6a43219ac7674cb6975825da1eb695d06afcbe303680f6a2a853d1934950d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "Z4",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    Z4 : INT;\nEND_VAR\n",
+   "note": "Mitsubishi FX index register Z4, a 16-bit device used for indexed addressing (M0Z4).",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/PACFramework_5ff28393539b/proc/oldprj/prod_unitypro/PU_VARKA.md",
+     "line": 56,
+     "sha256": "850c9cf45a5cadb7a6b6bb56ed5161138d639348aa924db7b0bceea3b4db2522"
+    },
+    {
+     "file": "rusty_compatibility/09_Schneider_Machine_Expert/库说明书/库内说明/PACFramework_5ff28393539b/proc/oldprj/prod_unitypro/PU_VARKA.md",
+     "line": 56,
+     "sha256": "850c9cf45a5cadb7a6b6bb56ed5161138d639348aa924db7b0bceea3b4db2522"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "15c6a43219ac7674cb6975825da1eb695d06afcbe303680f6a2a853d1934950d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "Z5",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    Z5 : INT;\nEND_VAR\n",
+   "note": "Mitsubishi FX index register Z5, a 16-bit device used for indexed addressing (D0Z5, R0Z5).",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/Utils/AGENT.md",
+     "line": 103,
+     "sha256": "67a02f3dd92c231b3911691e7e8b67bee65c871b041ee65f6d05f90d5917ac8b"
+    },
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/PACFramework_5ff28393539b/proc/oldprj/prod_unitypro/PU_VARKA.md",
+     "line": 56,
+     "sha256": "850c9cf45a5cadb7a6b6bb56ed5161138d639348aa924db7b0bceea3b4db2522"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "15c6a43219ac7674cb6975825da1eb695d06afcbe303680f6a2a853d1934950d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 4
+  },
+  {
+   "name": "Z6",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    Z6 : INT;\nEND_VAR\n",
+   "note": "Mitsubishi FX index register Z6, a 16-bit device.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/PACFramework_5ff28393539b/proc/oldprj/prod_unitypro/PU_VARKA.md",
+     "line": 56,
+     "sha256": "850c9cf45a5cadb7a6b6bb56ed5161138d639348aa924db7b0bceea3b4db2522"
+    },
+    {
+     "file": "rusty_compatibility/09_Schneider_Machine_Expert/库说明书/库内说明/PACFramework_5ff28393539b/proc/oldprj/prod_unitypro/PU_VARKA.md",
+     "line": 56,
+     "sha256": "850c9cf45a5cadb7a6b6bb56ed5161138d639348aa924db7b0bceea3b4db2522"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "15c6a43219ac7674cb6975825da1eb695d06afcbe303680f6a2a853d1934950d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "Z7",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    Z7 : INT;\nEND_VAR\n",
+   "note": "Mitsubishi FX index register Z7, a 16-bit device.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/PACFramework_5ff28393539b/proc/oldprj/prod_unitypro/PU_VARKA.md",
+     "line": 57,
+     "sha256": "a5e8d1c2c65aecf674676de46306e31f095342d9ab73eabb5a06860f4061ca7e"
+    },
+    {
+     "file": "rusty_compatibility/09_Schneider_Machine_Expert/库说明书/库内说明/PACFramework_5ff28393539b/proc/oldprj/prod_unitypro/PU_VARKA.md",
+     "line": 57,
+     "sha256": "a5e8d1c2c65aecf674676de46306e31f095342d9ab73eabb5a06860f4061ca7e"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "15c6a43219ac7674cb6975825da1eb695d06afcbe303680f6a2a853d1934950d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  }
+ ]
+}

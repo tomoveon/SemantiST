@@ -1,0 +1,22 @@
+FUNCTION NEXT_STATE : INT
+VAR_INPUT
+    S : INT;
+END_VAR
+(* CONST
+    STATE_RESET := 0;
+    STATE_ON    := 1;
+    STATE_OFF   := 2;
+END_CONST *)
+CASE S OF
+    (0): NEXT_STATE := (1);
+    (1): NEXT_STATE := (2);
+    (2), 7: NEXT_STATE := (1);
+ELSE
+    NEXT_STATE := (0);
+END_CASE;
+END_FUNCTION
+
+FUNCTION main : DINT
+printf('%d %d %d %d %d$N', NEXT_STATE(0), NEXT_STATE(1), NEXT_STATE(2), NEXT_STATE(7), NEXT_STATE(5));
+main := 0;
+END_FUNCTION

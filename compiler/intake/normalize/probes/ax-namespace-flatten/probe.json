@@ -1,0 +1,1 @@
+{"rule": "ax-namespace-flatten", "dialect": "simatic-ax", "reject_codes": ["E007"], "expected_output": "4 1 1\n"}

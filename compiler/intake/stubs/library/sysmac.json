@@ -1,0 +1,261 @@
+{
+ "schema_version": "semantist.environment-stubs/1.0.0",
+ "family": "sysmac",
+ "stubs": [
+  {
+   "name": "DateToString",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DateToString : STRING\nVAR_INPUT\n    In : DATE;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Omron instruction that turns a DATE into text such as '2000-01-01'. The body is left empty because the exact format is not reproduced here; the stub returns an empty string.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/18_Omron_Sysmac/该厂商st规范/ST规范/spec_02.validation.txt",
+     "line": 758,
+     "sha256": "571c8dd043c4a753794402f6b10cd9cb8d3327e81a87cbc4feadb2fccb0a6ae7"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "6322b82f59474ac1f5c70af2ed5952be9f47587136b325103335292e83e4ea65"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DtToString",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DtToString : STRING\nVAR_INPUT\n    In : DATE_AND_TIME;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Omron instruction that turns a DATE_AND_TIME into text. The body is left empty, so the stub returns an empty string.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/18_Omron_Sysmac/库说明书/TcpClientLib/README.md",
+     "line": 52,
+     "sha256": "1de9feb3d89f9e45bb235122bac88f2e32e441f9b046f99bee9b4b8bcaf0a46a"
+    },
+    {
+     "file": "rusty_compatibility/18_Omron_Sysmac/库说明书/TcpClientLib/README_ja.md",
+     "line": 52,
+     "sha256": "1de9feb3d89f9e45bb235122bac88f2e32e441f9b046f99bee9b4b8bcaf0a46a"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "6322b82f59474ac1f5c70af2ed5952be9f47587136b325103335292e83e4ea65"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "g_console",
+   "kind": "VAR_GLOBAL",
+   "category": "unknown",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    g_console : Console_t;\nEND_VAR\n",
+   "note": "The JiecUnit README says test results are written to the global variable g_console. Its type Console_t is defined in the library.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/18_Omron_Sysmac/库说明书/jiecunit/README.md",
+     "line": 80,
+     "sha256": "b5e60f25df2d8ad3dfacfbf5300350694697e00400d67f227d4764a5a47fa03c"
+    },
+    {
+     "file": "rusty_compatibility/20_KEYENCE_KV/库说明书/jiecunit/README.md",
+     "line": 80,
+     "sha256": "b5e60f25df2d8ad3dfacfbf5300350694697e00400d67f227d4764a5a47fa03c"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "8b689e13ae0d7964115102f685b8772b7f104c14cc254d4076f044812200e42d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "g_jiectest",
+   "kind": "VAR_GLOBAL",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    g_jiectest : JiecTest_t;\nEND_VAR\n",
+   "note": "Global JiecTest_t instance (the test registry). It is passed as self to the JiecTest_* functions, and the code reads its num_of_tests member.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "8b689e13ae0d7964115102f685b8772b7f104c14cc254d4076f044812200e42d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "g_jiectestnames",
+   "kind": "VAR_GLOBAL",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    g_jiectestnames : ARRAY[0..511] OF STRING[128];\nEND_VAR\n",
+   "note": "Global table of test names, read by index when tests are registered.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "8b689e13ae0d7964115102f685b8772b7f104c14cc254d4076f044812200e42d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "LrealToString",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION LrealToString : STRING\nVAR_INPUT\n    in : LREAL;\n    format : DINT;\n    fullcount : DINT;\n    subdeccount : DINT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Parameters are taken from the call sites. The formatting rules are not documented here, so the body is empty.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "6322b82f59474ac1f5c70af2ed5952be9f47587136b325103335292e83e4ea65"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "NumToDecString",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION NumToDecString : STRING\nVAR_INPUT\n    in : LINT;\n    zerosuppress : BOOL;\n    plussignomission : BOOL;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Turns an integer into a decimal string. The real Omron input accepts any integer type; LINT is used here so that both DINT and UDINT arguments widen to it. The body is empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/18_Omron_Sysmac/该厂商st规范/ST规范/spec_02.validation.txt",
+     "line": 753,
+     "sha256": "fe87956b46acff1d5e6caf2f408c28d7ea2d7a0c482e816022bbac9ed9c4cd55"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "6322b82f59474ac1f5c70af2ed5952be9f47587136b325103335292e83e4ea65"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "TimeToMicroSec",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TimeToMicroSec : DINT\nVAR_INPUT\n    IN : TIME;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Not found in the Omron manual index. The DINT return type follows how the call site uses the result. The body is left empty.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "6322b82f59474ac1f5c70af2ed5952be9f47587136b325103335292e83e4ea65"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "TimeToNanoSec",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TimeToNanoSec : LINT\nVAR_INPUT\n    In : TIME;\nEND_VAR\n    TimeToNanoSec := TIME_TO_LINT(In);\nEND_FUNCTION\n",
+   "note": "Omron instruction that returns a TIME value in nanoseconds as LINT. RuSTy stores TIME as nanoseconds, so TIME_TO_LINT gives exactly that value.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/18_Omron_Sysmac/该厂商st规范/ST规范/spec_02.validation.txt",
+     "line": 834,
+     "sha256": "4ab4e002597a6b78c8b9df92cd0659828d05c9ab8aba4742e3565db070758aa7"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "6322b82f59474ac1f5c70af2ed5952be9f47587136b325103335292e83e4ea65"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "TodToString",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TodToString : STRING\nVAR_INPUT\n    In : TIME_OF_DAY;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Omron instruction that turns a TIME_OF_DAY into text. The body is left empty, so the stub returns an empty string.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/18_Omron_Sysmac/该厂商st规范/ST规范/spec_02.validation.txt",
+     "line": 759,
+     "sha256": "742318a735f3860d1b7770a49dad3053bcc059d62a25eedf0142c4c3c42bfe83"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "6322b82f59474ac1f5c70af2ed5952be9f47587136b325103335292e83e4ea65"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "_sSOCKET",
+   "kind": "TYPE",
+   "category": "unknown",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE _sSOCKET :\nSTRUCT\n    Handle : UINT;\nEND_STRUCT\nEND_TYPE\n",
+   "note": "Omron socket structure. The real one also has SrcAdr and DstAdr members of type _sSOCKET_ADDRESS; they are left out because the call sites only declare variables of this type.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "6322b82f59474ac1f5c70af2ed5952be9f47587136b325103335292e83e4ea65"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  }
+ ]
+}

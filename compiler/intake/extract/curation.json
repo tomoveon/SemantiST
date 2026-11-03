@@ -1,0 +1,211 @@
+{
+  "renames": [
+    {
+      "vendor": "02_CODESYS23",
+      "source": "02_CODESYS23/原始库文件/源码/eclipse-oscat_oscat-libs-archive_e2f15cb7778f.zip!oscat-libs-archive-e2f15cb7778f10631afceb94b0cfbfd88c0c338e/OSCAT_BASIC_LIB/ARCHIVE/rel150/oscat15.pro",
+      "name": "native_oscat15_6ebca88c.st",
+      "reason": "Collision suffix: two outputs share this base name; the original Windows run hashed the absolute Windows source path, this run hashes the corpus-relative path. The collected name is kept."
+    },
+    {
+      "vendor": "02_CODESYS23",
+      "source": "02_CODESYS23/原始库文件/源码/eclipse-oscat_oscat-libs-archive_e2f15cb7778f.zip!oscat-libs-archive-e2f15cb7778f10631afceb94b0cfbfd88c0c338e/OSCAT_BASIC_LIB/ARCHIVE/rel160/oscat160.lib",
+      "name": "native_oscat160_546216e5.st",
+      "reason": "Collision suffix: two outputs share this base name; the original Windows run hashed the absolute Windows source path, this run hashes the corpus-relative path. The collected name is kept."
+    },
+    {
+      "vendor": "02_CODESYS23",
+      "source": "02_CODESYS23/原始库文件/源码/eclipse-oscat_oscat-libs-archive_e2f15cb7778f.zip!oscat-libs-archive-e2f15cb7778f10631afceb94b0cfbfd88c0c338e/OSCAT_BASIC_LIB/ARCHIVE/rel201/oscat201.lib",
+      "name": "native_oscat201_d946849f.st",
+      "reason": "Collision suffix: two outputs share this base name; the original Windows run hashed the absolute Windows source path, this run hashes the corpus-relative path. The collected name is kept."
+    },
+    {
+      "vendor": "02_CODESYS23",
+      "source": "02_CODESYS23/原始库文件/源码/eclipse-oscat_oscat-libs-archive_e2f15cb7778f.zip!oscat-libs-archive-e2f15cb7778f10631afceb94b0cfbfd88c0c338e/OSCAT_BASIC_LIB/ARCHIVE/rel210/oscat210.lib",
+      "name": "native_oscat210_0dbbd81d.st",
+      "reason": "Collision suffix: two outputs share this base name; the original Windows run hashed the absolute Windows source path, this run hashes the corpus-relative path. The collected name is kept."
+    },
+    {
+      "vendor": "02_CODESYS23",
+      "source": "02_CODESYS23/原始库文件/源码/eclipse-oscat_oscat-libs-archive_e2f15cb7778f.zip!oscat-libs-archive-e2f15cb7778f10631afceb94b0cfbfd88c0c338e/OSCAT_BASIC_LIB/ARCHIVE/rel210/oscat210.pro",
+      "name": "native_oscat210_c06d506a.st",
+      "reason": "Collision suffix: two outputs share this base name; the original Windows run hashed the absolute Windows source path, this run hashes the corpus-relative path. The collected name is kept."
+    },
+    {
+      "vendor": "02_CODESYS23",
+      "source": "02_CODESYS23/原始库文件/源码/eclipse-oscat_oscat-libs-archive_e2f15cb7778f.zip!oscat-libs-archive-e2f15cb7778f10631afceb94b0cfbfd88c0c338e/OSCAT_BASIC_LIB/ARCHIVE/rel240/oscat240.pro",
+      "name": "native_oscat240_0c82e138.st",
+      "reason": "Collision suffix: two outputs share this base name; the original Windows run hashed the absolute Windows source path, this run hashes the corpus-relative path. The collected name is kept."
+    },
+    {
+      "vendor": "02_CODESYS23",
+      "source": "02_CODESYS23/原始库文件/源码/eclipse-oscat_oscat-libs-archive_e2f15cb7778f.zip!oscat-libs-archive-e2f15cb7778f10631afceb94b0cfbfd88c0c338e/OSCAT_BASIC_LIB/ARCHIVE/rel250/oscat250.pro",
+      "name": "native_oscat250_3c7614ab.st",
+      "reason": "Collision suffix: two outputs share this base name; the original Windows run hashed the absolute Windows source path, this run hashes the corpus-relative path. The collected name is kept."
+    },
+    {
+      "vendor": "02_CODESYS23",
+      "source": "02_CODESYS23/原始库文件/源码/eclipse-oscat_oscat-libs-archive_e2f15cb7778f.zip!oscat-libs-archive-e2f15cb7778f10631afceb94b0cfbfd88c0c338e/OSCAT_BASIC_LIB/ARCHIVE/rel251/oscat251.lib",
+      "name": "native_oscat251_7ec45fa8.st",
+      "reason": "Collision suffix: two outputs share this base name; the original Windows run hashed the absolute Windows source path, this run hashes the corpus-relative path. The collected name is kept."
+    },
+    {
+      "vendor": "02_CODESYS23",
+      "source": "02_CODESYS23/原始库文件/源码/eclipse-oscat_oscat-libs-archive_e2f15cb7778f.zip!oscat-libs-archive-e2f15cb7778f10631afceb94b0cfbfd88c0c338e/OSCAT_BASIC_LIB/ARCHIVE/rel272/oscat272.pro",
+      "name": "native_oscat272_2052b925.st",
+      "reason": "Collision suffix: two outputs share this base name; the original Windows run hashed the absolute Windows source path, this run hashes the corpus-relative path. The collected name is kept."
+    },
+    {
+      "vendor": "02_CODESYS23",
+      "source": "02_CODESYS23/原始库文件/源码/eclipse-oscat_oscat-libs-archive_e2f15cb7778f.zip!oscat-libs-archive-e2f15cb7778f10631afceb94b0cfbfd88c0c338e/OSCAT_BASIC_LIB/ARCHIVE/rel273/codesys23/oscat273.pro",
+      "name": "native_oscat273_47212ef8.st",
+      "reason": "Collision suffix: two outputs share this base name; the original Windows run hashed the absolute Windows source path, this run hashes the corpus-relative path. The collected name is kept."
+    },
+    {
+      "vendor": "02_CODESYS23",
+      "source": "02_CODESYS23/原始库文件/源码/eclipse-oscat_oscat-libs-archive_e2f15cb7778f.zip!oscat-libs-archive-e2f15cb7778f10631afceb94b0cfbfd88c0c338e/OSCAT_BASIC_LIB/ARCHIVE/rel301/oscat301.pro",
+      "name": "native_oscat301_1e797a96.st",
+      "reason": "Collision suffix: two outputs share this base name; the original Windows run hashed the absolute Windows source path, this run hashes the corpus-relative path. The collected name is kept."
+    },
+    {
+      "vendor": "02_CODESYS23",
+      "source": "02_CODESYS23/原始库文件/源码/eclipse-oscat_oscat-libs-archive_e2f15cb7778f.zip!oscat-libs-archive-e2f15cb7778f10631afceb94b0cfbfd88c0c338e/OSCAT_BASIC_LIB/ARCHIVE/rel321/oscat321.pro",
+      "name": "native_oscat321_c3385f7c.st",
+      "reason": "Collision suffix: two outputs share this base name; the original Windows run hashed the absolute Windows source path, this run hashes the corpus-relative path. The collected name is kept."
+    },
+    {
+      "vendor": "02_CODESYS23",
+      "source": "02_CODESYS23/原始库文件/源码/eclipse-oscat_oscat-libs-archive_e2f15cb7778f.zip!oscat-libs-archive-e2f15cb7778f10631afceb94b0cfbfd88c0c338e/OSCAT_BASIC_LIB/ARCHIVE/rel331/oscat.lib",
+      "name": "native_oscat_a5b3b071.st",
+      "reason": "Collision suffix: two outputs share this base name; the original Windows run hashed the absolute Windows source path, this run hashes the corpus-relative path. The collected name is kept."
+    },
+    {
+      "vendor": "02_CODESYS23",
+      "source": "02_CODESYS23/原始库文件/源码/eclipse-oscat_oscat-libs-archive_e2f15cb7778f.zip!oscat-libs-archive-e2f15cb7778f10631afceb94b0cfbfd88c0c338e/OSCAT_BASIC_LIB/ARCHIVE/rel270/oscat.pro",
+      "name": "native_oscat_basic_270_codesys.st",
+      "reason": "Renamed by hand after the original extraction: several archives contain a library file called oscat.pro/oscat.lib, so the collision-suffixed name was replaced by a descriptive library name."
+    },
+    {
+      "vendor": "02_CODESYS23",
+      "source": "02_CODESYS23/原始库文件/源码/eclipse-oscat_oscat-libs-archive_e2f15cb7778f.zip!oscat-libs-archive-e2f15cb7778f10631afceb94b0cfbfd88c0c338e/OSCAT_BASIC_LIB/ARCHIVE/rel303/oscat.pro",
+      "name": "native_oscat_basic_303_codesys.st",
+      "reason": "Renamed by hand after the original extraction: several archives contain a library file called oscat.pro/oscat.lib, so the collision-suffixed name was replaced by a descriptive library name."
+    },
+    {
+      "vendor": "02_CODESYS23",
+      "source": "02_CODESYS23/原始库文件/源码/eclipse-oscat_oscat-libs-archive_e2f15cb7778f.zip!oscat-libs-archive-e2f15cb7778f10631afceb94b0cfbfd88c0c338e/OSCAT_BASIC_LIB/ARCHIVE/rel331/oscat.pro",
+      "name": "native_oscat_basic_331_codesys.st",
+      "reason": "Renamed by hand after the original extraction: several archives contain a library file called oscat.pro/oscat.lib, so the collision-suffixed name was replaced by a descriptive library name."
+    },
+    {
+      "vendor": "02_CODESYS23",
+      "source": "02_CODESYS23/原始库文件/源码/eclipse-oscat_oscat-libs-archive_e2f15cb7778f.zip!oscat-libs-archive-e2f15cb7778f10631afceb94b0cfbfd88c0c338e/OSCAT_BASIC_LIB/ARCHIVE/rel332/oscat.pro",
+      "name": "native_oscat_basic_332_codesys.st",
+      "reason": "Renamed by hand after the original extraction: several archives contain a library file called oscat.pro/oscat.lib, so the collision-suffixed name was replaced by a descriptive library name."
+    },
+    {
+      "vendor": "16_Phoenix_PC_Worx",
+      "source": "02_CODESYS23/原始库文件/源码/eclipse-oscat_oscat-libs-archive_e2f15cb7778f.zip!oscat-libs-archive-e2f15cb7778f10631afceb94b0cfbfd88c0c338e/OSCAT_BASIC_LIB/ARCHIVE/rel311/OSCAT_311_PCWORX_MULTIPROG.zip!OSCAT_311_PCWORX_MULTIPROG/oscat/oscat.zwt!@zip.zwp",
+      "name": "native_oscat_basic_311_pcworx.st",
+      "reason": "Renamed by hand after the original extraction to a descriptive library name (the archive member is called oscat.zwt / network.zwt)."
+    },
+    {
+      "vendor": "16_Phoenix_PC_Worx",
+      "source": "02_CODESYS23/原始库文件/源码/eclipse-oscat_oscat-libs-archive_e2f15cb7778f.zip!oscat-libs-archive-e2f15cb7778f10631afceb94b0cfbfd88c0c338e/OSCAT_BASIC_LIB/ARCHIVE/rel320/OSCAT_320_PCWORX_MULTIPROG.zip!OSCAT_PCWORX_MULTIPROG/oscat/OSCAT.zwt!@zip.zwp",
+      "name": "native_OSCAT.st",
+      "reason": "Case-insensitive collision with the PC WORX oscat.zwt export (native_oscat.st) resolved by hand: that file was renamed to native_oscat_basic_311_pcworx.st and this one keeps the unsuffixed name."
+    },
+    {
+      "vendor": "16_Phoenix_PC_Worx",
+      "source": "02_CODESYS23/原始库文件/源码/eclipse-oscat_oscat-libs-archive_e2f15cb7778f.zip!oscat-libs-archive-e2f15cb7778f10631afceb94b0cfbfd88c0c338e/OSCAT_BASIC_LIB/ARCHIVE/rel320/OSCAT_320_PCWORX_MULTIPROG.zip!OSCAT_PCWORX_MULTIPROG/network/network.zwt!@zip.zwp",
+      "name": "native_oscat_network_320_pcworx.st",
+      "reason": "Renamed by hand after the original extraction to a descriptive library name (the archive member is called oscat.zwt / network.zwt)."
+    },
+    {
+      "vendor": "16_Phoenix_PC_Worx",
+      "source": "02_CODESYS23/原始库文件/源码/eclipse-oscat_oscat-libs-archive_e2f15cb7778f.zip!oscat-libs-archive-e2f15cb7778f10631afceb94b0cfbfd88c0c338e/OSCAT_NETWORK_LIB/Archive/net110/pcworx_network_110.zip!whole_export/pcworx_network_110/pcworx_network_110_module_export",
+      "name": "native_pcworx_network_110.st",
+      "reason": "Collision suffix removed by hand: the complete PC WORX export replaces a parallel module export of the same name, which is deleted after the replacement is written; the collected file carries the unsuffixed name."
+    },
+    {
+      "vendor": "16_Phoenix_PC_Worx",
+      "source": "02_CODESYS23/原始库文件/源码/eclipse-oscat_oscat-libs-archive_e2f15cb7778f.zip!oscat-libs-archive-e2f15cb7778f10631afceb94b0cfbfd88c0c338e/OSCAT_NETWORK_LIB/Archive/net111/pcworx_network_111.zip!whole_export/pcworx_network_111/pcworx_network_111_module_export",
+      "name": "native_pcworx_network_111.st",
+      "reason": "Collision suffix removed by hand: the complete PC WORX export replaces a parallel module export of the same name, which is deleted after the replacement is written; the collected file carries the unsuffixed name."
+    },
+    {
+      "vendor": "16_Phoenix_PC_Worx",
+      "source": "02_CODESYS23/原始库文件/源码/eclipse-oscat_oscat-libs-archive_e2f15cb7778f.zip!oscat-libs-archive-e2f15cb7778f10631afceb94b0cfbfd88c0c338e/OSCAT_NETWORK_LIB/Archive/net112/pcworx_network_112.zip!whole_export/pcworx_network_112/pcworx_network_112_module_export",
+      "name": "native_pcworx_network_112.st",
+      "reason": "Collision suffix removed by hand: the complete PC WORX export replaces a parallel module export of the same name, which is deleted after the replacement is written; the collected file carries the unsuffixed name."
+    }
+  ],
+  "merges": [
+    {
+      "vendor": "02_CODESYS23",
+      "name": "native_oscat_network_112_patch.st",
+      "header": "(* Original library/project: OSCAT network 1.12 original complete patch source collection *)",
+      "members": [
+        "02_CODESYS23/原始库文件/源码/eclipse-oscat_oscat-libs-archive_e2f15cb7778f.zip!oscat-libs-archive-e2f15cb7778f10631afceb94b0cfbfd88c0c338e/OSCAT_NETWORK_LIB/Archive/net112/network_112_patch.zip!codesys/IP_CONTROL.EXP",
+        "02_CODESYS23/原始库文件/源码/eclipse-oscat_oscat-libs-archive_e2f15cb7778f.zip!oscat-libs-archive-e2f15cb7778f10631afceb94b0cfbfd88c0c338e/OSCAT_NETWORK_LIB/Archive/net112/network_112_patch.zip!codesys/IP_CONTROL2.EXP",
+        "02_CODESYS23/原始库文件/源码/eclipse-oscat_oscat-libs-archive_e2f15cb7778f.zip!oscat-libs-archive-e2f15cb7778f10631afceb94b0cfbfd88c0c338e/OSCAT_NETWORK_LIB/Archive/net112/network_112_patch.zip!codesys/SMTP_CLIENT.EXP"
+      ],
+      "reason": "Merged by hand after the original extraction: the three patched POUs of network_112_patch.zip were combined into one collection under a collection header, joined by one newline in archive order."
+    },
+    {
+      "vendor": "04_TwinCAT2",
+      "name": "native_oscat_network_112_patch.st",
+      "header": "(* Original library/project: OSCAT network 1.12 original complete patch source collection *)",
+      "members": [
+        "02_CODESYS23/原始库文件/源码/eclipse-oscat_oscat-libs-archive_e2f15cb7778f.zip!oscat-libs-archive-e2f15cb7778f10631afceb94b0cfbfd88c0c338e/OSCAT_NETWORK_LIB/Archive/net112/network_112_patch.zip!beckhoff/IP_CONTROL.EXP",
+        "02_CODESYS23/原始库文件/源码/eclipse-oscat_oscat-libs-archive_e2f15cb7778f.zip!oscat-libs-archive-e2f15cb7778f10631afceb94b0cfbfd88c0c338e/OSCAT_NETWORK_LIB/Archive/net112/network_112_patch.zip!beckhoff/IP_CONTROL2.EXP",
+        "02_CODESYS23/原始库文件/源码/eclipse-oscat_oscat-libs-archive_e2f15cb7778f.zip!oscat-libs-archive-e2f15cb7778f10631afceb94b0cfbfd88c0c338e/OSCAT_NETWORK_LIB/Archive/net112/network_112_patch.zip!beckhoff/SMTP_CLIENT.EXP"
+      ],
+      "reason": "Merged by hand after the original extraction: the three patched POUs of network_112_patch.zip were combined into one collection under a collection header, joined by one newline in archive order."
+    }
+  ],
+  "headers": [
+    {
+      "vendor": "05_Siemens_TIA_SCL",
+      "name": "native_Siemens_SCL_Source_Files_Timer.st",
+      "source": "05_Siemens_TIA_SCL/原始库文件/补充调查/Siemens_SCL_Source_Files_c36d15ae9978.zip",
+      "header_source": "05_Siemens_TIA_SCL/原始库文件/补充调查/Siemens_SCL_Source_Files_c36d15ae9978.zip!Timer",
+      "reason": "The collected file names the Timer/ subtree of the archive in its header (\"...zip!Timer\"); the archived extractor writes only the archive path. The body is identical; the header was refined by hand."
+    }
+  ],
+  "fixed_inputs": [
+    {
+      "vendor": "01_CODESYS3",
+      "name": "oscat_basic_335.st",
+      "reason": "User-provided whole-library export of the CODESYS 3 OSCAT Basic 3.3.5.0 library (E:/IIOT/oscat/oscat_basic.st); it was copied into the corpus, not produced by the extractors."
+    },
+    {
+      "vendor": "34_OpenPLC_v4_STruCpp",
+      "name": "oscat_basic_335.st",
+      "reason": "Same user-provided OSCAT Basic 3.3.5.0 export as 01_CODESYS3; copied, not extracted."
+    },
+    {
+      "vendor": "18_Omron_Sysmac",
+      "name": "JiecLib_omron.st",
+      "part": "jiec",
+      "reason": "Produced by the official Windows-only Jiecc 8.0.0 macro expander (jiecc.exe), which cannot run on Linux; the collected output is the fixed input."
+    },
+    {
+      "vendor": "18_Omron_Sysmac",
+      "name": "JiecUnit_omron.st",
+      "part": "jiec",
+      "reason": "Produced by the official Windows-only Jiecc 8.0.0 macro expander (jiecc.exe), which cannot run on Linux; the collected output is the fixed input."
+    },
+    {
+      "vendor": "20_KEYENCE_KV",
+      "name": "JiecLib_keyence.st",
+      "part": "jiec",
+      "reason": "Produced by the official Windows-only Jiecc 8.0.0 macro expander (jiecc.exe), which cannot run on Linux; the collected output is the fixed input."
+    },
+    {
+      "vendor": "20_KEYENCE_KV",
+      "name": "JiecUnit_keyence.st",
+      "part": "jiec",
+      "reason": "Produced by the official Windows-only Jiecc 8.0.0 macro expander (jiecc.exe), which cannot run on Linux; the collected output is the fixed input."
+    }
+  ]
+}

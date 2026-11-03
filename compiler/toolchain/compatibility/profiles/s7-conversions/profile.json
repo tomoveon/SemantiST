@@ -1,0 +1,35 @@
+{
+  "schema_version": "semantist.compatibility-profile/1.0.0",
+  "name": "s7-conversions",
+  "dialects": [
+    "siemens-scl"
+  ],
+  "kind": "semantic_adapter",
+  "st_sources": [
+    "conversions.st"
+  ],
+  "native_sources": [],
+  "native_compile_args": [],
+  "link_args": [],
+  "provides": [
+    "DATE_TO_DINT",
+    "DINT_TO_DATE",
+    "DINT_TO_TIME",
+    "DINT_TO_TOD",
+    "INT_TO_BOOL",
+    "TIME_TO_DINT",
+    "TOD_TO_DINT",
+    "__S7_DINT_TO_BOOL"
+  ],
+  "rebind": {
+    "DINT_TO_BOOL": "__S7_DINT_TO_BOOL"
+  },
+  "evidence": [
+    "rusty_compatibility/06_Siemens_Classic_SCL/该厂商st规范/补充调查/Siemens_S7SCL_V53_official.pdf (chapter 14, conversion functions; 6.2 elementary data types)"
+  ],
+  "assumptions": [
+    "TIME and TOD are whole milliseconds; the S7 32-bit range (TIME up to 24 days) is not enforced and wrap-around is not simulated.",
+    "DATE values are whole days since 1990-01-01; the S7 16-bit range is not enforced.",
+    "The ENO/OK flag of S7 conversions (set to FALSE on overflow) is not modelled."
+  ]
+}

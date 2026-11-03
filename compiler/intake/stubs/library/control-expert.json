@@ -1,0 +1,44 @@
+{
+ "schema_version": "semantist.environment-stubs/1.0.0",
+ "family": "control-expert",
+ "stubs": [
+  {
+   "name": "MOVE_REAL_ARREAL",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION MOVE_REAL_ARREAL\nVAR_INPUT\n    IN : REAL;\nEND_VAR\nVAR_OUTPUT\n    OUT : ARRAY[0..99] OF REAL;\nEND_VAR\nVAR\n    i : DINT;\nEND_VAR\nFOR i := 0 TO 99 DO\n    OUT[i] := IN;\nEND_FOR\nEND_FUNCTION\n",
+   "note": "Schneider procedure (Unity/Control Expert Arrays library). It copies the REAL value IN into every element of the output array. The vendor version accepts any REAL array, but here the array is fixed to [0..99] to match the call sites.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "8cd105512a416ef72c07e138b5b48b9b1cfb338fd8768c9e1a71f3aa695989cd"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 3
+  },
+  {
+   "name": "ROL_ARREAL",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION ROL_ARREAL\nVAR_INPUT\n    N : DINT;\nEND_VAR\nVAR_IN_OUT\n    INOUT : ARRAY[0..99] OF REAL;\nEND_VAR\nVAR\n    tmp : ARRAY[0..99] OF REAL;\n    i : DINT;\n    s : DINT;\nEND_VAR\ns := N MOD 100;\nIF s < 0 THEN\n    s := s + 100;\nEND_IF;\nFOR i := 0 TO 99 DO\n    tmp[i] := INOUT[(i + s) MOD 100];\nEND_FOR\nFOR i := 0 TO 99 DO\n    INOUT[i] := tmp[i];\nEND_FOR\nEND_FUNCTION\n",
+   "note": "Schneider procedure that rotates a REAL array left by N positions, in place. INOUT is declared as an in/out parameter because the array is changed in place. The array size is fixed to [0..99] to match the call sites. The vendor version returns no value, so there is no BOOL result.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "8cd105512a416ef72c07e138b5b48b9b1cfb338fd8768c9e1a71f3aa695989cd"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 3
+  }
+ ]
+}

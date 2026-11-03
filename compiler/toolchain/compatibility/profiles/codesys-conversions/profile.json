@@ -1,0 +1,74 @@
+{
+  "schema_version": "semantist.compatibility-profile/1.0.0",
+  "name": "codesys-conversions",
+  "dialects": [
+    "codesys"
+  ],
+  "kind": "semantic_adapter",
+  "st_sources": [
+    "conversions.st"
+  ],
+  "native_sources": [],
+  "native_compile_args": [],
+  "link_args": [],
+  "provides": [
+    "BOOL_TO_LREAL",
+    "BOOL_TO_REAL",
+    "BOOL_TO_STRING",
+    "BYTE_TO_LREAL",
+    "BYTE_TO_REAL",
+    "DWORD_TO_LREAL",
+    "INT_TO_BOOL",
+    "INT_TO_STRING",
+    "LREAL_TO_BOOL",
+    "LREAL_TO_BYTE",
+    "LREAL_TO_DWORD",
+    "LREAL_TO_WORD",
+    "LWORD_TO_REAL",
+    "REAL_TO_BOOL",
+    "REAL_TO_BYTE",
+    "REAL_TO_LWORD",
+    "REAL_TO_WORD",
+    "SINT_TO_BOOL",
+    "SINT_TO_STRING",
+    "STRING_TO_BYTE",
+    "STRING_TO_DWORD",
+    "STRING_TO_INT",
+    "STRING_TO_LWORD",
+    "STRING_TO_SINT",
+    "STRING_TO_UDINT",
+    "STRING_TO_UINT",
+    "STRING_TO_ULINT",
+    "STRING_TO_USINT",
+    "STRING_TO_WORD",
+    "UDINT_TO_BOOL",
+    "UINT_TO_BOOL",
+    "ULINT_TO_BOOL",
+    "USINT_TO_BOOL",
+    "WORD_TO_LREAL",
+    "WORD_TO_REAL",
+    "WORD_TO_STRING",
+    "__CDS_DWORD_TO_REAL",
+    "__CDS_LREAL_TO_LWORD",
+    "__CDS_LWORD_TO_LREAL",
+    "__CDS_REAL_TO_DWORD"
+  ],
+  "rebind": {
+    "DWORD_TO_REAL": "__CDS_DWORD_TO_REAL",
+    "LREAL_TO_LWORD": "__CDS_LREAL_TO_LWORD",
+    "LWORD_TO_LREAL": "__CDS_LWORD_TO_LREAL",
+    "REAL_TO_DWORD": "__CDS_REAL_TO_DWORD"
+  },
+  "evidence": [
+    "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html",
+    "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_real_to.html",
+    "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_bool_to.html",
+    "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_string_to.html"
+  ],
+  "assumptions": [
+    "STRING_TO_<integer> handles decimal strings like RuSTy's STRING_TO_LINT; CODESYS also accepts type-prefixed literals ('16#FF') and grouping underscores, which are not claimed equivalent.",
+    "REAL to unsigned integers outside the target range: CODESYS converts through UDINT/ULINT; the result for negative or too large values is not claimed equivalent.",
+    "Integer to BOOL: the generated adapters return TRUE for non-zero values (CODESYS documents this for TIME_TO_BOOL and REAL_TO_BOOL). RuSTy's own BYTE/WORD/DWORD/LWORD_TO_BOOL return the least significant bit; they are not rebound, and their uses are reported as unverified.",
+    "DWORD_TO_REAL, LWORD_TO_LREAL, REAL_TO_DWORD and LREAL_TO_LWORD convert the value (CODESYS 'Conversion: Integer'); RuSTy copies the bit pattern, so library calls are rebound to the adapters."
+  ]
+}

@@ -1,0 +1,1 @@
+{"rule": "library-qualifier", "dialect": "codesys", "reject_codes": ["E007", "E006", "E052", "E048"], "expected_output": "1\n"}

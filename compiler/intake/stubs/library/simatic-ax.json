@@ -1,0 +1,825 @@
+{
+ "schema_version": "semantist.environment-stubs/1.0.0",
+ "family": "simatic-ax",
+ "stubs": [
+  {
+   "name": "AxoBoolArrayExample__AxoBoolArrayExampleContext",
+   "kind": "FUNCTION_BLOCK",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK AxoBoolArrayExample__AxoBoolArrayExampleContext\nMETHOD Execute\nEND_METHOD\nEND_FUNCTION_BLOCK\n",
+   "note": "Showcase context class; only Execute is used. The call site's arguments aren't shown, so Execute is declared with no parameters.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "01af995269c27fc182da15c0d7af7c55034993199b24174e13d586a29e431254"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "AxoByteArrayExample__AxoByteArrayExampleContext",
+   "kind": "FUNCTION_BLOCK",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK AxoByteArrayExample__AxoByteArrayExampleContext\nMETHOD Execute\nEND_METHOD\nEND_FUNCTION_BLOCK\n",
+   "note": "Showcase context class; only Execute is used.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "01af995269c27fc182da15c0d7af7c55034993199b24174e13d586a29e431254"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "AxoDataDistributedExample__Context",
+   "kind": "FUNCTION_BLOCK",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK AxoDataDistributedExample__Context\nMETHOD Execute\nEND_METHOD\nEND_FUNCTION_BLOCK\n",
+   "note": "Showcase context class; only Execute is used.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "01af995269c27fc182da15c0d7af7c55034993199b24174e13d586a29e431254"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "AxoDataExchangeExample__Context",
+   "kind": "FUNCTION_BLOCK",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK AxoDataExchangeExample__Context\nMETHOD Execute\nEND_METHOD\nEND_FUNCTION_BLOCK\n",
+   "note": "Showcase context class; only Execute is used.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "01af995269c27fc182da15c0d7af7c55034993199b24174e13d586a29e431254"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "AxoDataFramentsExchangeExample__Context",
+   "kind": "FUNCTION_BLOCK",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK AxoDataFramentsExchangeExample__Context\nMETHOD Execute\nEND_METHOD\nEND_FUNCTION_BLOCK\n",
+   "note": "Showcase context class; only Execute is used.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "01af995269c27fc182da15c0d7af7c55034993199b24174e13d586a29e431254"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "AxoDataPersistentExchangeExample__Context",
+   "kind": "FUNCTION_BLOCK",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK AxoDataPersistentExchangeExample__Context\nMETHOD Execute\nEND_METHOD\nEND_FUNCTION_BLOCK\n",
+   "note": "Showcase context class; only Execute is used.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "01af995269c27fc182da15c0d7af7c55034993199b24174e13d586a29e431254"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "AxoMomentaryTaskExamples__Tasks",
+   "kind": "FUNCTION_BLOCK",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK AxoMomentaryTaskExamples__Tasks\nMETHOD Execute\nEND_METHOD\nEND_FUNCTION_BLOCK\n",
+   "note": "Showcase context class; only Execute is used.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "01af995269c27fc182da15c0d7af7c55034993199b24174e13d586a29e431254"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "AXOpen_S71500__Rtc",
+   "kind": "FUNCTION_BLOCK",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK AXOpen_S71500__Rtc\nMETHOD NowUTC : LDATE_AND_TIME\nEND_METHOD\nEND_FUNCTION_BLOCK\n",
+   "note": "In AXOpen, Rtc is a real-time clock class with a method NowUTC : LDATE_AND_TIME. It reads the system time, so the stub returns the zero value.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "01af995269c27fc182da15c0d7af7c55034993199b24174e13d586a29e431254"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "AXOpen_Showcase__HwIdentifierList",
+   "kind": "TYPE",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE AXOpen_Showcase__HwIdentifierList : WORD; END_TYPE\n",
+   "note": "List of hardware IDs, generated from the hardware configuration. Declared as a WORD alias because the enumeration values are unknown.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "01af995269c27fc182da15c0d7af7c55034993199b24174e13d586a29e431254"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "AxoTaskExamples__Tasks",
+   "kind": "FUNCTION_BLOCK",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK AxoTaskExamples__Tasks\nMETHOD Execute\nEND_METHOD\nEND_FUNCTION_BLOCK\n",
+   "note": "Showcase context class; only Execute is used.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "01af995269c27fc182da15c0d7af7c55034993199b24174e13d586a29e431254"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "AxoTextListExample__AxoTextListExampleContext",
+   "kind": "FUNCTION_BLOCK",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK AxoTextListExample__AxoTextListExampleContext\nMETHOD Execute\nEND_METHOD\nEND_FUNCTION_BLOCK\n",
+   "note": "Showcase context class; only Execute is used.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "01af995269c27fc182da15c0d7af7c55034993199b24174e13d586a29e431254"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "AxoToggleTaskExamples__Tasks",
+   "kind": "FUNCTION_BLOCK",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK AxoToggleTaskExamples__Tasks\nMETHOD Execute\nEND_METHOD\nEND_FUNCTION_BLOCK\n",
+   "note": "Showcase context class; only Execute is used.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "01af995269c27fc182da15c0d7af7c55034993199b24174e13d586a29e431254"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "axunit_Fail",
+   "kind": "FUNCTION",
+   "category": "sink",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION axunit_Fail : BOOL\nVAR_INPUT\n    message : STRING[1024];\n    file : WSTRING[1024];\n    line : INT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "AxUnit internal function that reports a test failure. The call is positional, so the parameter names are my own guesses. The message is built with Concat, which I assumed returns STRING.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "deb1412f68947d3accf61ba8a97c36b14deae8e8dc1480a218156ca8a3a1ee7a"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "axunit_Succeed",
+   "kind": "FUNCTION",
+   "category": "sink",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION axunit_Succeed : BOOL\nEND_FUNCTION\n",
+   "note": "AxUnit internal function that marks a test as passed. It is called as a statement with no arguments.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "deb1412f68947d3accf61ba8a97c36b14deae8e8dc1480a218156ca8a3a1ee7a"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "Deserialize",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 2,
+   "declaration": "FUNCTION Deserialize<T : ANY> : UDINT\nVAR_INPUT\n    offset : UDINT;\nEND_VAR\nVAR_IN_OUT\n    buffer : ARRAY[*] OF BYTE;\n    value : T;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Uses RuSTy's generic form because ANY isn't a type. No body.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/30_Siemens_SIMATIC_AX/库说明书/docs/AXOpen/docs/components.siem.identification/docs/AxoSimaticIdentCyclic.html",
+     "line": 100,
+     "sha256": "94d48bf1d72544024befb556f09c1db7b64c8b1717e6da7fb8a82a94ef840267"
+    },
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/该厂商st规范/spec/TIA_SCL_Instructions_S7_1200_1500_V21.html",
+     "line": 51,
+     "sha256": "c3ae21d7fac64601fe265c839372c6cc969b60ebbc337c8b577f79e0f27ed576"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "deb1412f68947d3accf61ba8a97c36b14deae8e8dc1480a218156ca8a3a1ee7a"
+    },
+    {
+     "round": 2,
+     "llm_key": "966f41a0f84b9980957752cdc45ea69122a89f0bd59b97ba42bff96a08a07bf8"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 3
+  },
+  {
+   "name": "eAxoTaskState",
+   "kind": "TYPE",
+   "category": "constant",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE eAxoTaskState : (Disabled := 0, Ready := 10, Kicking := 15, Busy := 20, Done := 30, Error := 40, Aborted := 50); END_TYPE\n",
+   "note": "AXOpen.Core task state enumeration. The values come from my knowledge of AXOpen and may not match exactly.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/30_Siemens_SIMATIC_AX/库说明书/docs/AXOpen/docs/apictrl/plc.AXOpen.Core.AxoTaskStateSatisfied.html",
+     "line": 13,
+     "sha256": "39ddff05fa919d73451a8756a6ea2716af01a1056189ef01be778c203819f146"
+    },
+    {
+     "file": "rusty_compatibility/30_Siemens_SIMATIC_AX/库说明书/docs/AXOpen/docs/apictrl/plc.AXOpen.Data.AxoDataCrudTaskEntityExistsSatisfied.html",
+     "line": 16,
+     "sha256": "b85ef71967557e871e21e65e31b59442bcc1ae65b5c1c0514d7389de25abbd4d"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "deb1412f68947d3accf61ba8a97c36b14deae8e8dc1480a218156ca8a3a1ee7a"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 6
+  },
+  {
+   "name": "GeoAddr",
+   "kind": "TYPE",
+   "category": "constant",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE GeoAddr : STRUCT\n    HardwareType : UINT;\n    AreaID : UINT;\n    IOSystem : UINT;\n    Station : UINT;\n    Slot : UINT;\n    Subslot : UINT;\nEND_STRUCT; END_TYPE\n",
+   "note": "Siemens geographical address structure, the AX version of GEOADDR. All fields are UINT. Some reads show up as BOOL because they are inside comparisons.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "deb1412f68947d3accf61ba8a97c36b14deae8e8dc1480a218156ca8a3a1ee7a"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 41
+  },
+  {
+   "name": "GetSystemDateTime",
+   "kind": "FUNCTION",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION GetSystemDateTime : WORD\nVAR_OUTPUT\n    value : LDATE_AND_TIME;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Reads the system clock (UTC) into the output 'value'. I assumed the return value is a status WORD; the calls ignore it.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "deb1412f68947d3accf61ba8a97c36b14deae8e8dc1480a218156ca8a3a1ee7a"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 6
+  },
+  {
+   "name": "IAxoContext",
+   "kind": "TYPE",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "minimal",
+   "rounds": 0,
+   "declaration": "TYPE IAxoContext :\nSTRUCT\n    reserved : BYTE;\nEND_STRUCT\nEND_TYPE\n",
+   "note": "minimal silent stub: every element the call sites show, no statements",
+   "passages": [
+    {
+     "file": "rusty_compatibility/30_Siemens_SIMATIC_AX/库说明书/docs/AXOpen/docs/apictrl/plc.AXOpen.Core.AxoObject.html",
+     "line": 25,
+     "sha256": "ed9bb653afdb8a298b7c871e21a3f4e67e192f5013e56476fc255fa263f3ea1d"
+    },
+    {
+     "file": "rusty_compatibility/30_Siemens_SIMATIC_AX/库说明书/docs/AXOpen/docs/apictrl/plc.AXOpen.Core.IAxoObject.html",
+     "line": 14,
+     "sha256": "ea3863becbecde7a1a84d746689430d82b2d828831241143879860d2aa92cf76"
+    }
+   ],
+   "llm": [],
+   "verified": "compile",
+   "libraries": 3
+  },
+  {
+   "name": "Identity",
+   "kind": "VAR_GLOBAL",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    Identity : ULINT;\nEND_VAR\n",
+   "note": "Object identity member (ULINT), declared locally in the library. This global only covers the name.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/30_Siemens_SIMATIC_AX/库说明书/docs/AXOpen/docs/clientchat/src/README.html",
+     "line": 25,
+     "sha256": "3d450a4c5c915598cc9795aaf449a791faa00ed546b061d8eee1285cfa8a7641"
+    },
+    {
+     "file": "rusty_compatibility/30_Siemens_SIMATIC_AX/库说明书/docs/AXOpen/docs/clientchat/src/index.html",
+     "line": 25,
+     "sha256": "3d450a4c5c915598cc9795aaf449a791faa00ed546b061d8eee1285cfa8a7641"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "deb1412f68947d3accf61ba8a97c36b14deae8e8dc1480a218156ca8a3a1ee7a"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "LengthOf",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 2,
+   "declaration": "FUNCTION LengthOf<T : ANY> : INT\nVAR_IN_OUT\n    value : T;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Generic length-of. No body.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/30_Siemens_SIMATIC_AX/库说明书/docs/AXOpen/docs/components.siem.identification/docs/AxoIOLink_RF200Device.html",
+     "line": 53,
+     "sha256": "bf83019cfa5eb434aa7ecf1e52c4f635483b1670aaca216980ea07185ff5cd37"
+    },
+    {
+     "file": "rusty_compatibility/30_Siemens_SIMATIC_AX/库说明书/docs/AXOpen/docs/components.siem.identification/docs/Axo_IdentDevice.html",
+     "line": 75,
+     "sha256": "289af2fb7ad9675a1617b67f0e494647b8e2c04f2002677e6a9dd35849dff647"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "deb1412f68947d3accf61ba8a97c36b14deae8e8dc1480a218156ca8a3a1ee7a"
+    },
+    {
+     "round": 2,
+     "llm_key": "966f41a0f84b9980957752cdc45ea69122a89f0bd59b97ba42bff96a08a07bf8"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 3
+  },
+  {
+   "name": "NAME_OF",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 2,
+   "declaration": "FUNCTION NAME_OF<T : ANY> : STRING[254]\nVAR_INPUT\n    value : T;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "A compile-time expression in SIMATIC AX, stubbed as a generic function. Calls that pass type names may still fail.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/30_Siemens_SIMATIC_AX/该厂商st规范/spec/SIMATIC_AX_ST_10.2.95.html",
+     "line": 90,
+     "sha256": "09b4b16a391661641d44ef6d1fbc3df4a3de3342cc8850ce5717cc7fedfbe38f"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "deb1412f68947d3accf61ba8a97c36b14deae8e8dc1480a218156ca8a3a1ee7a"
+    },
+    {
+     "round": 2,
+     "llm_key": "966f41a0f84b9980957752cdc45ea69122a89f0bd59b97ba42bff96a08a07bf8"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "OnDelay",
+   "kind": "FUNCTION_BLOCK",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK OnDelay\nVAR_INPUT\n    signal : BOOL;\n    duration : LTIME;\nEND_VAR\nVAR_OUTPUT\n    output : BOOL;\n    elapsedTime : LTIME;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "Simatic.Ax.Timers OnDelay (TON) block. It depends on the system time, so the body is empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/30_Siemens_SIMATIC_AX/库说明书/docs/AXOpen/docs/timers/docs/ONDELAYTIMER.html",
+     "line": 6,
+     "sha256": "015f431087d5f5bb5173017edcf5e52cf5299dd4ca1d0d682b975dd854bde82e"
+    },
+    {
+     "file": "rusty_compatibility/30_Siemens_SIMATIC_AX/库说明书/docs/AXOpen/docs/timers/docs/README.html",
+     "line": 11,
+     "sha256": "83f99898ec350acb12a096c6283d2b9ef13fa4663629481329b5b77d40ddc730"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "deb1412f68947d3accf61ba8a97c36b14deae8e8dc1480a218156ca8a3a1ee7a"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 6
+  },
+  {
+   "name": "ReadRecord",
+   "kind": "FUNCTION_BLOCK",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK ReadRecord\nVAR_INPUT\n    request : BOOL;\n    hardwareID : UINT;\n    index : DINT;\n    maxLength : UINT;\nEND_VAR\nVAR_OUTPUT\n    valid : BOOL;\n    busy : BOOL;\n    error : BOOL;\n    status : DWORD;\n    length : UINT;\nEND_VAR\nVAR_IN_OUT\n    record : ARRAY[*] OF BYTE;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "Siemens.Simatic.DistributedIO ReadRecord, which reads a data record from an I/O device. Names are case-insensitive, so the upper-case uses (INDEX, RECORD, BUSY and so on) match. The record buffer comes in several sizes, so it is ARRAY[*] OF BYTE.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "deb1412f68947d3accf61ba8a97c36b14deae8e8dc1480a218156ca8a3a1ee7a"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 41
+  },
+  {
+   "name": "ReadSlotFromHardwareID",
+   "kind": "FUNCTION",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION ReadSlotFromHardwareID : WORD\nVAR_INPUT\n    hardwareID : UINT;\nEND_VAR\nVAR_IN_OUT\n    geoAddr : GeoAddr;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Siemens function that gets the geographical address for a hardware ID and returns a status WORD (for example 16#8090 for an unknown ID). geoAddr is IN_OUT so the function can fill it in, and the calls pass it with :=.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/30_Siemens_SIMATIC_AX/库说明书/docs/AXOpen/src/components.kuka.robotics/docs/AxoKrc4.md",
+     "line": 24,
+     "sha256": "6a2966b53d9bd2861da4b92baf09d8500c70635cca7aa465d37dc18d5985f7cf"
+    },
+    {
+     "file": "rusty_compatibility/30_Siemens_SIMATIC_AX/库说明书/docs/AXOpen/src/components.kuka.robotics/docs/TROUBLES.md",
+     "line": 135,
+     "sha256": "8ebce81072003005e0e2b8134c6a1137245ed8473cc17d242c6c4cc26dac2caa"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "deb1412f68947d3accf61ba8a97c36b14deae8e8dc1480a218156ca8a3a1ee7a"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 41
+  },
+  {
+   "name": "ReceiveP2P",
+   "kind": "FUNCTION_BLOCK",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK ReceiveP2P\nVAR_INPUT\n    hardwareID : UINT;\nEND_VAR\nVAR_OUTPUT\n    newDataReceived : BOOL;\n    length : UINT;\nEND_VAR\nVAR_IN_OUT\n    buffer : ARRAY[*] OF BYTE;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "Siemens point-to-point receive block. It reads from the serial communication module.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "deb1412f68947d3accf61ba8a97c36b14deae8e8dc1480a218156ca8a3a1ee7a"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 3
+  },
+  {
+   "name": "SendP2P",
+   "kind": "FUNCTION_BLOCK",
+   "category": "sink",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK SendP2P\nVAR_INPUT\n    request : BOOL;\n    hardwareID : UINT;\n    length : UINT;\nEND_VAR\nVAR_IN_OUT\n    buffer : ARRAY[*] OF BYTE;\nEND_VAR\nVAR_OUTPUT\n    done : BOOL;\n    busy : BOOL;\n    error : BOOL;\n    status : WORD;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "Point-to-point send instruction. Buffer is an in/out array of any size; callers must pass it inside the call.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "449b32b136805efd1073c0ca647b42a711277d148e323c87b0a302c71e8daeb3"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 3
+  },
+  {
+   "name": "Serialize",
+   "kind": "TYPE",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "minimal",
+   "rounds": 0,
+   "declaration": "TYPE Serialize :\nSTRUCT\n    reserved : BYTE;\nEND_STRUCT\nEND_TYPE\n",
+   "note": "minimal silent stub: every element the call sites show, no statements",
+   "passages": [
+    {
+     "file": "rusty_compatibility/30_Siemens_SIMATIC_AX/库说明书/docs/AXOpen/docs/components.siem.identification/docs/AxoSimaticIdentCyclic.html",
+     "line": 78,
+     "sha256": "7c535ff953ecf0b096aa995aba163193fa6467d9f4897b8b058c8f74ecfdb7fd"
+    },
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/该厂商st规范/spec/TIA_SCL_Instructions_S7_1200_1500_V21.html",
+     "line": 52,
+     "sha256": "8f0db61e42c5c8fd64630dc3b8353a34f4ac373ceee9adb35eea052cd5a1aa42"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "449b32b136805efd1073c0ca647b42a711277d148e323c87b0a302c71e8daeb3"
+    },
+    {
+     "round": 2,
+     "llm_key": "966f41a0f84b9980957752cdc45ea69122a89f0bd59b97ba42bff96a08a07bf8"
+    },
+    {
+     "round": 3,
+     "llm_key": "07ddfed639227ff65be67748cc4912cf5dd9ccc23c2f2d59fb3b216898a7c0ae"
+    },
+    {
+     "round": 4,
+     "llm_key": "e5b20935c2245071d8ed9e79901c1d2aa6a91610778d0b33d1669714d0e58320"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 3
+  },
+  {
+   "name": "SetSystemDateTime",
+   "kind": "FUNCTION",
+   "category": "sink",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION SetSystemDateTime : WORD\nVAR_INPUT\n    value : LDATE_AND_TIME;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Sets the PLC system clock. Result type WORD is a guess.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "449b32b136805efd1073c0ca647b42a711277d148e323c87b0a302c71e8daeb3"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 6
+  },
+  {
+   "name": "Siemens",
+   "kind": "TYPE",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE Siemens : STRUCT\n    dummy : BOOL;\nEND_STRUCT\nEND_TYPE\n",
+   "note": "Used as a namespace root (Siemens.Simatic.DistributedIO.ReadData/WriteData), which a stub cannot represent. Placeholder only; those call sites need rewriting to flattened names.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/30_Siemens_SIMATIC_AX/库说明书/docs/AXOpen/src/components.kuka.robotics/docs/README.md",
+     "line": 2,
+     "sha256": "d630fea0c790aadba07694cdfcf936d6186cd090f625914c368096ebb8b3b11c"
+    },
+    {
+     "file": "rusty_compatibility/30_Siemens_SIMATIC_AX/库说明书/docs/AXOpen/docs/components.abb.robotics/ctrl/README.html",
+     "line": 7,
+     "sha256": "44f55769533613378e21dd4a1ffed1ff071e2844768adb798c075fe697aefa22"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "449b32b136805efd1073c0ca647b42a711277d148e323c87b0a302c71e8daeb3"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 3
+  },
+  {
+   "name": "Status",
+   "kind": "VAR_GLOBAL",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    Status : BOOL;\nEND_VAR\n",
+   "note": "Mostly a class member declared locally (e.g. as AXOpen_Core__eAxoTaskState); the global covers uses with no local declaration.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/30_Siemens_SIMATIC_AX/库说明书/docs/AXOpen/docs/core/docs/AxoComponent.html",
+     "line": 6,
+     "sha256": "52fffaa3fe668f13dc63c0cf5da7e359bb0f0a2d0fa5b7f0b226b4bde84a420a"
+    },
+    {
+     "file": "rusty_compatibility/30_Siemens_SIMATIC_AX/库说明书/docs/AXOpen/docfx/articles/guidelines/components.md",
+     "line": 41,
+     "sha256": "57409e4f4e040b129d389280c33820ac942748a9a251a1a6ad6839f18c6dd8b8"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "449b32b136805efd1073c0ca647b42a711277d148e323c87b0a302c71e8daeb3"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 15
+  },
+  {
+   "name": "Tests_L1_PersistentData__PersistentRootObject",
+   "kind": "TYPE",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE Tests_L1_PersistentData__PersistentRootObject : STRUCT\n    dummy : BOOL;\nEND_STRUCT\nEND_TYPE\n",
+   "note": "Test type; only used as a variable type. Placeholder struct.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "449b32b136805efd1073c0ca647b42a711277d148e323c87b0a302c71e8daeb3"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "Tests_L1_Primitives__InitializedPrimitives",
+   "kind": "TYPE",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE Tests_L1_Primitives__InitializedPrimitives : STRUCT\n    dummy : BOOL;\nEND_STRUCT\nEND_TYPE\n",
+   "note": "Test type; only used as a variable type. Placeholder struct.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "449b32b136805efd1073c0ca647b42a711277d148e323c87b0a302c71e8daeb3"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "TimeAccumulator",
+   "kind": "FUNCTION_BLOCK",
+   "category": "source",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK TimeAccumulator\nVAR_INPUT\n    signal : BOOL;\n    reset : BOOL;\n    duration : TIME;\nEND_VAR\nVAR_OUTPUT\n    output : BOOL;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "Retentive on-delay timer (like TONR); depends on system time, so no body.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "449b32b136805efd1073c0ca647b42a711277d148e323c87b0a302c71e8daeb3"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 3
+  },
+  {
+   "name": "WriteRecord",
+   "kind": "FUNCTION_BLOCK",
+   "category": "sink",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK WriteRecord\nVAR_INPUT\n    request : BOOL;\n    hardwareID : UINT;\n    index : DINT;\n    length : UINT;\nEND_VAR\nVAR_IN_OUT\n    record : ARRAY[*] OF BYTE;\nEND_VAR\nVAR_OUTPUT\n    done : BOOL;\n    busy : BOOL;\n    error : BOOL;\n    status : DWORD;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "Writes a data record to an I/O device (WRREC). Record is an in/out array of any size, so callers must pass it inside the call. Names are case-insensitive, so this also covers hardwareId, DONE and similar.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "449b32b136805efd1073c0ca647b42a711277d148e323c87b0a302c71e8daeb3"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 41
+  },
+  {
+   "name": "_restoreDialog",
+   "kind": "VAR_GLOBAL",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    _restoreDialog : BOOL;\nEND_VAR\n",
+   "note": "Boolean flag, normally a class member.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "449b32b136805efd1073c0ca647b42a711277d148e323c87b0a302c71e8daeb3"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  }
+ ]
+}

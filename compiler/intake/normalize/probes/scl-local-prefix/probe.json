@@ -1,0 +1,1 @@
+{"rule": "scl-local-prefix", "dialect": "siemens-scl", "reject_codes": ["E007"], "expected_output": "9\n"}

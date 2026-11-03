@@ -1,0 +1,60 @@
+diff --git a/src/codegen/generators/expression_generator.rs b/src/codegen/generators/expression_generator.rs
+index 2495c3b2d0d..80580acf401 100644
+--- a/src/codegen/generators/expression_generator.rs
++++ b/src/codegen/generators/expression_generator.rs
+@@ -393,11 +393,15 @@ impl<'ink, 'b> ExpressionCodeGenerator<'ink, 'b> {
+         }
+         if ltype.is_int() && rtype.is_int() {
+             let is_signed = ltype.is_signed_int() || rtype.is_signed_int();
++            // `ADR(x)` is typed as LWORD but generated as a pointer value. In an
++            // integer expression such as `ADR(x) + n` use the address itself.
++            let left_value = self.convert_to_int_value_if_pointer(self.generate_expression(left)?)?;
++            let right_value = self.convert_to_int_value_if_pointer(self.generate_expression(right)?)?;
+ 
+             self.create_llvm_int_binary_expression(
+                 operator,
+-                self.generate_expression(left)?,
+-                self.generate_expression(right)?,
++                left_value.as_basic_value_enum(),
++                right_value.as_basic_value_enum(),
+                 Some(is_signed),
+             )
+         } else if ltype.is_float() && rtype.is_float() {
+diff --git a/tests/lit/single/pointer/adr_integer_arithmetic.st b/tests/lit/single/pointer/adr_integer_arithmetic.st
+new file mode 100644
+index 00000000000..06ccafdb4d5
+--- /dev/null
++++ b/tests/lit/single/pointer/adr_integer_arithmetic.st
+@@ -0,0 +1,32 @@
++// RUN: (%COMPILE %s && %RUN) | %CHECK %s
++// `ADR(x)` yields an LWORD address. Integer arithmetic on it, assigned directly
++// to a pointer or compared, must compile and count bytes (it used to panic in
++// codegen: "expected the IntValue variant").
++
++FUNCTION main : DINT
++VAR
++    arr : ARRAY[0..2] OF DINT := [10, 20, 30];
++    text : STRING[10] := 'abc';
++    p : POINTER TO DINT;
++    c : POINTER TO BYTE;
++    a : LWORD;
++END_VAR
++    p := ADR(arr) + 4;
++    // CHECK: 20
++    printf('%d$N', p^);
++    p := ADR(arr[2]) - 8;
++    // CHECK: 10
++    printf('%d$N', p^);
++    c := ADR(text) + 1;
++    // CHECK: 98
++    printf('%d$N', c^);
++    a := ADR(arr) + SIZEOF(arr[0]) * 2;
++    p := a;
++    // CHECK: 30
++    printf('%d$N', p^);
++    IF ADR(arr) + 4 = ADR(arr[1]) THEN
++        // CHECK: equal
++        printf('equal$N');
++    END_IF
++    main := 0;
++END_FUNCTION

@@ -1,0 +1,12 @@
+FUNCTION INC : INT
+VAR_INPUT
+    X : INT;
+END_VAR
+(* BEGIN *)
+INC := X + 1;
+END_FUNCTION
+
+FUNCTION main : DINT
+printf('%d$N', INC(10));
+main := 0;
+END_FUNCTION

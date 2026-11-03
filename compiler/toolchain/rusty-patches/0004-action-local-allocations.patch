@@ -1,0 +1,55 @@
+diff --git a/src/codegen/generators/statement_generator.rs b/src/codegen/generators/statement_generator.rs
+index 0b16198854e..2d4f1be2e9b 100644
+--- a/src/codegen/generators/statement_generator.rs
++++ b/src/codegen/generators/statement_generator.rs
+@@ -264,8 +264,11 @@ impl<'a, 'b> StatementCodeGenerator<'a, 'b> {
+                     None,
+                     &self.create_expr_generator(&llvm_index),
+                 )?;
++                // The resolver qualifies an allocation with the implementation's
++                // name; for an action (`P.A`) that is its call name, not the
++                // type name of the program it belongs to.
+                 llvm_index.associate_loaded_local_variable(
+-                    self.function_context.linking_context.get_type_name(),
++                    self.function_context.linking_context.get_call_name(),
+                     name,
+                     value,
+                 )?;
+diff --git a/tests/lit/single/actions/loops_in_action.st b/tests/lit/single/actions/loops_in_action.st
+new file mode 100644
+index 00000000000..f6f614d0b4e
+--- /dev/null
++++ b/tests/lit/single/actions/loops_in_action.st
+@@ -0,0 +1,32 @@
++// RUN: (%COMPILE %s && %RUN) | %CHECK %s
++// FOR and REPEAT loops inside an action use compiler-generated temporaries
++// (is_incrementing_N, ran_once_N); they belong to the action's function.
++
++PROGRAM P
++VAR
++    i, step, sum, n : DINT;
++END_VAR
++END_PROGRAM
++
++ACTION P.Count
++    sum := 0;
++    FOR i := 1 TO 4 DO
++        sum := sum + i;
++    END_FOR
++    step := 2;
++    FOR i := 10 TO 0 BY -step DO
++        sum := sum + 1;
++    END_FOR
++    n := 0;
++    REPEAT
++        n := n + 1;
++    UNTIL n >= 3
++    END_REPEAT
++END_ACTION
++
++FUNCTION main : DINT
++    P.Count();
++    // CHECK: 16 3
++    printf('%d %d$N', P.sum, P.n);
++    main := 0;
++END_FUNCTION

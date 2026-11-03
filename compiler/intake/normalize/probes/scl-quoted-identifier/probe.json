@@ -1,0 +1,1 @@
+{"rule": "scl-quoted-identifier", "dialect": "siemens-scl", "reject_codes": ["E007"], "expected_output": "15\n"}

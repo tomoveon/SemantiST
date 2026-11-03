@@ -1,0 +1,1304 @@
+{
+ "schema_version": "semantist.environment-stubs/1.0.0",
+ "family": "siemens-scl",
+ "stubs": [
+  {
+   "name": "ACTTR_ALM",
+   "kind": "TYPE",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE ACTTR_ALM :\nSTRUCT\n    ALM : BOOL;\n    ALMPWR1 : BOOL;\n    ALMBELL : BOOL;\nEND_STRUCT\nEND_TYPE\n",
+   "note": "User data type of the project. Only the members the call sites use are declared, all as BOOL.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "8e62e6c1117d934c02497ad7b4550043cbfa9ab52c7a4441480a81644b98dbc6"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "ACTTR_CMD",
+   "kind": "TYPE",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "inferred",
+   "rounds": 0,
+   "declaration": "TYPE ACTTR_CMD :\nSTRUCT\n    ALMACK : BOOL;\n    ALMRESET : BOOL;\n    BLCK : BOOL;\n    BUFLOAD : BOOL;\n    CLS : BOOL;\n    DBLCK : BOOL;\n    DBLCKACTTOGGLE : BOOL;\n    DWN : BOOL;\n    OPN : BOOL;\n    PROTECT : BOOL;\n    P_RESOLUTION : BOOL;\n    RESOLUTION : BOOL;\n    REVERS : BOOL;\n    START : BOOL;\n    STOP : BOOL;\n    STOPTUN : BOOL;\n    TOGGLE : BOOL;\n    TUNING : BOOL;\n    UP : BOOL;\nEND_STRUCT\nEND_TYPE\n",
+   "note": "inferred from the call sites",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "8e62e6c1117d934c02497ad7b4550043cbfa9ab52c7a4441480a81644b98dbc6"
+    },
+    {
+     "round": 2,
+     "llm_key": "2d06d9baec2c20701d842b5c75992ccca209b25b942e579b4a8c067414d5000d"
+    },
+    {
+     "round": 3,
+     "llm_key": "94a54cd154852f3d1f2931ff3c691ff0c8cb600c41e349c01a7343d0acba5010"
+    },
+    {
+     "round": 4,
+     "llm_key": "d6f3e6cb89410889e776e60c0389dace4ada0b14199bdb86dcca942f7ac32319"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "AD_DT_TM",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION AD_DT_TM : DT\nVAR_INPUT\n    T : DT;\n    D : TIME;\nEND_VAR\nAD_DT_TM := T + D;\nEND_FUNCTION\n",
+   "note": "IEC function FC1 from the Siemens library: adds a duration to a DATE_AND_TIME.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "8e62e6c1117d934c02497ad7b4550043cbfa9ab52c7a4441480a81644b98dbc6"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 16
+  },
+  {
+   "name": "AG_RECV",
+   "kind": "FUNCTION",
+   "category": "source",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION AG_RECV : BOOL\nVAR_INPUT\n    ID : INT;\n    LADDR : WORD;\n    RECV : BYTE;\n    NDR : BOOL;\n    ERROR : BOOL;\n    STATUS : WORD;\n    LEN : INT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "CP receive FC. In the vendor block NDR, ERROR, STATUS and LEN are outputs, but the call passes all of them with :=, so they are declared as inputs here.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "8e62e6c1117d934c02497ad7b4550043cbfa9ab52c7a4441480a81644b98dbc6"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "AG_SEND",
+   "kind": "FUNCTION",
+   "category": "sink",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION AG_SEND : BOOL\nVAR_INPUT\n    ACT : BOOL;\n    ID : INT;\n    LADDR : WORD;\n    SEND : BYTE;\n    LEN : INT;\n    DONE : BOOL;\n    ERROR : BOOL;\n    STATUS : WORD;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "CP send FC. In the vendor block DONE, ERROR and STATUS are outputs, but the call passes them with :=, so they are declared as inputs here.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "8e62e6c1117d934c02497ad7b4550043cbfa9ab52c7a4441480a81644b98dbc6"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "CH_CFG",
+   "kind": "TYPE",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE CH_CFG :\nSTRUCT\n    ID : UINT;\n    VARID : UINT;\n    STA : WORD;\n    VAL : INT;\nEND_STRUCT\nEND_TYPE\n",
+   "note": "Project channel-configuration UDT. Member types are guesses.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "8e62e6c1117d934c02497ad7b4550043cbfa9ab52c7a4441480a81644b98dbc6"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DataLogClose",
+   "kind": "FUNCTION_BLOCK",
+   "category": "sink",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK DataLogClose\nVAR_INPUT\n    REQ : BOOL;\n    ID : DWORD;\nEND_VAR\nVAR_OUTPUT\n    DONE : BOOL;\n    BUSY : BOOL;\n    ERROR : BOOL;\n    STATUS : WORD;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "S7-1200 data log close. ID, an in-out in the vendor block, is declared as an input.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/LogMsg/README_DE.md",
+     "line": 226,
+     "sha256": "b0f0bb3ac9ea0a7131c24d3299b1b423284054d52ecf67094593cdf2b00b4277"
+    },
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/LogMsg/README_EN.md",
+     "line": 227,
+     "sha256": "3b73c668120a9e43041587cafc1d98e4e647c673ae6b6052eeed93e7c02cda85"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "8e62e6c1117d934c02497ad7b4550043cbfa9ab52c7a4441480a81644b98dbc6"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DataLogCreate",
+   "kind": "FUNCTION_BLOCK",
+   "category": "sink",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK DataLogCreate\nVAR_INPUT\n    REQ : BOOL;\n    RECORDS : UDINT;\n    FORMAT : UINT;\n    TIMESTAMP : UINT;\n    NAME : STRING[255];\n    ID : DWORD;\n    HEADER : STRING[255];\n    DATA : BYTE;\nEND_VAR\nVAR_OUTPUT\n    DONE : BOOL;\n    BUSY : BOOL;\n    ERROR : BOOL;\n    STATUS : WORD;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "In the vendor block NAME, HEADER and DATA are VARIANT. DATA is a guess and may need the project's record struct type.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/LogMsg/README_DE.md",
+     "line": 225,
+     "sha256": "36f44c0635e2b39f871c88dc7e3265090a36d726ed0438ab3fa4dd52ede7bc04"
+    },
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/LogMsg/README_EN.md",
+     "line": 226,
+     "sha256": "1d1c7dcc3d9cbc81103afe1e65fac8849f5f79a763fdbdc716e3d89eabdf7bdd"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "8e62e6c1117d934c02497ad7b4550043cbfa9ab52c7a4441480a81644b98dbc6"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DataLogDelete",
+   "kind": "FUNCTION_BLOCK",
+   "category": "sink",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK DataLogDelete\nVAR_INPUT\n    REQ : BOOL;\n    NAME : STRING[255];\n    ID : DWORD;\n    DelFile : BOOL;\nEND_VAR\nVAR_OUTPUT\n    DONE : BOOL;\n    BUSY : BOOL;\n    ERROR : BOOL;\n    STATUS : WORD;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "Deletes a data log.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/LogMsg/README_DE.md",
+     "line": 230,
+     "sha256": "b45911f302a57a5ca7318d0c2b5ebb98cf06bd2cdc7636703980f932a3f679cc"
+    },
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/LogMsg/README_EN.md",
+     "line": 231,
+     "sha256": "b45911f302a57a5ca7318d0c2b5ebb98cf06bd2cdc7636703980f932a3f679cc"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "8e62e6c1117d934c02497ad7b4550043cbfa9ab52c7a4441480a81644b98dbc6"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DataLogNewFile",
+   "kind": "FUNCTION_BLOCK",
+   "category": "sink",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK DataLogNewFile\nVAR_INPUT\n    REQ : BOOL;\n    RECORDS : UDINT;\n    NAME : STRING[255];\n    ID : DWORD;\n    Data : BYTE;\nEND_VAR\nVAR_OUTPUT\n    DONE : BOOL;\n    BUSY : BOOL;\n    ERROR : BOOL;\n    STATUS : WORD;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "Creates a new data log file. The type of Data is a guess.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/LogMsg/README_DE.md",
+     "line": 229,
+     "sha256": "c8fb997fd2a9c701100ec85a33d4288dd4f7d0ee69dc47890abcf71f0ee21c56"
+    },
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/LogMsg/README_EN.md",
+     "line": 230,
+     "sha256": "c433faf361bfd4bdb00490052f79cb81d0c13a3127acf038d607c1a16b79018a"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "8e62e6c1117d934c02497ad7b4550043cbfa9ab52c7a4441480a81644b98dbc6"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DataLogOpen",
+   "kind": "FUNCTION_BLOCK",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK DataLogOpen\nVAR_INPUT\n    REQ : BOOL;\n    MODE : UINT;\n    NAME : STRING[255];\n    ID : DWORD;\n    Data : BYTE;\nEND_VAR\nVAR_OUTPUT\n    DONE : BOOL;\n    BUSY : BOOL;\n    ERROR : BOOL;\n    STATUS : WORD;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "Opens an existing data log. The type of Data is a guess.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/LogMsg/README_DE.md",
+     "line": 228,
+     "sha256": "ced91ba3e383a0985e18638c3b05030c3b6b50d69cfc27245dd9b4a47e376f6d"
+    },
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/LogMsg/README_EN.md",
+     "line": 229,
+     "sha256": "e0bcae7cef64d7cdeab1eda5be04271038728676bb0b60a2f7a146f8da15569a"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "8e62e6c1117d934c02497ad7b4550043cbfa9ab52c7a4441480a81644b98dbc6"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DataLogWrite",
+   "kind": "FUNCTION_BLOCK",
+   "category": "sink",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK DataLogWrite\nVAR_INPUT\n    REQ : BOOL;\n    ID : DWORD;\nEND_VAR\nVAR_OUTPUT\n    DONE : BOOL;\n    BUSY : BOOL;\n    ERROR : BOOL;\n    STATUS : WORD;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "Writes a record to a data log.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/LogMsg/README_DE.md",
+     "line": 227,
+     "sha256": "d564d76065bb3b950fd0e25c962d48574fee36d1c34cdf0215d0fb42239b67ee"
+    },
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/LogMsg/README_EN.md",
+     "line": 228,
+     "sha256": "11766e0b71b27a6550db3d910ff5a9f5326c6bd8800fd8d361459e83c0cf1c62"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "8e62e6c1117d934c02497ad7b4550043cbfa9ab52c7a4441480a81644b98dbc6"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DI_STRNG",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DI_STRNG : STRING[254]\nVAR_INPUT\n    I : DINT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "IEC function FC5 from the Siemens library: turns a DINT into a decimal string. No body.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "8e62e6c1117d934c02497ad7b4550043cbfa9ab52c7a4441480a81644b98dbc6"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 8
+  },
+  {
+   "name": "DLclose",
+   "kind": "TYPE",
+   "category": "unknown",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE DLclose :\nSTRUCT\n    execute : BOOL;\n    done : BOOL;\n    busy : BOOL;\n    error : BOOL;\n    status : WORD;\n    memStatusMsg : STRING[200];\n    memStatus : WORD;\nEND_STRUCT\nEND_TYPE\n",
+   "note": "In the source this is a member name inside an anonymous struct. The layout copies the documented DLcreate struct.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/LogMsg/README_DE.md",
+     "line": 46,
+     "sha256": "838841d50ccb61318f1f6a144b63445b05a71eaf3b7b448ee378a53b3e9cd601"
+    },
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/LogMsg/README_EN.md",
+     "line": 46,
+     "sha256": "2e187d35d25d1c9dc7b3416005c0e8ce5fb07377c56ff72b81c774358854b118"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "8e62e6c1117d934c02497ad7b4550043cbfa9ab52c7a4441480a81644b98dbc6"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DLcreate",
+   "kind": "TYPE",
+   "category": "unknown",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE DLcreate :\nSTRUCT\n    execute : BOOL;\n    done : BOOL;\n    busy : BOOL;\n    error : BOOL;\n    status : WORD;\n    memStatusMsg : STRING[200];\n    memStatus : WORD;\n    dlogCreated : BOOL;\nEND_STRUCT\nEND_TYPE\n",
+   "note": "Fields taken from the LogMsg README. In the source this is a member name inside an anonymous struct.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/LogMsg/README_DE.md",
+     "line": 36,
+     "sha256": "97f46b8ef52304dd0a922fafd63a9fc9880340a3f7b4242684d5be82828e2e32"
+    },
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/LogMsg/README_EN.md",
+     "line": 36,
+     "sha256": "68daad8e5d07e6456f1498aab187442f9da2ea10d048eadfe8965a3bfaf01fbf"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "8e62e6c1117d934c02497ad7b4550043cbfa9ab52c7a4441480a81644b98dbc6"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DLdelete",
+   "kind": "TYPE",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE DLdelete :\nSTRUCT\n    execute : BOOL;\n    done : BOOL;\n    busy : BOOL;\n    error : BOOL;\n    status : WORD;\n    memStatusMsg : STRING[200];\n    memStatus : WORD;\nEND_STRUCT;\nEND_TYPE\n",
+   "note": "README only says it is one of the structures that sit next to DLcreate. The fields are modelled on DLcreate, without dlogCreated.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/LogMsg/README_DE.md",
+     "line": 46,
+     "sha256": "838841d50ccb61318f1f6a144b63445b05a71eaf3b7b448ee378a53b3e9cd601"
+    },
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/LogMsg/README_EN.md",
+     "line": 46,
+     "sha256": "2e187d35d25d1c9dc7b3416005c0e8ce5fb07377c56ff72b81c774358854b118"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "3630d6db3e7957cc7eb3a586023300bf0e12348d74a36d3e9dca11adb207a5a0"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DLnewfile",
+   "kind": "TYPE",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE DLnewfile :\nSTRUCT\n    execute : BOOL;\n    done : BOOL;\n    busy : BOOL;\n    error : BOOL;\n    status : WORD;\n    memStatusMsg : STRING[200];\n    memStatus : WORD;\nEND_STRUCT;\nEND_TYPE\n",
+   "note": "Fields modelled on the documented DLcreate structure.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/LogMsg/README_DE.md",
+     "line": 46,
+     "sha256": "838841d50ccb61318f1f6a144b63445b05a71eaf3b7b448ee378a53b3e9cd601"
+    },
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/LogMsg/README_EN.md",
+     "line": 46,
+     "sha256": "2e187d35d25d1c9dc7b3416005c0e8ce5fb07377c56ff72b81c774358854b118"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "3630d6db3e7957cc7eb3a586023300bf0e12348d74a36d3e9dca11adb207a5a0"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DTL",
+   "kind": "TYPE",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE DTL :\nSTRUCT\n    YEAR : UINT;\n    MONTH : USINT;\n    DAY : USINT;\n    WEEKDAY : USINT;\n    HOUR : USINT;\n    MINUTE : USINT;\n    SECOND : USINT;\n    NANOSECOND : UDINT;\nEND_STRUCT;\nEND_TYPE\n",
+   "note": "Siemens DTL system data type (12 bytes).",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/该厂商st规范/spec/TIA_SCL_Instructions_S7_1200_1500_V21.html",
+     "line": 1992,
+     "sha256": "5477b534417b05d1edd7b50c135347ffd9d8256a7aa2a6de957fcf24e367a8ee"
+    },
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/该厂商st规范/spec/TIA_Creating_SCL_V21.html",
+     "line": 209,
+     "sha256": "42ecab19cd05e854a6dcd691930c5ab593c8e4c2105aebea38fbc50ea368a99e"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "3630d6db3e7957cc7eb3a586023300bf0e12348d74a36d3e9dca11adb207a5a0"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 3
+  },
+  {
+   "name": "DTL_TO_TOD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DTL_TO_TOD : TOD\nVAR_INPUT\n    IN : DTL;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Takes the time of day out of a DTL. The body is left empty, so it returns TOD#0.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/TaktGenerator/README_DE.md",
+     "line": 44,
+     "sha256": "704c69dc5eb643a9f9e22bcb4e7f2b86e89705f90836d8a593f9f409f51d6299"
+    },
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/TaktGenerator/README_EN.md",
+     "line": 44,
+     "sha256": "6e43deb00b6a36e508b6dfd04d82a984f9df5859105c4739bcce3c114a8a5243"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "3630d6db3e7957cc7eb3a586023300bf0e12348d74a36d3e9dca11adb207a5a0"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "DT_DATE",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DT_DATE : DATE\nVAR_INPUT\n    IN : DT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Siemens IEC function (FC6) that takes the date out of a DT. The body is left empty so it does not depend on standard-library conversions.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "3630d6db3e7957cc7eb3a586023300bf0e12348d74a36d3e9dca11adb207a5a0"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 18
+  },
+  {
+   "name": "DT_DAY",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DT_DAY : INT\nVAR_INPUT\n    IN : DT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Siemens IEC function (FC7) that returns the weekday (1=Sunday to 7) of a DT. The body is left empty.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "3630d6db3e7957cc7eb3a586023300bf0e12348d74a36d3e9dca11adb207a5a0"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DT_TOD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DT_TOD : TOD\nVAR_INPUT\n    IN : DT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Siemens IEC function (FC8) that takes the time of day out of a DT. The body is left empty.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "3630d6db3e7957cc7eb3a586023300bf0e12348d74a36d3e9dca11adb207a5a0"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 18
+  },
+  {
+   "name": "D_TOD_DT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION D_TOD_DT : DT\nVAR_INPUT\n    IN1 : DATE;\n    IN2 : TOD;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Siemens IEC function (FC3) that combines a DATE and a TOD into a DT. The body is left empty.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "3630d6db3e7957cc7eb3a586023300bf0e12348d74a36d3e9dca11adb207a5a0"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 18
+  },
+  {
+   "name": "INT_TO_BCD16",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION INT_TO_BCD16 : WORD\nVAR_INPUT\n    IN : INT;\nEND_VAR\nVAR\n    v : DINT;\nEND_VAR\n    v := INT_TO_DINT(IN);\n    IF v < 0 THEN v := -v; END_IF;\n    INT_TO_BCD16 := DINT_TO_WORD((v MOD 10) + ((v / 10) MOD 10) * 16 + ((v / 100) MOD 10) * 256 + ((v / 1000) MOD 10) * 4096);\nEND_FUNCTION\n",
+   "note": "Encodes the value as 4-digit BCD. The result is used with SHL/OR and assigned to WORD elements.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "3630d6db3e7957cc7eb3a586023300bf0e12348d74a36d3e9dca11adb207a5a0"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "INT_TO_STRING",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION INT_TO_STRING : STRING[10]\nVAR_INPUT\n    IN : INT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Converts an INT to decimal text. The body is left empty, so it returns an empty string.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/PACFramework_5ff28393539b/proc/oldprj/polyv_codesys/CTRLRECIPE_FUN.MD",
+     "line": 122,
+     "sha256": "215a30c0563e77e7db4d9a11404d48ea2ba6a328ad27c6acd132b868d9ef16b7"
+    },
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/PACFramework_5ff28393539b/proc/oldprj/prod_unitypro/PU_VARKA.md",
+     "line": 146,
+     "sha256": "a79c5d16db0b86b6e9e8be6655b76b9aa6d8f51de3a9f3496c82d01e4da03099"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "3630d6db3e7957cc7eb3a586023300bf0e12348d74a36d3e9dca11adb207a5a0"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 3
+  },
+  {
+   "name": "I_STRNG",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION I_STRNG : STRING[254]\nVAR_INPUT\n    I : INT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Siemens IEC function (FC16) that turns an INT into a STRING. The body is left empty.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "3630d6db3e7957cc7eb3a586023300bf0e12348d74a36d3e9dca11adb207a5a0"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 10
+  },
+  {
+   "name": "MaxLoggingTags",
+   "kind": "VAR_GLOBAL",
+   "category": "constant",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 2,
+   "declaration": "VAR_GLOBAL CONSTANT\n    MaxLoggingTags : INT := 8;\nEND_VAR\n",
+   "note": "Also added as a member of LogMsg_Parameter_T (the Parameter stub), because the code reads it as DB_LogMsg.Parameter.MaxLoggingTags.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/LogMsg/README_DE.md",
+     "line": 128,
+     "sha256": "32fa2163fdc98ab151834556dc1bffe9af578353014c7647904d2216fcd574e2"
+    },
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/LogMsg/README_EN.md",
+     "line": 128,
+     "sha256": "0fc811715244841f3562e83b5fe162551207cc27a62bb46e0b108c35c534003a"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "3630d6db3e7957cc7eb3a586023300bf0e12348d74a36d3e9dca11adb207a5a0"
+    },
+    {
+     "round": 2,
+     "llm_key": "2d06d9baec2c20701d842b5c75992ccca209b25b942e579b4a8c067414d5000d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "maxPosEntry",
+   "kind": "VAR_GLOBAL",
+   "category": "constant",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 2,
+   "declaration": "VAR_GLOBAL CONSTANT\n    maxPosEntry : UINT := 8;\nEND_VAR\n",
+   "note": "Also added as a member of LogMsg_Parameter_T (the Parameter stub), because the code reads it as DB_LogMsg.Parameter.maxPosEntry.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/LogMsg/README_DE.md",
+     "line": 91,
+     "sha256": "6eab51a31575b51aab2dc501fd8dfa3a64fb248644044caa892a321ba7c6e828"
+    },
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/LogMsg/README_EN.md",
+     "line": 91,
+     "sha256": "bc95ba785e505de7fd4606adc06657cdc30ab07b6d140d042d76240b9df72f97"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "3630d6db3e7957cc7eb3a586023300bf0e12348d74a36d3e9dca11adb207a5a0"
+    },
+    {
+     "round": 2,
+     "llm_key": "2d06d9baec2c20701d842b5c75992ccca209b25b942e579b4a8c067414d5000d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "Meld",
+   "kind": "TYPE",
+   "category": "constant",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 2,
+   "declaration": "TYPE Meld :\nSTRUCT\n    index : INT;\n    indexMax : INT;\nEND_STRUCT\nEND_TYPE\n",
+   "note": "index and indexMax are compared at the call site.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "3630d6db3e7957cc7eb3a586023300bf0e12348d74a36d3e9dca11adb207a5a0"
+    },
+    {
+     "round": 2,
+     "llm_key": "2d06d9baec2c20701d842b5c75992ccca209b25b942e579b4a8c067414d5000d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "Parameter",
+   "kind": "VAR_GLOBAL",
+   "category": "constant",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 2,
+   "declaration": "TYPE LogMsg_LoggingTag_T :\nSTRUCT\n    On : BOOL;\n    Tag : STRING[50];\nEND_STRUCT\nEND_TYPE\n\nTYPE LogMsg_Parameter_T :\nSTRUCT\n    LoggingTag : ARRAY[0..7] OF LogMsg_LoggingTag_T;\n    MaxLoggingTags : INT := 8;\n    maxPosEntry : UINT := 8;\n    BufferSize : INT := 100;\n    NextID : DINT;\n    newRECORDS : UDINT;\n    NeNamePrefix : STRING[50];\nEND_STRUCT\nEND_TYPE\n\nVAR_GLOBAL\n    Parameter : LogMsg_Parameter_T;\nEND_VAR\n",
+   "note": "Added the MaxLoggingTags and maxPosEntry members from the LogMsg README.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/该厂商st规范/spec/TIA_SCL_Instructions_S7_1200_1500_V21.html",
+     "line": 284,
+     "sha256": "3ef5c99f07fb5f9ca24250b05295808e47ae522e7c02fd7c9cd69ccbabf062e7"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/该厂商st规范/spec/TIA_SCL_S7_300_400_V21.html",
+     "line": 109,
+     "sha256": "28092f10f5e7aee666500bd9193b5753bda495389e3e8b71fb36fa5c3a6f1c2e"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "3630d6db3e7957cc7eb3a586023300bf0e12348d74a36d3e9dca11adb207a5a0"
+    },
+    {
+     "round": 2,
+     "llm_key": "2d06d9baec2c20701d842b5c75992ccca209b25b942e579b4a8c067414d5000d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "PIW",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    PIW : ARRAY[0..65535] OF WORD;\nEND_VAR\n",
+   "note": "Peripheral input word area, indexed by byte address.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/02_CODESYS23/库说明书/01_OSCAT Basic 文档.html.txt",
+     "line": 64,
+     "sha256": "62ed55618c8e8ddbc8c689085f0870d91a98943dc9fc768a46d400f064cf8907"
+    },
+    {
+     "file": "rusty_compatibility/04_TwinCAT2/库说明书/01_OSCAT Basic 文档及历史手册入口.html.txt",
+     "line": 64,
+     "sha256": "62ed55618c8e8ddbc8c689085f0870d91a98943dc9fc768a46d400f064cf8907"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "3630d6db3e7957cc7eb3a586023300bf0e12348d74a36d3e9dca11adb207a5a0"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "PQW",
+   "kind": "VAR_GLOBAL",
+   "category": "sink",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    PQW : ARRAY[0..65535] OF WORD;\nEND_VAR\n",
+   "note": "Peripheral output word area, indexed by byte address.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "3630d6db3e7957cc7eb3a586023300bf0e12348d74a36d3e9dca11adb207a5a0"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "Program_Alarm",
+   "kind": "FUNCTION_BLOCK",
+   "category": "sink",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK Program_Alarm\nVAR_INPUT\n    SIG : BOOL;\n    TIMESTAMP : LDT;\n    SD_1 : UINT;\n    SD_2 : UINT;\nEND_VAR\nVAR_OUTPUT\n    Error : BOOL;\n    Status : WORD;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "Siemens program alarm. SD_x are VARIANT in Siemens, but here they are typed UINT to match the calls.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/rezeptExportUndImport/README_DE.md",
+     "line": 31,
+     "sha256": "16bbf5a72336d1209eab48a210fc34e0016098aef382c132600b160fa10632f5"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "3630d6db3e7957cc7eb3a586023300bf0e12348d74a36d3e9dca11adb207a5a0"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "RD_LOC_T",
+   "kind": "FUNCTION",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION RD_LOC_T : INT\nVAR_IN_OUT\n    OUT : DTL;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Reads the local time. OUT is an output in Siemens but is declared IN_OUT here because the calls pass it by position.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/Timer/README_DE.md",
+     "line": 185,
+     "sha256": "44b843230e9629b15ed606fc5e86e0f02ccad653c3c592ad2552ed62deda60a0"
+    },
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/Timer/README_EN.md",
+     "line": 184,
+     "sha256": "c4b922ae62572c319b0c6f13413614fdfe3eeeba1164a4680ff76ae2a761ba15"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "3630d6db3e7957cc7eb3a586023300bf0e12348d74a36d3e9dca11adb207a5a0"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "RD_SINFO",
+   "kind": "FUNCTION",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE RD_SINFO_SI_T :\nSTRUCT\n    EV_CLASS : BYTE;\n    EV_NUM : BYTE;\n    PRIORITY : BYTE;\n    NUM : BYTE;\n    TYP2_3 : BYTE;\n    TYP1 : BYTE;\n    ZI1 : WORD;\n    ZI2_3 : DWORD;\nEND_STRUCT;\nEND_TYPE\n\nFUNCTION RD_SINFO : INT\nVAR_OUTPUT\n    TOP_SI : RD_SINFO_SI_T;\n    START_UP_SI : RD_SINFO_SI_T;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "SFC6, which reads the start information of the current OB and the last startup OB. The helper struct type is needed for the outputs.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "3630d6db3e7957cc7eb3a586023300bf0e12348d74a36d3e9dca11adb207a5a0"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 17
+  },
+  {
+   "name": "RD_SYS_T",
+   "kind": "FUNCTION",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION RD_SYS_T : INT\nVAR_OUTPUT\n    OUT : DTL;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Siemens instruction that reads the CPU system time (UTC) into the OUT output (DTL) and returns an error code. Called with one positional argument, which maps to OUT. In this stub, OUT and the return value stay zero.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/TaktGenerator/README_DE.md",
+     "line": 43,
+     "sha256": "7a7ad19077d19687992661296b62e8457a15c39a258bb6252f692fd258cbaa14"
+    },
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/TaktGenerator/README_EN.md",
+     "line": 43,
+     "sha256": "c1cc2fd63e4e309ce7e4a2a8bf1e31674515e637fdb28ff72f508994836a2de8"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "51c216e62d7129cdd8b64f586fa750e58619770b3a0ffe01c81b9a034eada7f1"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "READ_CLK",
+   "kind": "FUNCTION",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION READ_CLK : INT\nVAR_IN_OUT\n    CDT : DT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "SFC1 reads the CPU clock into CDT. In Siemens CDT is an output. Here it is VAR_IN_OUT because the call site passes it with ':='. In this stub, CDT is left unchanged and the return value is 0.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "51c216e62d7129cdd8b64f586fa750e58619770b3a0ffe01c81b9a034eada7f1"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "READ_DBL",
+   "kind": "FUNCTION",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION READ_DBL : INT\nVAR_INPUT\n    REQ : BOOL;\n    SRCBLK : Variant;\nEND_VAR\nVAR_OUTPUT\n    BUSY : BOOL;\n    DSTBLK : Variant;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Siemens instruction that copies a data block in load memory (SRCBLK) to a block in work memory (DSTBLK), asynchronously. In this stub, RET_VAL, BUSY and DSTBLK stay zero.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/该厂商st规范/spec/TIA_SCL_Instructions_S7_1200_1500_V21.html",
+     "line": 4369,
+     "sha256": "53f2e2c3282ba6f8fa4dd4a2a80299c5696929d98649f20c4c2ca37a7a9db3ca"
+    },
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/BackupAndRestore/README_DE.md",
+     "line": 60,
+     "sha256": "ab4e20db8603bacda9ecc1d74bddd76ac10ef89aa3856719e7f40decbd49e384"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "51c216e62d7129cdd8b64f586fa750e58619770b3a0ffe01c81b9a034eada7f1"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "RecipeExport",
+   "kind": "FUNCTION_BLOCK",
+   "category": "sink",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK RecipeExport\nVAR_INPUT\n    REQ : BOOL;\n    RECIPE_DB : Variant;\nEND_VAR\nVAR_OUTPUT\n    DONE : BOOL;\n    BUSY : BOOL;\n    ERROR : BOOL;\n    STATUS : WORD;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "Siemens instruction that exports a recipe data block to a CSV file on the memory card. In Siemens RECIPE_DB is InOut. Here it is an input because the library writes it as a member. The outputs stay zero.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/rezeptExportUndImport/README_DE.md",
+     "line": 42,
+     "sha256": "671d62b4d99147c2cd8806fd40b7baaedfc2d61e9807ffa1c7cf399f119cffbe"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "51c216e62d7129cdd8b64f586fa750e58619770b3a0ffe01c81b9a034eada7f1"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "RecipeImport",
+   "kind": "FUNCTION_BLOCK",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK RecipeImport\nVAR_INPUT\n    REQ : BOOL;\n    RECIPE_DB : Variant;\nEND_VAR\nVAR_OUTPUT\n    DONE : BOOL;\n    BUSY : BOOL;\n    ERROR : BOOL;\n    STATUS : WORD;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "Siemens instruction that imports a recipe CSV file from the memory card into a recipe data block. RECIPE_DB is declared as an input because the library writes it as a member. The outputs stay zero.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/rezeptExportUndImport/README_DE.md",
+     "line": 43,
+     "sha256": "da0a5ddbbe0adafcb9645d2c6e6edab9f5a854709c15654b20024cbe6aa9bc24"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "51c216e62d7129cdd8b64f586fa750e58619770b3a0ffe01c81b9a034eada7f1"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "SB_DT_TM",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION SB_DT_TM : DT\nVAR_INPUT\n    T : DT;\n    D : TIME;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "STEP 7 IEC function FC35 subtracts the duration D from the date-and-time T. The body is left empty because DT minus TIME arithmetic may not compile in RuSTy, so the result is DT#1970-01-01-00:00:00.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "51c216e62d7129cdd8b64f586fa750e58619770b3a0ffe01c81b9a034eada7f1"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 16
+  },
+  {
+   "name": "STRING_TO_INT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION STRING_TO_INT : INT\nVAR_INPUT\n    IN : STRING[255];\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Converts a numeric string to INT. The body is left empty because the parsing details (spaces, sign, overflow) are not documented, so the result is 0.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_string_to.html.txt",
+     "line": 84,
+     "sha256": "b77ac2025ee7448b3e50dee5527bf3f204e2a1280a770c5b0e18e1598155b624"
+    },
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 719,
+     "sha256": "e9d6e02301c9f4fb2f6cfec6648e529f236c8366e645d26988b0f927d5b01a79"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "51c216e62d7129cdd8b64f586fa750e58619770b3a0ffe01c81b9a034eada7f1"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 11
+  },
+  {
+   "name": "STRNG_I",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION STRNG_I : INT\nVAR_INPUT\n    S : STRING[254];\nEND_VAR\nEND_FUNCTION\n",
+   "note": "STEP 7 IEC function FC38 converts a string to INT. The body is left empty, so the result is 0.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "51c216e62d7129cdd8b64f586fa750e58619770b3a0ffe01c81b9a034eada7f1"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 10
+  },
+  {
+   "name": "TIME_TCK",
+   "kind": "FUNCTION",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TIME_TCK : TIME\nEND_FUNCTION\n",
+   "note": "SFC64 reads the CPU system time tick in ms. It takes no parameters. In this stub the result is T#0s.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "51c216e62d7129cdd8b64f586fa750e58619770b3a0ffe01c81b9a034eada7f1"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 18
+  },
+  {
+   "name": "TOD_TO_TIME",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TOD_TO_TIME : TIME\nVAR_INPUT\n    IN : TOD;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Converts a time of day into a TIME duration since midnight. The body is left empty to avoid date-type arithmetic problems, so the result is T#0s.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/TaktGenerator/README_DE.md",
+     "line": 44,
+     "sha256": "704c69dc5eb643a9f9e22bcb4e7f2b86e89705f90836d8a593f9f409f51d6299"
+    },
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/TaktGenerator/README_EN.md",
+     "line": 44,
+     "sha256": "6e43deb00b6a36e508b6dfd04d82a984f9df5859105c4739bcce3c114a8a5243"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "51c216e62d7129cdd8b64f586fa750e58619770b3a0ffe01c81b9a034eada7f1"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "Tuer_Anf_activ",
+   "kind": "VAR_GLOBAL",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    Tuer_Anf_activ : ARRAY[0..1, 0..1] OF BOOL;\nEND_VAR\n",
+   "note": "The call sites show a local array variable (door request active). This global only mirrors that declaration.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "51c216e62d7129cdd8b64f586fa750e58619770b3a0ffe01c81b9a034eada7f1"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "Variant",
+   "kind": "TYPE",
+   "category": "unknown",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE Variant : POINTER TO BYTE;\nEND_TYPE\n",
+   "note": "Placeholder for Siemens' generic VARIANT data type, which is used for the DB references passed to READ_DBL, WRIT_DBL and the recipe blocks.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/该厂商st规范/spec/TIA_SCL_Instructions_S7_1200_1500_V21.html",
+     "line": 30,
+     "sha256": "2403e1faa883062e8da36d3e7356165718172846d3e804b8531dba1e3566a3e2"
+    },
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/该厂商st规范/spec/TIA_Creating_SCL_V21.html",
+     "line": 305,
+     "sha256": "b0bb2009bd8fe0140dfd050985000bc81890f4b35003281cdcec14ac546e5d6d"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "51c216e62d7129cdd8b64f586fa750e58619770b3a0ffe01c81b9a034eada7f1"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "VerriegelungLOCK",
+   "kind": "VAR_GLOBAL",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    VerriegelungLOCK : ARRAY[0..1, 0..1] OF BOOL;\nEND_VAR\n",
+   "note": "The call sites show a local array variable (door lock outputs). This global only mirrors that declaration.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "51c216e62d7129cdd8b64f586fa750e58619770b3a0ffe01c81b9a034eada7f1"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "VLVS_HMI",
+   "kind": "TYPE",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE VLVS_HMI : STRUCT\n    STA : WORD;\n    ALM : WORD;\n    CMD : WORD;\n    POS : INT;\nEND_STRUCT\nEND_TYPE\n",
+   "note": "Valve HMI structure. Member names come from the call sites. The types are guesses.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "51c216e62d7129cdd8b64f586fa750e58619770b3a0ffe01c81b9a034eada7f1"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "WRIT_DBL",
+   "kind": "FUNCTION",
+   "category": "sink",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION WRIT_DBL : INT\nVAR_INPUT\n    REQ : BOOL;\n    SRCBLK : Variant;\nEND_VAR\nVAR_OUTPUT\n    BUSY : BOOL;\n    DSTBLK : Variant;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Siemens instruction that writes the work-memory block SRCBLK into the load-memory data block DSTBLK. In this stub, the outputs and the return value stay zero.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/该厂商st规范/spec/TIA_SCL_Instructions_S7_1200_1500_V21.html",
+     "line": 325,
+     "sha256": "24b9bde9f3972f4c189b468d8769a562f0fdd7889f0aa25b4df09d7fa83b56a3"
+    },
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/Siemens_SCL_Source_Files_c36d15a/BackupAndRestore/README_DE.md",
+     "line": 49,
+     "sha256": "dfb9f729f3cc90471171fb0dc26fb1d8f625b6a85790472975b4f9c4f7723ed0"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "51c216e62d7129cdd8b64f586fa750e58619770b3a0ffe01c81b9a034eada7f1"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "Zwangsoefnung",
+   "kind": "VAR_GLOBAL",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    Zwangsoefnung : ARRAY[0..1, 0..1] OF BOOL;\nEND_VAR\n",
+   "note": "The call sites show a local array variable (forced-opening outputs). This global only mirrors that declaration.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "51c216e62d7129cdd8b64f586fa750e58619770b3a0ffe01c81b9a034eada7f1"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "ZwangsoefnungsVerz",
+   "kind": "VAR_GLOBAL",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    ZwangsoefnungsVerz : ARRAY[0..1, 0..1] OF INT;\nEND_VAR\n",
+   "note": "The call sites show a local array variable (forced-opening delay). This global only mirrors that declaration.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "51c216e62d7129cdd8b64f586fa750e58619770b3a0ffe01c81b9a034eada7f1"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  }
+ ]
+}

@@ -1,0 +1,1 @@
+{"rule": "representation-conversion-rebind", "dialect": "codesys", "profiles": ["codesys-conversions"], "original_output": "1\n", "expected_output": "1065353216\n"}

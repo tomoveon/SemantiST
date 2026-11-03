@@ -1,0 +1,119 @@
+diff --git a/src/codegen/generators/expression_generator.rs b/src/codegen/generators/expression_generator.rs
+index b20414fdff5..a9bec4c7238 100644
+--- a/src/codegen/generators/expression_generator.rs
++++ b/src/codegen/generators/expression_generator.rs
+@@ -1358,8 +1358,14 @@ impl<'ink, 'b> ExpressionCodeGenerator<'ink, 'b> {
+             let is_unsized = matches!(var_args, VarArgs::Unsized(_));
+             // Untyped C-style variadics (`args: ...`) need C default argument promotion.
+             // Typed unsized variadics like `IN2: T2...` have a concrete callee signature
+-            // after generic instantiation, so promoting their scalar arguments would break the ABI.
++            // after generic instantiation, so promoting their floats would break the ABI.
+             let needs_c_promotion = matches!(var_args, VarArgs::Unsized(None));
++            // SemantiST: the call is still emitted as a C variadic call, where an integer
++            // narrower than 32 bits is passed without extension; a callee declared with an
++            // `i8`/`i16` parameter (e.g. MUL__TIME__SINT) reads the register as extended, so
++            // a negative SINT/INT arrived zero-extended. Narrow integers of typed unsized
++            // variadics are therefore sign- or zero-extended as well.
++            let needs_int_extension = is_unsized;
+ 
+             let generated_params = variadic_params
+                 .iter()
+@@ -1379,7 +1385,7 @@ impl<'ink, 'b> ExpressionCodeGenerator<'ink, 'b> {
+                         } else {
+                             let value = self.generate_expression(param_statement)?;
+                             // Apply C default argument promotions for unsized (C-ABI) variadics
+-                            if needs_c_promotion {
++                            if needs_int_extension {
+                                 match type_info.get_type_information() {
+                                     DataTypeInformation::Integer { signed, size, .. } if *size < 32 => {
+                                         let i32_type = self.llvm.context.i32_type();
+@@ -1396,7 +1402,7 @@ impl<'ink, 'b> ExpressionCodeGenerator<'ink, 'b> {
+                                                 .as_basic_value_enum()
+                                         })
+                                     }
+-                                    DataTypeInformation::Float { size, .. } if *size < 64 => {
++                                    DataTypeInformation::Float { size, .. } if needs_c_promotion && *size < 64 => {
+                                         let f64_type = self.llvm.context.f64_type();
+                                         Ok(self
+                                             .llvm
+diff --git a/src/codegen/generators/pou_generator.rs b/src/codegen/generators/pou_generator.rs
+index b13cccb72f9..fd54dca87d8 100644
+--- a/src/codegen/generators/pou_generator.rs
++++ b/src/codegen/generators/pou_generator.rs
+@@ -293,6 +293,36 @@ impl<'ink, 'cg> PouGenerator<'ink, 'cg> {
+         let curr_f: FunctionValue<'_> =
+             module.add_function(&implementation.get_call_name_for_ir(), function_declaration, None);
+ 
++        // SemantiST: a function implemented outside the ST sources (the runtime library, C)
++        // follows the C ABI, where an integer parameter narrower than 32 bits is extended by
++        // the caller (x86-64 SysV: clang marks such parameters signext/zeroext and the callee
++        // relies on it). Without the attribute a negative SINT/INT reached e.g.
++        // MUL_TIME__SINT zero-extended. Call sites take the attributes of the declaration.
++        let is_external = self
++            .index
++            .find_pou(implementation.get_call_name())
++            .is_some_and(|pou| pou.get_linkage().is_external_or_included());
++        if is_external && implementation.get_implementation_type() == &ImplementationType::Function {
++            // Variadic members are not fixed parameters of the LLVM declaration.
++            for (i, param) in declared_parameters.iter().enumerate().take(curr_f.count_params() as usize) {
++                if param.is_in_parameter_by_ref() || param.get_declaration_type().is_by_ref() {
++                    continue;
++                }
++                if let DataTypeInformation::Integer { signed, size, .. } =
++                    self.index.get_type_information_or_void(param.get_type_name())
++                {
++                    if *size < 32 {
++                        let kind = if *signed { "signext" } else { "zeroext" };
++                        let attribute = self
++                            .llvm
++                            .context
++                            .create_enum_attribute(inkwell::attributes::Attribute::get_named_enum_kind_id(kind), 0);
++                        curr_f.add_attribute(inkwell::attributes::AttributeLoc::Param(i as u32), attribute);
++                    }
++                }
++            }
++        }
++
+         let section_name = self.get_section(implementation)?;
+         curr_f.set_section(section_name.as_deref());
+ 
+diff --git a/src/codegen/tests/snapshots/rusty__codegen__tests__generics_test__generic_function_call_generates_real_type_call.snap b/src/codegen/tests/snapshots/rusty__codegen__tests__generics_test__generic_function_call_generates_real_type_call.snap
+index 3c3c6644c7e..68b79cc6894 100644
+--- a/src/codegen/tests/snapshots/rusty__codegen__tests__generics_test__generic_function_call_generates_real_type_call.snap
++++ b/src/codegen/tests/snapshots/rusty__codegen__tests__generics_test__generic_function_call_generates_real_type_call.snap
+@@ -34,4 +34,4 @@ entry:
+   ret void
+ }
+ 
+-declare i16 @MAX__INT(i16, i16)
++declare i16 @MAX__INT(i16 signext, i16 signext)
+diff --git a/tests/lit/single/arithmetic/mul_time_narrow_signed.st b/tests/lit/single/arithmetic/mul_time_narrow_signed.st
+new file mode 100644
+index 00000000000..3c3b542af8b
+--- /dev/null
++++ b/tests/lit/single/arithmetic/mul_time_narrow_signed.st
+@@ -0,0 +1,24 @@
++// RUN: (%COMPILE %s && %RUN) | %CHECK %s
++// A negative SINT/INT passed to a runtime function with an 8- or 16-bit
++// parameter keeps its sign: through the typed variadic MUL (the integer is
++// extended in the variadic call) and through MUL_TIME (the declaration
++// carries signext/zeroext as in the C ABI).
++
++FUNCTION main : DINT
++VAR
++    s : SINT := -120;
++    i : INT := -3600;
++    u : USINT := 200;
++END_VAR
++    // CHECK: -10368000000000000
++    printf('%lld$N', TIME_TO_LINT(MUL(TIME#1d, s)));
++    // CHECK: -3600000000000
++    printf('%lld$N', TIME_TO_LINT(MUL_TIME(TIME#1s, i)));
++    // CHECK: -10368000000000000
++    printf('%lld$N', LTIME_TO_LINT(MUL_LTIME(LTIME#1d, s)));
++    // CHECK: 200000000
++    printf('%lld$N', TIME_TO_LINT(MUL_TIME(TIME#1ms, u)));
++    // CHECK: -7000000000
++    printf('%lld$N', TIME_TO_LINT(MUL(TIME#1s, SINT#-7)));
++    main := 0;
++END_FUNCTION

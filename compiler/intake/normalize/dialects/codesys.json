@@ -1,0 +1,91 @@
+{
+  "schema_version": "semantist.dialect-profile/1.0.0",
+  "id": "codesys",
+  "version": 4,
+  "family": "codesys",
+  "description": "CODESYS 2.3/3, TwinCAT 2/3 and CODESYS-based OEM tools (WAGO, Schneider Machine Expert, Bosch ctrlX, Festo examples)",
+  "rules": [
+    "var-block-constant",
+    "array-initializer-brackets",
+    "standard-name-collision-rename",
+    "keyword-identifier-rename",
+    "library-qualifier",
+    "member-reorder",
+    "property-accessors",
+    "pou-access-modifier",
+    "export-library-block",
+    "var-inst-member",
+    "chained-assignment",
+    "empty-struct-initializer",
+    "var-stat-global",
+    "header-semicolon",
+    "end-functionblock-keyword",
+    "elseif-keyword"
+  ],
+  "rule_order_evidence": "artifacts/intake/stats/raw/summary.json: E034 (94 libraries), E043 (83), E004 standard-name collisions (73), OVERRIDE as identifier (42), members after the body (16), PROPERTY accessors (6), POU access modifiers (9), LIBRARY export blocks (6); then VAR_INST (17 TwinCAT 3 files), chained assignments a := b := x (301 statements in 13 CODESYS 2.3 files, 3 in TwinCAT 3; a code generation error), empty () elements in array-of-structure initializers (281 in 9 CODESYS 2.3 files), VAR_STAT (2 libraries), a semicolon after a METHOD/FUNCTION header followed by a VAR block (36 headers in 7 TwinCAT 3/CODESYS 3 files, 2026-10-27), and with 0 occurrences in code the legacy spellings END_FUNCTIONBLOCK (terminator of the FUNCTIONBLOCK of CODESYS C0098) and ELSEIF",
+  "identifier_words": [
+    "OVERRIDE",
+    "CLASS",
+    "ENDIF",
+    "ENDFOR",
+    "ENDWHILE",
+    "ENDREPEAT",
+    "ENDCASE",
+    "ENDVAR",
+    "ENDTYPE",
+    "ENDSTRUCT",
+    "ENDFUNCTION",
+    "ENDFUNCTIONBLOCK",
+    "ENDPROGRAM",
+    "ENDACTION",
+    "ENDACTIONS",
+    "ENDMETHOD",
+    "ENDCLASS",
+    "ENDINTERFACE",
+    "ENDPROPERTY",
+    "VARINPUT",
+    "VAROUTPUT",
+    "VARINOUT",
+    "VARGLOBAL",
+    "VARTEMP",
+    "NONRETAIN",
+    "REFTO",
+    "PROPERTYGET",
+    "PROPERTYSET"
+  ],
+  "identifier_words_evidence": "CODESYS keywords are the IEC spellings with underscores; CODESYS has no CLASS or OVERRIDE keyword (OSCAT defines FUNCTION OVERRIDE and compiles in CODESYS). See rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_keywords.html.",
+  "compiler_args": [
+    "--byte-pointer-arithmetic"
+  ],
+  "compiler_args_evidence": "CODESYS defines pointer arithmetic in bytes: pData[i] := (pData + i * SIZEOF(INT))^ (rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/09_CODESYS 3：POINTER TO.html.txt; same formula in the TwinCAT 3 manual).",
+  "compatibility_profiles": [
+    "codesys-time",
+    "codesys-conversions",
+    "codesys-memory"
+  ],
+  "string": {
+    "encoding": "single-byte",
+    "evidence": "CODESYS STRING is a sequence of single-byte characters (Latin-1 in the IDE); WSTRING is UTF-16."
+  },
+  "time": {
+    "representation": "RuSTy 64-bit signed nanoseconds for TIME/LTIME/DATE/TOD/DT",
+    "vendor_representation": "TIME and TOD: 32-bit milliseconds; DATE and DT: 32-bit seconds since 1970-01-01",
+    "wraparound": "not simulated: arithmetic and clocks use the 64-bit nanosecond range; conversions to 32-bit integers keep the low 32 bits of the vendor unit"
+  },
+  "pointer": {
+    "byte_arithmetic": true,
+    "width_bits": 64,
+    "note": "POINTER TO arithmetic counts bytes (--byte-pointer-arithmetic); REF_TO and REFERENCE TO keep element scaling. Code that stores a pointer in a 32-bit integer (DWORD) assumes a 32-bit target and is reported unsupported."
+  },
+  "unverified_calls": {
+    "BYTE_TO_BOOL": "RuSTy returns the least significant bit; the CODESYS result for integers is not documented in the collected manuals",
+    "WORD_TO_BOOL": "RuSTy returns the least significant bit; the CODESYS result for integers is not documented in the collected manuals",
+    "DWORD_TO_BOOL": "RuSTy returns the least significant bit; the CODESYS result for integers is not documented in the collected manuals",
+    "LWORD_TO_BOOL": "RuSTy returns the least significant bit; the CODESYS result for integers is not documented in the collected manuals"
+  },
+  "standard_namespaces": [
+    "Tc2_Standard",
+    "Standard"
+  ],
+  "standard_namespaces_evidence": "Tc2_Standard (TwinCAT 3) and Standard (CODESYS) are the vendors' libraries of the IEC 61131-3 standard function blocks and functions (TON, TOF, TP, R_TRIG, F_TRIG, CTU, CTD, CTUD, RS, SR, string functions)."
+}

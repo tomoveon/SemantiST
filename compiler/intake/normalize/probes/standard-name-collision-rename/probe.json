@@ -1,0 +1,1 @@
+{"rule": "standard-name-collision-rename", "dialect": "codesys", "reject_codes": ["E004"], "expected_output": "3140\n"}

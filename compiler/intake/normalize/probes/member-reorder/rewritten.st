@@ -1,0 +1,32 @@
+(* TwinCAT/PLCopen exports keep methods and actions after the block body. *)
+FUNCTION_BLOCK FB_AXIS
+VAR
+    pos : DINT;
+END_VAR
+METHOD MoveBy : DINT
+VAR_INPUT
+    delta : DINT;
+END_VAR
+pos := pos + delta;
+MoveBy := pos;
+END_METHOD
+pos := pos + 1;
+
+
+
+END_FUNCTION_BLOCK
+ACTION FB_AXIS.Reset
+pos := 0;
+END_ACTION
+
+FUNCTION main : DINT
+VAR
+    axis : FB_AXIS;
+END_VAR
+axis();
+axis.MoveBy(10);
+printf('%d$N', axis.pos);
+axis.Reset();
+printf('%d$N', axis.pos);
+main := 0;
+END_FUNCTION

@@ -1,0 +1,18 @@
+FUNCTIONBLOCK DOUBLER
+VAR_INPUT
+    X : INT;
+END_VAR
+VAR_OUTPUT
+    Y : INT;
+END_VAR
+Y := 2 * X;
+END_FUNCTIONBLOCK
+
+FUNCTION main : DINT
+VAR
+    d : DOUBLER;
+END_VAR
+d(X := 21);
+printf('%d$N', d.Y);
+main := 0;
+END_FUNCTION

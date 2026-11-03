@@ -1,0 +1,97 @@
+diff --git a/src/validation/statement.rs b/src/validation/statement.rs
+index 6c9c6edc9bf..473c2f4b2b8 100644
+--- a/src/validation/statement.rs
++++ b/src/validation/statement.rs
+@@ -1372,6 +1372,27 @@ fn validate_assignment<T: AnnotationMap>(
+             return;
+         }
+ 
++        // SemantiST: a VLA parameter passed on to another VLA parameter (IEC 61131-3 allows
++        // ARRAY[*] arguments to be forwarded) is valid when element type and dimension count
++        // agree; code generation passes the callee the same array and bounds.
++        if left_type.is_vla() && right_type.is_vla() && context.is_call() {
++            let left_info = left_type.get_type_information();
++            let right_info = right_type.get_type_information();
++            let element = |info: &DataTypeInformation| {
++                info.get_vla_referenced_type().map(|name| context.index.get_effective_type_or_void_by_name(name))
++            };
++            if element(left_info) != element(right_info)
++                || left_info.get_dimension_count() != right_info.get_dimension_count()
++            {
++                validator.push_diagnostic(Diagnostic::invalid_assignment(
++                    &validator.get_type_name_or_slice(right_type),
++                    &validator.get_type_name_or_slice(left_type),
++                    location,
++                ));
++            }
++            return;
++        }
++
+         // Validate POU pointer assignments (POINTER TO class/FB) for inheritance compatibility
+         if validate_pou_pointer_assignment(context, validator, left_type, right_type, right, location) {
+             // Handled — either a valid upcast or an error was already emitted
+diff --git a/tests/lit/single/vla/vla_forwarding.st b/tests/lit/single/vla/vla_forwarding.st
+new file mode 100644
+index 00000000000..dce7722ce08
+--- /dev/null
++++ b/tests/lit/single/vla/vla_forwarding.st
+@@ -0,0 +1,59 @@
++// RUN: (%COMPILE %s && %RUN) | %CHECK %s
++// An ARRAY[*] parameter passed on to another ARRAY[*] parameter (VAR_IN_OUT and
++// VAR_INPUT, one and two dimensions): the callee sees the caller's array and bounds,
++// and writes reach the original array.
++
++FUNCTION SUM_INNER : LREAL
++VAR_IN_OUT
++    data : ARRAY[*] OF LREAL;
++END_VAR
++VAR
++    i : DINT;
++END_VAR
++SUM_INNER := 0.0;
++FOR i := LOWER_BOUND(data, 1) TO UPPER_BOUND(data, 1) DO
++    SUM_INNER := SUM_INNER + data[i];
++END_FOR;
++data[LOWER_BOUND(data, 1)] := 99.0;
++END_FUNCTION
++
++FUNCTION SUM_OUTER : LREAL
++VAR_IN_OUT
++    values : ARRAY[*] OF LREAL;
++END_VAR
++SUM_OUTER := SUM_INNER(values) + SUM_INNER(data := values);
++END_FUNCTION
++
++
++FUNCTION CELLS : DINT
++VAR_INPUT
++    m : ARRAY[*, *] OF DINT;
++END_VAR
++CELLS := (UPPER_BOUND(m, 1) - LOWER_BOUND(m, 1) + 1) * (UPPER_BOUND(m, 2) - LOWER_BOUND(m, 2) + 1)
++         + m[UPPER_BOUND(m, 1), LOWER_BOUND(m, 2)];
++END_FUNCTION
++
++FUNCTION FORWARD_IN : DINT
++VAR_INPUT
++    m : ARRAY[*, *] OF DINT;
++END_VAR
++FORWARD_IN := CELLS(m);
++END_FUNCTION
++
++FUNCTION FORWARD_IN_OUT : DINT
++VAR_IN_OUT
++    m : ARRAY[*, *] OF DINT;
++END_VAR
++FORWARD_IN_OUT := FORWARD_IN(m);
++END_FUNCTION
++FUNCTION main : DINT
++VAR
++    a : ARRAY[2..4] OF LREAL := [1.0, 2.0, 3.0];
++    g : ARRAY[1..2, 0..2] OF DINT := [1, 2, 3, 40, 5, 6];
++END_VAR
++    // CHECK: 110.000000 99.000000
++    printf('%f %f$N', SUM_OUTER(a), a[2]);
++    // CHECK: 46 46
++    printf('%d %d$N', FORWARD_IN(g), FORWARD_IN_OUT(g));
++    main := 0;
++END_FUNCTION

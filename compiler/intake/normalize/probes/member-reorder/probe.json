@@ -1,0 +1,1 @@
+{"rule": "member-reorder", "dialect": "codesys", "reject_codes": ["E007"], "expected_output": "11\n0\n"}

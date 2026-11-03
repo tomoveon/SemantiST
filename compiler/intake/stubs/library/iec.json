@@ -1,0 +1,1217 @@
+{
+ "schema_version": "semantist.environment-stubs/1.0.0",
+ "family": "iec",
+ "stubs": [
+  {
+   "name": "BOOL_TO_LREAL",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION BOOL_TO_LREAL : LREAL\nVAR_INPUT\n    IN : BOOL;\nEND_VAR\nIF IN THEN\n    BOOL_TO_LREAL := 1.0;\nELSE\n    BOOL_TO_LREAL := 0.0;\nEND_IF;\nEND_FUNCTION\n",
+   "note": "Per the CODESYS docs, BOOL_TO_LREAL(TRUE) = 1. FALSE gives 0.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_bool_to.html.txt",
+     "line": 79,
+     "sha256": "865afe3c0af034be0b4f5b7c6d85a7b8c295ac3e32af61732b87fc17f49f5891"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "4e0411ed055d1ece96dc91d4462713ae4ad7a9887579477121630765f7b77131"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "BOOL_TO_REAL",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION BOOL_TO_REAL : REAL\nVAR_INPUT\n    IN : BOOL;\nEND_VAR\nIF IN THEN\n    BOOL_TO_REAL := 1.0;\nELSE\n    BOOL_TO_REAL := 0.0;\nEND_IF;\nEND_FUNCTION\n",
+   "note": "Per the CODESYS docs, BOOL_TO_REAL(TRUE) = 1.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_bool_to.html.txt",
+     "line": 95,
+     "sha256": "e56e097f2e2cd34c7e39b3e436fefdd9ac8b98f412097ee4622914175b6a31e0"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "4e0411ed055d1ece96dc91d4462713ae4ad7a9887579477121630765f7b77131"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "BOOL_TO_STRING",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION BOOL_TO_STRING : STRING\nVAR_INPUT\n    IN : BOOL;\nEND_VAR\nIF IN THEN\n    BOOL_TO_STRING := 'TRUE';\nELSE\n    BOOL_TO_STRING := 'FALSE';\nEND_IF;\nEND_FUNCTION\n",
+   "note": "Per the CODESYS and Schneider docs, BOOL_TO_STRING(TRUE) = 'TRUE'.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_bool_to.html.txt",
+     "line": 103,
+     "sha256": "0171743b8a203925c697106e8bd11c9494169e7607c380193d6a0d49ec3e8ea1"
+    },
+    {
+     "file": "rusty_compatibility/09_Schneider_Machine_Expert/该厂商st规范/spec/MachineExpert_V2.2_ST_Programming_Reference.html",
+     "line": 6921,
+     "sha256": "00478a0b5bdadad52e761da8cb60da7b7152f460fee8c90894acdb40560144ea"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "4e0411ed055d1ece96dc91d4462713ae4ad7a9887579477121630765f7b77131"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "BYTE_TO_LREAL",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION BYTE_TO_LREAL : LREAL\nVAR_INPUT\n    IN : BYTE;\nEND_VAR\nBYTE_TO_LREAL := IN;\nEND_FUNCTION\n",
+   "note": "Standard numeric conversion of the unsigned value.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 282,
+     "sha256": "c17a9a9cd07570c998a45ca797ea24a377f9454d4de9ab8b4d6c346c97b1b633"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "4e0411ed055d1ece96dc91d4462713ae4ad7a9887579477121630765f7b77131"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "BYTE_TO_REAL",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION BYTE_TO_REAL : REAL\nVAR_INPUT\n    IN : BYTE;\nEND_VAR\nBYTE_TO_REAL := IN;\nEND_FUNCTION\n",
+   "note": "Standard numeric conversion of the unsigned value.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 350,
+     "sha256": "91ca36bba305ec7b71722607458282ce82fef19200e5138c772f49e489b4376b"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "4e0411ed055d1ece96dc91d4462713ae4ad7a9887579477121630765f7b77131"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "CRITICAL",
+   "kind": "VAR_GLOBAL",
+   "category": "constant",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL CONSTANT\n    CRITICAL : INT := 4;\nEND_VAR\n",
+   "note": "Severity level value passed as LEVEL := CRITICAL. No passage gives its value or type, so INT and the value 4 are guesses.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/29_Emerson_PACSystems/该厂商st规范/spec/PACSystems_GFK2950N_Instrumart.txt",
+     "line": 450,
+     "sha256": "c66a4a308e18fb1c08f144e6aa84eed977f82ec2ace122cbd867210a97618825"
+    },
+    {
+     "file": "rusty_compatibility/30_Siemens_SIMATIC_AX/库说明书/docs/AXOpen/src/core/docs/AxoIncidentBar.md",
+     "line": 22,
+     "sha256": "7a5319efce4cfe66f370e2f36faf698a23e04717545922de0a9b6d93c7acb6f8"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "4e0411ed055d1ece96dc91d4462713ae4ad7a9887579477121630765f7b77131"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "CURRENT_DT",
+   "kind": "FUNCTION",
+   "category": "source",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION CURRENT_DT : DT\nEND_FUNCTION\n",
+   "note": "Reads the system clock. The stub returns the zero value.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "4e0411ed055d1ece96dc91d4462713ae4ad7a9887579477121630765f7b77131"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DATE_TO_DWORD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DATE_TO_DWORD : DWORD\nVAR_INPUT\n    IN : DATE;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "CODESYS returns seconds since 1970. RuSTy stores DATE in a different internal unit, so the body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_date_to.html.txt",
+     "line": 98,
+     "sha256": "3e09ef463f478b791dd6d7d45d508c8d76d60eb500a0772e4e64cbd748615b72"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "4e0411ed055d1ece96dc91d4462713ae4ad7a9887579477121630765f7b77131"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DATE_TO_UDINT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DATE_TO_UDINT : UDINT\nVAR_INPUT\n    IN : DATE;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Returns seconds since 1970. The body is left empty because RuSTy's internal unit differs.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_date_to.html.txt",
+     "line": 160,
+     "sha256": "7fa1e97ebe07236cf4fbf58c0aff36c4daf536091c386f6e006d208dd30809b4"
+    },
+    {
+     "file": "rusty_compatibility/21_Panasonic_FPWIN/该厂商st规范/ST规范/retry_0.validation.txt",
+     "line": 456,
+     "sha256": "715edf0d9c839a8090d2100bf5c6d4c011ca7bf00c8566e701b4e3d7f61ed5ad"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "4e0411ed055d1ece96dc91d4462713ae4ad7a9887579477121630765f7b77131"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DINT_TO_TOD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DINT_TO_TOD : TOD\nVAR_INPUT\n    IN : DINT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Input is milliseconds since midnight. The body is left empty because RuSTy's internal unit differs.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 419,
+     "sha256": "cc077a8bcf03ca3536a0c9d0c2f11a64028d929ac3aed18dd05ae6f2dff11660"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "4e0411ed055d1ece96dc91d4462713ae4ad7a9887579477121630765f7b77131"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DT_TO_DWORD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DT_TO_DWORD : DWORD\nVAR_INPUT\n    IN : DT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Returns seconds since 1970. The body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_date_to.html.txt",
+     "line": 99,
+     "sha256": "5dd4db2db6ec394ff0ab71ddd025519b1866a313023f19ffd8d8797d1c53dae7"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "4e0411ed055d1ece96dc91d4462713ae4ad7a9887579477121630765f7b77131"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DT_TO_UDINT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DT_TO_UDINT : UDINT\nVAR_INPUT\n    IN : DT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Returns seconds since 1970. The body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_date_to.html.txt",
+     "line": 161,
+     "sha256": "d6364d4fdf493b839a1740cb61caa2390e30286a4f2a252bc92ddf18d75a212c"
+    },
+    {
+     "file": "rusty_compatibility/21_Panasonic_FPWIN/该厂商st规范/ST规范/retry_0.validation.txt",
+     "line": 457,
+     "sha256": "c626fd4427595322ba15e5981b13056214792c30dc23f9c9247e03f4b0a5526b"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "4e0411ed055d1ece96dc91d4462713ae4ad7a9887579477121630765f7b77131"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DWORD_TO_DATE",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DWORD_TO_DATE : DATE\nVAR_INPUT\n    IN : DWORD;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Input is seconds since 1970. The body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 148,
+     "sha256": "623c85db920c5cf4c6f5a6b0bcf61d0c2f8bad6dc3b98ccd12fa9add64d460c1"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_building100_en.sample.txt",
+     "line": 286,
+     "sha256": "0f965ff14f62893de9560397f6f56c736a5b0f54adb19ff5b0c9f58c2a4b27b1"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "4e0411ed055d1ece96dc91d4462713ae4ad7a9887579477121630765f7b77131"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DWORD_TO_DT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DWORD_TO_DT : DT\nVAR_INPUT\n    IN : DWORD;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Input is seconds since 1970. The input is declared DWORD because the calls pass DWORD expressions and the literal 0. The body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 182,
+     "sha256": "026e476ccebb829643385f87e93b92f397df0fd03b59f688175d4fdb93bd944d"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "4e0411ed055d1ece96dc91d4462713ae4ad7a9887579477121630765f7b77131"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DWORD_TO_LREAL",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DWORD_TO_LREAL : LREAL\nVAR_INPUT\n    IN : DWORD;\nEND_VAR\nDWORD_TO_LREAL := IN;\nEND_FUNCTION\n",
+   "note": "Standard numeric conversion of the unsigned value.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 284,
+     "sha256": "ae17b0d4b24b34ef99025ba379d11a6736feca0fd4a66cd9c0126ea35de50d1e"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "4e0411ed055d1ece96dc91d4462713ae4ad7a9887579477121630765f7b77131"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DWORD_TO_TIME",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DWORD_TO_TIME : TIME\nVAR_INPUT\n    IN : DWORD;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Input is milliseconds in CODESYS. RuSTy's TIME uses a different unit, so the body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/TimeControl/CHANGELOG.md",
+     "line": 4,
+     "sha256": "43e50920bb4fc317ec52348b8d84d6ef3f7773aa912b1fe3aa17259b79235d26"
+    },
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 403,
+     "sha256": "c1c12f77b7403ff7390dfe3a7974a4e1a6acfe4a19a3a46df342e2c6efe12383"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "4e0411ed055d1ece96dc91d4462713ae4ad7a9887579477121630765f7b77131"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DWORD_TO_TOD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DWORD_TO_TOD : TOD\nVAR_INPUT\n    IN : DWORD;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Input is milliseconds since midnight. The body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 420,
+     "sha256": "0e9cd9449af5b7166ea328a10c2ff9b16e2ed096bb72d5a2d0fd6c050eefe13b"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "4e0411ed055d1ece96dc91d4462713ae4ad7a9887579477121630765f7b77131"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "INT_TO_STRING",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION INT_TO_STRING : STRING\nVAR_INPUT\n    IN : INT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Converts an integer to its decimal text. The body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/PACFramework_5ff28393539b/proc/oldprj/polyv_codesys/CTRLRECIPE_FUN.MD",
+     "line": 122,
+     "sha256": "215a30c0563e77e7db4d9a11404d48ea2ba6a328ad27c6acd132b868d9ef16b7"
+    },
+    {
+     "file": "rusty_compatibility/09_Schneider_Machine_Expert/库说明书/库内说明/PACFramework_5ff28393539b/proc/oldprj/polyv_codesys/CTRLRECIPE_FUN.MD",
+     "line": 122,
+     "sha256": "215a30c0563e77e7db4d9a11404d48ea2ba6a328ad27c6acd132b868d9ef16b7"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "4e0411ed055d1ece96dc91d4462713ae4ad7a9887579477121630765f7b77131"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "LDNestedBranches",
+   "kind": "FUNCTION_BLOCK",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK LDNestedBranches\nVAR_INPUT\n    A : BOOL;\n    B : BOOL;\n    C : BOOL;\nEND_VAR\nVAR_OUTPUT\n    Y : BOOL;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "Ladder test block with inputs A, B, C and output Y. Its logic is unknown, so the body is empty.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "4e0411ed055d1ece96dc91d4462713ae4ad7a9887579477121630765f7b77131"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "LDUnequalBranches",
+   "kind": "FUNCTION_BLOCK",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK LDUnequalBranches\nVAR_INPUT\n    A : BOOL;\n    B : BOOL;\n    C : BOOL;\nEND_VAR\nVAR_OUTPUT\n    Y : BOOL;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "Ladder test block with inputs A, B, C and output Y. Its logic is unknown, so the body is empty.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "4e0411ed055d1ece96dc91d4462713ae4ad7a9887579477121630765f7b77131"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "LOGGER",
+   "kind": "FUNCTION_BLOCK",
+   "category": "sink",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE LOGLEVEL : (CRITICAL, WARNING, INFO, DEBUG); END_TYPE\n\nFUNCTION_BLOCK LOGGER\nVAR_INPUT\n    TRIG : BOOL;\n    MSG : STRING;\n    LEVEL : LOGLEVEL := LOGLEVEL#INFO;\nEND_VAR\nVAR\n    TRIG0 : BOOL;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "OpenPLC built-in LOGGER block: on a rising edge of TRIG it writes MSG to the runtime log at level LEVEL. The call sites write LEVEL with a value of unknown type, so this declaration also defines the OpenPLC LOGLEVEL enumeration. The stub does nothing.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/30_Siemens_SIMATIC_AX/库说明书/docs/AXOpen/docs/core/docs/AxoLogger.html",
+     "line": 8,
+     "sha256": "a6c2841cb8882015952ed8f79267a18059dad7501777657b93dc1ea8d2f838aa"
+    },
+    {
+     "file": "rusty_compatibility/30_Siemens_SIMATIC_AX/库说明书/docs/AXOpen/src/core/docs/AxoLogger.md",
+     "line": 4,
+     "sha256": "94e5edec429d836adff5368bf364c8c7c9f9309d791cb0d6b8354375cdd0537e"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "161fa6a59dc06a4fff5f41d2db3e9959f9c0eaf3981d549678e7c4b3ae4ee874"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "python_eval",
+   "kind": "FUNCTION_BLOCK",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK python_eval\nVAR_INPUT\n    TRIG : BOOL;\n    CODE : STRING;\nEND_VAR\nVAR_OUTPUT\n    ACK : BOOL;\n    RESULT : STRING;\nEND_VAR\nVAR\n    STATE : DWORD;\n    BUFFER : STRING;\n    TRIG0 : BOOL;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "OpenPLC/Beremiz python_eval block: on a rising edge of TRIG the runtime runs CODE in Python, then sets ACK and puts the text result in RESULT. The stub does nothing, so ACK stays FALSE and RESULT stays empty.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "161fa6a59dc06a4fff5f41d2db3e9959f9c0eaf3981d549678e7c4b3ae4ee874"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "REAL_TO_TIME",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION REAL_TO_TIME : TIME\nVAR_INPUT\n    IN : REAL;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Turns a REAL into a TIME. CODESYS reads the value as milliseconds, but RuSTy stores TIME at a different resolution, so the stub has no body.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_real_to.html.txt",
+     "line": 125,
+     "sha256": "eb227d3ce39a87af94b477048f749a15696d7be552da5ca4be48dc77b1112a53"
+    },
+    {
+     "file": "rusty_compatibility/21_Panasonic_FPWIN/该厂商st规范/ST规范/retry_0.validation.txt",
+     "line": 475,
+     "sha256": "7f786202140cc906908726edc7c6984d4aa06f114252632b8a4ec6ec26d27e07"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "161fa6a59dc06a4fff5f41d2db3e9959f9c0eaf3981d549678e7c4b3ae4ee874"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "SINT_TO_BOOL",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION SINT_TO_BOOL : BOOL\nVAR_INPUT\n    IN : SINT;\nEND_VAR\nSINT_TO_BOOL := IN <> 0;\nEND_FUNCTION\n",
+   "note": "Returns TRUE for any non-zero value.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 118,
+     "sha256": "e8f6d5242c23c62138622c76dc28b623af22ca952fd9468afd93e48cd0c17fbb"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "161fa6a59dc06a4fff5f41d2db3e9959f9c0eaf3981d549678e7c4b3ae4ee874"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "SINT_TO_STRING",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION SINT_TO_STRING : STRING\nVAR_INPUT\n    IN : SINT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Writes the value as decimal text. Not implemented, so the stub returns an empty string.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 390,
+     "sha256": "349c41e0df933d3860dfbcec22322615237f9b3b3b50d3154a7d79df45569244"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "161fa6a59dc06a4fff5f41d2db3e9959f9c0eaf3981d549678e7c4b3ae4ee874"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "STRING_TO_BOOL",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION STRING_TO_BOOL : BOOL\nVAR_INPUT\n    IN : STRING;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Returns TRUE only for 'TRUE' or 'true'. The stub has no body and always returns FALSE.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_string_to.html.txt",
+     "line": 51,
+     "sha256": "1d7743f12a1a1800dc90815a54b840390ff2fa57084a4bcf01821f1181eb9d7a"
+    },
+    {
+     "file": "rusty_compatibility/09_Schneider_Machine_Expert/该厂商st规范/spec/MachineExpert_V2.2_ST_Programming_Reference.html",
+     "line": 6998,
+     "sha256": "ea9f0b64f0bd9be17b0e319b15e48acfcf589eb2e384d4be28d6e4bea287f130"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "161fa6a59dc06a4fff5f41d2db3e9959f9c0eaf3981d549678e7c4b3ae4ee874"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "STRING_TO_BYTE",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION STRING_TO_BYTE : BYTE\nVAR_INPUT\n    IN : STRING;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Parses an integer from the text. The return type is BYTE, because the call site compares the result with BYTE#42.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_string_to.html.txt",
+     "line": 59,
+     "sha256": "d82a4f4b9e70dc614f0d09124533827600b5892ee42c24ddc9b49e5b729191be"
+    },
+    {
+     "file": "rusty_compatibility/09_Schneider_Machine_Expert/该厂商st规范/spec/MachineExpert_V2.2_ST_Programming_Reference.html",
+     "line": 7254,
+     "sha256": "0d458ab814f6a61f610f54aa8543a96089523e31107b98a37024ab5c7bba83d3"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "161fa6a59dc06a4fff5f41d2db3e9959f9c0eaf3981d549678e7c4b3ae4ee874"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "STRING_TO_DWORD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION STRING_TO_DWORD : DWORD\nVAR_INPUT\n    IN : STRING;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Parses an integer from the text. Not implemented.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_string_to.html.txt",
+     "line": 81,
+     "sha256": "4321c218b795aaf92f632777d5c0b58a43ddf25f4ab3fb9a33443e215b84f025"
+    },
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_vartypes_var_in_out.html.txt",
+     "line": 123,
+     "sha256": "8b31cc4ebe6aecd409d564c1c97b4518062773af5f71292df8b02a8886817879"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "161fa6a59dc06a4fff5f41d2db3e9959f9c0eaf3981d549678e7c4b3ae4ee874"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "STRING_TO_INT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION STRING_TO_INT : INT\nVAR_INPUT\n    IN : STRING;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Parses an integer from the leading digits, so '123abc' gives 123. Not implemented. A STRING(20) argument can be passed to IN.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_string_to.html.txt",
+     "line": 84,
+     "sha256": "b77ac2025ee7448b3e50dee5527bf3f204e2a1280a770c5b0e18e1598155b624"
+    },
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 719,
+     "sha256": "e9d6e02301c9f4fb2f6cfec6648e529f236c8366e645d26988b0f927d5b01a79"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "161fa6a59dc06a4fff5f41d2db3e9959f9c0eaf3981d549678e7c4b3ae4ee874"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "STRING_TO_SINT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION STRING_TO_SINT : SINT\nVAR_INPUT\n    IN : STRING;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Parses an integer from the text. Not implemented.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_string_to.html.txt",
+     "line": 133,
+     "sha256": "d3851101e14f3360854c201481692e48e7c55beacdd3519932209be0de8773c5"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "161fa6a59dc06a4fff5f41d2db3e9959f9c0eaf3981d549678e7c4b3ae4ee874"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "STRING_TO_UDINT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION STRING_TO_UDINT : UDINT\nVAR_INPUT\n    IN : STRING;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Parses an integer from the text. Not implemented.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_string_to.html.txt",
+     "line": 152,
+     "sha256": "678551adfd35b141ddab0ab6ce57d1ffa705af44d9e1d6723cdb1b703fd48302"
+    },
+    {
+     "file": "rusty_compatibility/21_Panasonic_FPWIN/该厂商st规范/ST规范/retry_0.validation.txt",
+     "line": 455,
+     "sha256": "90ffd4765d0e87d535a77fd7c9a16f4e93b8d2522848b4fc7ce3af2e9b7aa28f"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "161fa6a59dc06a4fff5f41d2db3e9959f9c0eaf3981d549678e7c4b3ae4ee874"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "STRING_TO_UINT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION STRING_TO_UINT : UINT\nVAR_INPUT\n    IN : STRING;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Parses an integer from the text. Not implemented.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/18_Omron_Sysmac/库说明书/JSONLib/README.md",
+     "line": 99,
+     "sha256": "54c8fc91c02dce3ff78fea39b6b64964dd84cac83db758dbfc534093abd7fde8"
+    },
+    {
+     "file": "rusty_compatibility/18_Omron_Sysmac/库说明书/JSONLib/README_ja.md",
+     "line": 98,
+     "sha256": "54c8fc91c02dce3ff78fea39b6b64964dd84cac83db758dbfc534093abd7fde8"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "161fa6a59dc06a4fff5f41d2db3e9959f9c0eaf3981d549678e7c4b3ae4ee874"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "STRING_TO_ULINT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION STRING_TO_ULINT : ULINT\nVAR_INPUT\n    IN : STRING;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Parses an integer from the text. Not implemented.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_string_to.html.txt",
+     "line": 158,
+     "sha256": "d46b93d0513cedee2a1f8f042338fae57ed7f61a1d9ab45dc4e8e4979391b49f"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "161fa6a59dc06a4fff5f41d2db3e9959f9c0eaf3981d549678e7c4b3ae4ee874"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "STRING_TO_USINT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION STRING_TO_USINT : USINT\nVAR_INPUT\n    IN : STRING;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Parses an integer from the text. Not implemented.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_string_to.html.txt",
+     "line": 164,
+     "sha256": "e623d367def3456296081c2978220c0da119c458d2d79c1ea3b136552fd0a97e"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "161fa6a59dc06a4fff5f41d2db3e9959f9c0eaf3981d549678e7c4b3ae4ee874"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "STRING_TO_WORD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION STRING_TO_WORD : WORD\nVAR_INPUT\n    IN : STRING;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Parses an integer from the leading digits, so '34abc' gives 34. Not implemented.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_string_to.html.txt",
+     "line": 167,
+     "sha256": "1e4203b31d22b37231fb4824e78a462a621e83a3aa44f9dc25ca44056bf68b4d"
+    },
+    {
+     "file": "rusty_compatibility/09_Schneider_Machine_Expert/该厂商st规范/spec/MachineExpert_V2.2_ST_Programming_Reference.html",
+     "line": 7246,
+     "sha256": "e20d215308b4229dd1721a1ba0ce3b7a171d8797ae80d8bd49475d6514eade13"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "161fa6a59dc06a4fff5f41d2db3e9959f9c0eaf3981d549678e7c4b3ae4ee874"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "TIME_TO_DINT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TIME_TO_DINT : DINT\nVAR_INPUT\n    IN : TIME;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Returns the TIME as a count of milliseconds in CODESYS/IEC. RuSTy stores TIME at a different resolution, so the stub has no body.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_time_to.html.txt",
+     "line": 58,
+     "sha256": "50c9691a5b3b0d5ab8151b431ae1edc44845e51874d3fa9eda05ab639f996e72"
+    },
+    {
+     "file": "rusty_compatibility/21_Panasonic_FPWIN/该厂商st规范/ST规范/retry_0.validation.txt",
+     "line": 446,
+     "sha256": "c0657cec97f5c240e45f3f30346c0a637b7e9fe93a6b934e44e55ab2aba1cb50"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "161fa6a59dc06a4fff5f41d2db3e9959f9c0eaf3981d549678e7c4b3ae4ee874"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "TIME_TO_DWORD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TIME_TO_DWORD : DWORD\nVAR_INPUT\n    IN : TIME;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Returns the TIME in milliseconds, so T#5m gives 300000. The units differ in RuSTy, so the stub has no body. The return type is DWORD, which is what DWORD_TO_REAL expects at the call sites.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/09_Schneider_Machine_Expert/该厂商st规范/spec/MachineExpert_V2.2_ST_Programming_Reference.html",
+     "line": 7124,
+     "sha256": "e3b10c64ddaf44b7b12645f8af7b4c31202971b586555ec469bdf67d8e424185"
+    },
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_time_to.html.txt",
+     "line": 67,
+     "sha256": "d9dbadb8b3aa9610f29965451d82dfc83ffc965203d0c9c357bf3d2a2c7462c8"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "161fa6a59dc06a4fff5f41d2db3e9959f9c0eaf3981d549678e7c4b3ae4ee874"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "TIME_TO_INT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TIME_TO_INT : INT\nVAR_INPUT\n    IN : TIME;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Returns the TIME in milliseconds, cut down to INT. Not implemented.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 720,
+     "sha256": "e76e2f1b9266082f118410efb1973434bfa3b262554828a8b6de88ae0ea1008f"
+    },
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_time_to.html.txt",
+     "line": 70,
+     "sha256": "16589e1c4125059b4b100a910f71d8fc2f586bc1c86ec623f7928446a16d8a80"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "161fa6a59dc06a4fff5f41d2db3e9959f9c0eaf3981d549678e7c4b3ae4ee874"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "TIME_TO_REAL",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TIME_TO_REAL : REAL\nVAR_INPUT\n    IN : TIME;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Returns the TIME in milliseconds as a REAL. The units differ in RuSTy, so the stub has no body.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_time_to.html.txt",
+     "line": 102,
+     "sha256": "70e4f3284a41d14954dfb18f6d1185932d91ccabe24adbcb69915ee9de494e87"
+    },
+    {
+     "file": "rusty_compatibility/21_Panasonic_FPWIN/该厂商st规范/ST规范/retry_0.validation.txt",
+     "line": 464,
+     "sha256": "e2f456f3b03066f94b17bb29aaa1e4aed671edb2b517243e32b4389918246c2b"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "161fa6a59dc06a4fff5f41d2db3e9959f9c0eaf3981d549678e7c4b3ae4ee874"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 6
+  },
+  {
+   "name": "TOD_TO_DINT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TOD_TO_DINT : DINT\nVAR_INPUT\n    IN : TOD;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Returns the milliseconds since midnight in CODESYS. The units differ in RuSTy, so the stub has no body.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_date_to.html.txt",
+     "line": 76,
+     "sha256": "ca85c7336fd4213f472fb34dfc55ab9e2e5d0b723e4a59339a8a5c8bd71071a6"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "161fa6a59dc06a4fff5f41d2db3e9959f9c0eaf3981d549678e7c4b3ae4ee874"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "TOD_TO_DWORD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TOD_TO_DWORD : DWORD\nVAR_INPUT\n    IN : TOD;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "IEC/CODESYS type conversion. Returns the milliseconds since midnight. The body is left empty because the internal TOD representation (nanoseconds) can only be converted by calling other conversions that may not exist in the stub environment.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_date_to.html.txt",
+     "line": 100,
+     "sha256": "119541b7c4a710203a403ed37e95ebf4ab6321654a1b4ea5149d9ad38abeb7d8"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "e7e986447a80297675e6db713be9c80ea55d5c8eb72cc9365487becfa52bde35"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "UDINT_TO_DATE",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION UDINT_TO_DATE : DATE\nVAR_INPUT\n    IN : UDINT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Converts seconds since 1970-01-01 to a DATE. The body is left empty because the conversion depends on the internal representation.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 153,
+     "sha256": "e4fea279294b9d73c3c2e2993edab372be69e4549005d3b13fb791707346fd5f"
+    },
+    {
+     "file": "rusty_compatibility/21_Panasonic_FPWIN/该厂商st规范/ST规范/retry_0.validation.txt",
+     "line": 480,
+     "sha256": "6d27656c19c26ccd670609a727ce72a7b8d0a9abe09ee0230a32c3815f5743e2"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "e7e986447a80297675e6db713be9c80ea55d5c8eb72cc9365487becfa52bde35"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "UDINT_TO_DT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION UDINT_TO_DT : DT\nVAR_INPUT\n    IN : UDINT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Converts seconds since 1970-01-01 to DATE_AND_TIME. The body is left empty because the conversion depends on the internal representation.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 187,
+     "sha256": "1fae8ee8ed03c86c02895aba6d40d7fba7fabd2ea057f3c109fc526affbc21c5"
+    },
+    {
+     "file": "rusty_compatibility/21_Panasonic_FPWIN/该厂商st规范/ST规范/retry_0.validation.txt",
+     "line": 477,
+     "sha256": "5a3a4d42f9ea75e8b666e99804c069bf1e4f7f9df4e98e03682325675299666f"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "e7e986447a80297675e6db713be9c80ea55d5c8eb72cc9365487becfa52bde35"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "USINT_TO_BOOL",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION USINT_TO_BOOL : BOOL\nVAR_INPUT\n    IN : USINT;\nEND_VAR\nUSINT_TO_BOOL := IN <> 0;\nEND_FUNCTION\n",
+   "note": "Standard conversion: the result is TRUE when the input is not zero.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 122,
+     "sha256": "4a2c0c776804c5d0d8043a3cdd343fc4ca7bb2b0bb4f2ccd9fa93180718cfb96"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "e7e986447a80297675e6db713be9c80ea55d5c8eb72cc9365487becfa52bde35"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "WORD_TO_REAL",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION WORD_TO_REAL : REAL\nVAR_INPUT\n    IN : WORD;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Standard conversion of an unsigned 16-bit value to REAL. The body is left empty so it does not depend on an implicit bit-type-to-REAL conversion.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 361,
+     "sha256": "67d48c7f681dec5c9a647fca4202c440ed5d9215865a9eff2b7f11b86b81eb4a"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "e7e986447a80297675e6db713be9c80ea55d5c8eb72cc9365487becfa52bde35"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  }
+ ]
+}

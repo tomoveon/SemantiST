@@ -1,0 +1,1 @@
+{"rule": "scl-const-inline", "dialect": "siemens-scl", "reject_codes": ["E007"], "expected_output": "1 2 1 1 0\n"}

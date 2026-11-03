@@ -1,0 +1,4 @@
+interface:
+  display_name: "ST to RuSTy Intake"
+  short_description: "Deterministic intake of ST libraries into SemantiST"
+  default_prompt: "Use $st-to-rusty-converter to run the deterministic intake of this ST library, report per POU whether it type checks, generates IR and links with the pinned RuSTy, and stop only at source constructs or ABIs that cannot be expressed safely. When a selected ABI-known stub is a compile-verified approximate fallback, continue native/KLEE and carry semantic_fidelity=approximate into the manifest and report."

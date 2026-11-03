@@ -1,0 +1,3011 @@
+{
+ "schema_version": "semantist.environment-stubs/1.0.0",
+ "family": "pcworx",
+ "stubs": [
+  {
+   "name": "BAND_B",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION BAND_B : BYTE\nVAR_INPUT\n    X : BYTE;\n    B : BYTE;\nEND_VAR\nIF X < B THEN\n    BAND_B := BYTE#0;\nELSIF X > BYTE#255 - B THEN\n    BAND_B := BYTE#255;\nELSE\n    BAND_B := X;\nEND_IF;\nEND_FUNCTION\n",
+   "note": "OSCAT BAND_B: band/dead-zone at both ends of byte range.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "22bbee253d6823ee6815ac3fe400d4845146c7bd7868d45f7c833c3621c69d11"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "BIT_OF_DWORD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION BIT_OF_DWORD : BOOL\nVAR_INPUT\n    IN : DWORD;\n    N : INT;\nEND_VAR\nBIT_OF_DWORD := (SHR(IN, N) AND DWORD#1) > DWORD#0;\nEND_FUNCTION\n",
+   "note": "OSCAT: returns bit N of IN.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/16_Phoenix_PC_Worx/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 388,
+     "sha256": "a76ed37f53c6286ea3176431299367dab47d97d4bc80acfc7f979f811642d581"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 388,
+     "sha256": "a76ed37f53c6286ea3176431299367dab47d97d4bc80acfc7f979f811642d581"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "22bbee253d6823ee6815ac3fe400d4845146c7bd7868d45f7c833c3621c69d11"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 8
+  },
+  {
+   "name": "BOOL_TO_REAL",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION BOOL_TO_REAL : REAL\nVAR_INPUT\n    IN : BOOL;\nEND_VAR\nIF IN THEN\n    BOOL_TO_REAL := 1.0;\nELSE\n    BOOL_TO_REAL := 0.0;\nEND_IF;\nEND_FUNCTION\n",
+   "note": "IEC conversion: TRUE -> 1.0.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_bool_to.html.txt",
+     "line": 95,
+     "sha256": "e56e097f2e2cd34c7e39b3e436fefdd9ac8b98f412097ee4622914175b6a31e0"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "22bbee253d6823ee6815ac3fe400d4845146c7bd7868d45f7c833c3621c69d11"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 5
+  },
+  {
+   "name": "BYTE_TO_REAL",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION BYTE_TO_REAL : REAL\nVAR_INPUT\n    IN : BYTE;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "IEC type conversion; body left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 350,
+     "sha256": "91ca36bba305ec7b71722607458282ce82fef19200e5138c772f49e489b4376b"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "22bbee253d6823ee6815ac3fe400d4845146c7bd7868d45f7c833c3621c69d11"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "BYTE_TO_TIME",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION BYTE_TO_TIME : TIME\nVAR_INPUT\n    IN : BYTE;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "IEC type conversion; body left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 401,
+     "sha256": "ff565fa76b4b300f433c9a6ebce87c369229c1d922b30ed5d486aa554e24705c"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "22bbee253d6823ee6815ac3fe400d4845146c7bd7868d45f7c833c3621c69d11"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "CIRCLE_SEG",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION CIRCLE_SEG : REAL\nVAR_INPUT\n    RX : REAL;\n    HX : REAL;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT: area of circle segment with radius RX and height HX; edge handling unsure so body empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/16_Phoenix_PC_Worx/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 186,
+     "sha256": "8b8dd357c5ac07d0fedb07de9b88a49186a902f1ec771db8604050dbf843425f"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 186,
+     "sha256": "8d60b660befab4bc0e3e800737b3e711366c40decdf1ef019b5c51b5f0ec76e2"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "22bbee253d6823ee6815ac3fe400d4845146c7bd7868d45f7c833c3621c69d11"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "CYCLE_4",
+   "kind": "FUNCTION_BLOCK",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK CYCLE_4\nVAR_INPUT\n    E : BOOL := TRUE;\n    T0 : TIME;\n    T1 : TIME;\n    T2 : TIME;\n    T3 : TIME;\n    S0 : BOOL;\n    SX : INT;\n    SL : BOOL;\nEND_VAR\nVAR_OUTPUT\n    STATE : INT;\n    TRIG : BOOL;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "OSCAT 4-state timed cycle sequencer; uses system time.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/16_Phoenix_PC_Worx/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 363,
+     "sha256": "37cd06d26d42b777031be75edef2602d7cb7772431361c3d52e940d4241e03e9"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 363,
+     "sha256": "8949968ea431ee680d28d2c025b4227d79aa5dfcb7c8ef71ed23d61247b5a5ec"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "22bbee253d6823ee6815ac3fe400d4845146c7bd7868d45f7c833c3621c69d11"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "C_TO_F",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION C_TO_F : REAL\nVAR_INPUT\n    CELSIUS : REAL;\nEND_VAR\nC_TO_F := CELSIUS * 1.8 + 32.0;\nEND_FUNCTION\n",
+   "note": "OSCAT Celsius to Fahrenheit.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "22bbee253d6823ee6815ac3fe400d4845146c7bd7868d45f7c833c3621c69d11"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DATE_TO_DT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DATE_TO_DT : DT\nVAR_INPUT\n    IN : DATE;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "IEC type conversion; body left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_date_to.html.txt",
+     "line": 94,
+     "sha256": "2dcc0d54f25e4867e668102307fc730643a64b5387d51081e78bc76665cc704f"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "22bbee253d6823ee6815ac3fe400d4845146c7bd7868d45f7c833c3621c69d11"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DATE_TO_DWORD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DATE_TO_DWORD : DWORD\nVAR_INPUT\n    IN : DATE;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "IEC type conversion (seconds since 1970); body left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_date_to.html.txt",
+     "line": 98,
+     "sha256": "3e09ef463f478b791dd6d7d45d508c8d76d60eb500a0772e4e64cbd748615b72"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "22bbee253d6823ee6815ac3fe400d4845146c7bd7868d45f7c833c3621c69d11"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DATE_TO_UDINT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DATE_TO_UDINT : UDINT\nVAR_INPUT\n    IN : DATE;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "IEC type conversion (seconds since 1970); body left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_date_to.html.txt",
+     "line": 160,
+     "sha256": "7fa1e97ebe07236cf4fbf58c0aff36c4daf536091c386f6e006d208dd30809b4"
+    },
+    {
+     "file": "rusty_compatibility/21_Panasonic_FPWIN/该厂商st规范/ST规范/retry_0.validation.txt",
+     "line": 456,
+     "sha256": "715edf0d9c839a8090d2100bf5c6d4c011ca7bf00c8566e701b4e3d7f61ed5ad"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "22bbee253d6823ee6815ac3fe400d4845146c7bd7868d45f7c833c3621c69d11"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DAY_OF_MONTH",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DAY_OF_MONTH : INT\nVAR_INPUT\n    IDATE : DATE;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT: day of month of IDATE; result used as INT argument of SET_DATE (inferred BOOL is wrong).",
+   "passages": [
+    {
+     "file": "rusty_compatibility/16_Phoenix_PC_Worx/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 213,
+     "sha256": "5343780ddafdb3ad9fbf39521f4c293be5e6c3679293e121491298ea42a52733"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 213,
+     "sha256": "763d9e8d9498cd91ced4cd061fbf985a47d107daf1c7887036b66c5be2114c82"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "22bbee253d6823ee6815ac3fe400d4845146c7bd7868d45f7c833c3621c69d11"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DAY_OF_YEAR",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DAY_OF_YEAR : INT\nVAR_INPUT\n    IDATE : DATE;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT: day of year 1..366; result compared with INT.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/16_Phoenix_PC_Worx/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 215,
+     "sha256": "bbc753773e1238da6bc44e0b15525cb74b6cfdda7081affe7c3e24bccb220658"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 215,
+     "sha256": "2b077e254c952c1cba794d61cdb84b10bd2ba313a85dc0810a6d352228be1999"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "22bbee253d6823ee6815ac3fe400d4845146c7bd7868d45f7c833c3621c69d11"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DEG",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DEG : REAL\nVAR_INPUT\n    RAD : REAL;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT: radians to degrees (modulo 360); body left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/16_Phoenix_PC_Worx/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 62,
+     "sha256": "863d49f0827131cd2349389ea58ee7b1302683cdd4608ae1e27aa7d9a567fb38"
+    },
+    {
+     "file": "rusty_compatibility/02_CODESYS23/库说明书/01_OSCAT Basic 文档.html.txt",
+     "line": 83,
+     "sha256": "4ff38376ed17c188ce558d5dc76a5aca8b1287fb75d34d6514b06766c283e746"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "22bbee253d6823ee6815ac3fe400d4845146c7bd7868d45f7c833c3621c69d11"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DINT_TO_TIME",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DINT_TO_TIME : TIME\nVAR_INPUT\n    IN : DINT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "IEC type conversion (milliseconds); body left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 402,
+     "sha256": "00f4c8b31bc277d51bcf18f5c4324d513bae57f021c5cd3595c34a777e17f05b"
+    },
+    {
+     "file": "rusty_compatibility/21_Panasonic_FPWIN/该厂商st规范/ST规范/retry_0.validation.txt",
+     "line": 473,
+     "sha256": "8edf7750048e1bcb661b02420723daecaf9a604528f99354d027ee323442c6fe"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "22bbee253d6823ee6815ac3fe400d4845146c7bd7868d45f7c833c3621c69d11"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 16
+  },
+  {
+   "name": "DINT_TO_TOD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DINT_TO_TOD : TOD\nVAR_INPUT\n    IN : DINT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Standard conversion: milliseconds since midnight to TOD. Body left empty because RuSTy's internal time unit differs from PC WORX's milliseconds.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 419,
+     "sha256": "cc077a8bcf03ca3536a0c9d0c2f11a64028d929ac3aed18dd05ae6f2dff11660"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "bb40a4e06becf492fa333f684e685fb0358a00b8c808babcb654f9e1eeef4fe8"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DIV_T_AI",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DIV_T_AI : TIME\nVAR_INPUT\n    IN1 : TIME;\n    IN2 : DINT;\nEND_VAR\nDIV_T_AI := IN1 / IN2;\nEND_FUNCTION\n",
+   "note": "PC WORX divides a TIME by an integer (ANY_INT).",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "bb40a4e06becf492fa333f684e685fb0358a00b8c808babcb654f9e1eeef4fe8"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 11
+  },
+  {
+   "name": "DIV_T_AN",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DIV_T_AN : TIME\nVAR_INPUT\n    IN1 : TIME;\n    IN2 : DINT;\nEND_VAR\nDIV_T_AN := IN1 / IN2;\nEND_FUNCTION\n",
+   "note": "Divides a TIME by a number. The result is compared with TIME values, so it returns TIME, not the BOOL that was inferred.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "bb40a4e06becf492fa333f684e685fb0358a00b8c808babcb654f9e1eeef4fe8"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 5
+  },
+  {
+   "name": "DT_TO_DWORD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DT_TO_DWORD : DWORD\nVAR_INPUT\n    IN : DT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Converts DT to seconds since 1970. Body left empty because RuSTy stores time in different units.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_date_to.html.txt",
+     "line": 99,
+     "sha256": "5dd4db2db6ec394ff0ab71ddd025519b1866a313023f19ffd8d8797d1c53dae7"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "bb40a4e06becf492fa333f684e685fb0358a00b8c808babcb654f9e1eeef4fe8"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DT_TO_UDINT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DT_TO_UDINT : UDINT\nVAR_INPUT\n    IN : DT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Converts DT to seconds since 1970. Body left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_date_to.html.txt",
+     "line": 161,
+     "sha256": "d6364d4fdf493b839a1740cb61caa2390e30286a4f2a252bc92ddf18d75a212c"
+    },
+    {
+     "file": "rusty_compatibility/21_Panasonic_FPWIN/该厂商st规范/ST规范/retry_0.validation.txt",
+     "line": 457,
+     "sha256": "c626fd4427595322ba15e5981b13056214792c30dc23f9c9247e03f4b0a5526b"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "bb40a4e06becf492fa333f684e685fb0358a00b8c808babcb654f9e1eeef4fe8"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DWORD_OF_BYTE",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DWORD_OF_BYTE : DWORD\nVAR_INPUT\n    B3 : BYTE;\n    B2 : BYTE;\n    B1 : BYTE;\n    B0 : BYTE;\nEND_VAR\nDWORD_OF_BYTE := SHL(BYTE_TO_DWORD(B3), 24) OR SHL(BYTE_TO_DWORD(B2), 16) OR SHL(BYTE_TO_DWORD(B1), 8) OR BYTE_TO_DWORD(B0);\nEND_FUNCTION\n",
+   "note": "OSCAT: builds a DWORD from 4 bytes, with B3 as the most significant byte.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/16_Phoenix_PC_Worx/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 406,
+     "sha256": "b2d7806079cf5a6bfccb01c7885498fc4c4eb38076337dcb75aefbe2e6eb593c"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 406,
+     "sha256": "8baeb3ec30b62e951163e076de199007d3e4b85e6d06a84384f9809f1db29bed"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "bb40a4e06becf492fa333f684e685fb0358a00b8c808babcb654f9e1eeef4fe8"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 9
+  },
+  {
+   "name": "DWORD_TO_DATE",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DWORD_TO_DATE : DATE\nVAR_INPUT\n    IN : DWORD;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Converts seconds since 1970 to DATE. Body left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/16_Phoenix_PC_Worx/库说明书/docs/oscat_building100_en.sample.txt",
+     "line": 286,
+     "sha256": "0f965ff14f62893de9560397f6f56c736a5b0f54adb19ff5b0c9f58c2a4b27b1"
+    },
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 148,
+     "sha256": "623c85db920c5cf4c6f5a6b0bcf61d0c2f8bad6dc3b98ccd12fa9add64d460c1"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "bb40a4e06becf492fa333f684e685fb0358a00b8c808babcb654f9e1eeef4fe8"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DWORD_TO_DT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DWORD_TO_DT : DT\nVAR_INPUT\n    IN : DWORD;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Converts seconds since 1970 to DT. Body left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 182,
+     "sha256": "026e476ccebb829643385f87e93b92f397df0fd03b59f688175d4fdb93bd944d"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "bb40a4e06becf492fa333f684e685fb0358a00b8c808babcb654f9e1eeef4fe8"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DWORD_TO_TIME",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DWORD_TO_TIME : TIME\nVAR_INPUT\n    IN : DWORD;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Converts milliseconds to TIME. Body left empty because the units differ in RuSTy.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/TimeControl/CHANGELOG.md",
+     "line": 4,
+     "sha256": "43e50920bb4fc317ec52348b8d84d6ef3f7773aa912b1fe3aa17259b79235d26"
+    },
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 403,
+     "sha256": "c1c12f77b7403ff7390dfe3a7974a4e1a6acfe4a19a3a46df342e2c6efe12383"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "bb40a4e06becf492fa333f684e685fb0358a00b8c808babcb654f9e1eeef4fe8"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DWORD_TO_TOD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DWORD_TO_TOD : TOD\nVAR_INPUT\n    IN : DWORD;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Converts milliseconds since midnight to TOD. Body left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 420,
+     "sha256": "0e9cd9449af5b7166ea328a10c2ff9b16e2ed096bb72d5a2d0fd6c050eefe13b"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "bb40a4e06becf492fa333f684e685fb0358a00b8c808babcb654f9e1eeef4fe8"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "EQ_STRING",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION EQ_STRING : BOOL\nVAR_INPUT\n    IN1 : STRING[255];\n    IN2 : STRING[255];\nEND_VAR\nEQ_STRING := IN1 = IN2;\nEND_FUNCTION\n",
+   "note": "PC WORX string equality comparison.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "bb40a4e06becf492fa333f684e685fb0358a00b8c808babcb654f9e1eeef4fe8"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 26
+  },
+  {
+   "name": "EXP10",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION EXP10 : REAL\nVAR_INPUT\n    X : REAL;\nEND_VAR\nEXP10 := EXP(X * 2.30258509299405);\nEND_FUNCTION\n",
+   "note": "OSCAT: returns 10 to the power X.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/16_Phoenix_PC_Worx/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 67,
+     "sha256": "8f0f145b53e829c7218e51ac48add9f326a1995f3d87e202b4442da8e4eabc88"
+    },
+    {
+     "file": "rusty_compatibility/02_CODESYS23/库说明书/01_OSCAT Basic 文档.html.txt",
+     "line": 379,
+     "sha256": "bee480b05c403293546cd397f19adfe2ea6fccfd60a9938fde4c85f2e3a41b11"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "bb40a4e06becf492fa333f684e685fb0358a00b8c808babcb654f9e1eeef4fe8"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "FILTER_I",
+   "kind": "FUNCTION_BLOCK",
+   "category": "source",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK FILTER_I\nVAR_INPUT\n    X : INT;\n    T : TIME;\nEND_VAR\nVAR_OUTPUT\n    Y : INT;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "OSCAT first-order filter for INT values. It depends on the system time.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/16_Phoenix_PC_Worx/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 469,
+     "sha256": "53a6877c742310c9f1b001505b9277b049117dd47109ed8b15d8476f85b67a60"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 469,
+     "sha256": "53a6877c742310c9f1b001505b9277b049117dd47109ed8b15d8476f85b67a60"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "bb40a4e06becf492fa333f684e685fb0358a00b8c808babcb654f9e1eeef4fe8"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "FT_INT2",
+   "kind": "FUNCTION_BLOCK",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK FT_INT2\nVAR_INPUT\n    in : REAL;\n    run : BOOL;\n    rst : BOOL;\nEND_VAR\nVAR_OUTPUT\n    Out : REAL;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "OSCAT integrator that runs on system time.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "bb40a4e06becf492fa333f684e685fb0358a00b8c808babcb654f9e1eeef4fe8"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "F_TO_C",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION F_TO_C : REAL\nVAR_INPUT\n    FAHRENHEIT : REAL;\nEND_VAR\nF_TO_C := (FAHRENHEIT - 32.0) * 0.5555555556;\nEND_FUNCTION\n",
+   "note": "OSCAT: converts Fahrenheit to Celsius.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "bb40a4e06becf492fa333f684e685fb0358a00b8c808babcb654f9e1eeef4fe8"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "GEN_PULSE",
+   "kind": "FUNCTION_BLOCK",
+   "category": "source",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK GEN_PULSE\nVAR_INPUT\n    PTH : TIME;\n    PTL : TIME;\nEND_VAR\nVAR_OUTPUT\n    Q : BOOL;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "OSCAT pulse generator (high time PTH, low time PTL). It runs on system time.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/16_Phoenix_PC_Worx/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 445,
+     "sha256": "1004717fbefdc7362268a5c635b49d08f16d30f8c7e553e1ce22d5cefb651b8f"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 445,
+     "sha256": "25b0a40595fba77c293104f1e9e34306446a619717b558dc437fa7ff68db9be5"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "bb40a4e06becf492fa333f684e685fb0358a00b8c808babcb654f9e1eeef4fe8"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "GET_CHAR",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION GET_CHAR : INT\nVAR_INPUT\n    IN1 : STRING[255];\n    IN2 : INT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Returns the character code at position IN2 of the string. Body left empty because it is unclear whether positions start at 0 or 1.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "bb40a4e06becf492fa333f684e685fb0358a00b8c808babcb654f9e1eeef4fe8"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 25
+  },
+  {
+   "name": "hyst_1",
+   "kind": "FUNCTION_BLOCK",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK hyst_1\nVAR_INPUT\n    in : REAL;\n    high : REAL;\n    low : REAL;\nEND_VAR\nVAR_OUTPUT\n    Q : BOOL;\n    win : BOOL;\nEND_VAR\nIF in < low THEN\n    Q := FALSE;\n    win := FALSE;\nELSIF in > high THEN\n    Q := TRUE;\n    win := FALSE;\nELSE\n    win := TRUE;\nEND_IF;\nEND_FUNCTION_BLOCK\n",
+   "note": "OSCAT HYST_1 hysteresis switch.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "bb40a4e06becf492fa333f684e685fb0358a00b8c808babcb654f9e1eeef4fe8"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "INC1",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION INC1 : INT\nVAR_INPUT\n    X : INT;\n    N : INT;\nEND_VAR\nIF X >= N - 1 THEN\n    INC1 := 0;\nELSE\n    INC1 := X + 1;\nEND_IF;\nEND_FUNCTION\n",
+   "note": "OSCAT INC1: increments X and wraps to 0 when it reaches N. The documentation passage is only a table of contents, so the behaviour comes from knowledge of the OSCAT library.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/16_Phoenix_PC_Worx/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 82,
+     "sha256": "93d7ab65afd2de05535e047a4ff59bda2f0980350bfe577197bcc9e9d8ad908b"
+    },
+    {
+     "file": "rusty_compatibility/02_CODESYS23/库说明书/01_OSCAT Basic 文档.html.txt",
+     "line": 394,
+     "sha256": "226063782fbe3b10c5a83fc4ac1c072ff1f0119345ef491212eb2302f391fbe0"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "44fd2371c9d4dffe05e9173ea1c16752956318d3a0551bde3c301b55b4030820"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "interlock",
+   "kind": "FUNCTION_BLOCK",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK interlock\nVAR_INPUT\n    I1 : BOOL;\n    I2 : BOOL;\n    TL : TIME;\nEND_VAR\nVAR_OUTPUT\n    Q1 : BOOL;\n    Q2 : BOOL;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "OSCAT INTERLOCK: two inputs that lock each other out, with a lockout time TL. It uses an internal timer, so it depends on time. Body left empty. The call site writes i1; IEC identifiers are not case-sensitive, so it matches I1.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/docs/DMC_V19/4- Siemens Open Library - Detailed Block Overview.sample.txt",
+     "line": 48,
+     "sha256": "f813b4a12e8aae4f2e112785fd0064bc199b010b7b2746cdefb7ff6b318e4321"
+    },
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/docs/DMC_V19/1- Siemens Open Library - Library Overview and Architecture.sample.txt",
+     "line": 49,
+     "sha256": "79f7c29da56c81b70ebc8927e5a0ca1ccf3c0b6d48228819832b0c3b321b7fdb"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "44fd2371c9d4dffe05e9173ea1c16752956318d3a0551bde3c301b55b4030820"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "IP_CONNECT",
+   "kind": "FUNCTION_BLOCK",
+   "category": "source",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK IP_CONNECT\nVAR_INPUT\n    EN_C : BOOL;\n    PARTNER : STRING;\nEND_VAR\nVAR_OUTPUT\n    VALID : BOOL;\n    ERROR : BOOL;\n    STATUS : INT;\n    ID : INT;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "PC WORX block that opens an IP connection (network). Body left empty.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "44fd2371c9d4dffe05e9173ea1c16752956318d3a0551bde3c301b55b4030820"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 9
+  },
+  {
+   "name": "IP_CORE",
+   "kind": "FUNCTION_BLOCK",
+   "category": "source",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK IP_CORE\nVAR_INPUT\n    Iud_TIME_DIFF : UDINT;\n    Xus_IP_CONTROL : oscat_us_IP_CONTROL;\n    Xus_RECEIVE_BUFFER : oscat_us_IP_DATA;\n    Xus_SEND_BUFFER : oscat_us_IP_DATA;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "OSCAT network core block. Its buffers are both read and written through instance members, so they are declared as VAR_INPUT. Body left empty.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "44fd2371c9d4dffe05e9173ea1c16752956318d3a0551bde3c301b55b4030820"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "ISC_NUM",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION ISC_NUM : BOOL\nVAR_INPUT\n    IN : BYTE;\nEND_VAR\nISC_NUM := (IN >= BYTE#48) AND (IN <= BYTE#57);\nEND_FUNCTION\n",
+   "note": "OSCAT ISC_NUM: TRUE when the character code is an ASCII digit '0' to '9'.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/16_Phoenix_PC_Worx/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 325,
+     "sha256": "c31d18801b9f24ad4690828cc4c3dc50ed4f690295ecbc938da012ef976ec84e"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 325,
+     "sha256": "fd67f7a2ac3004a22ece74b08aa49bf9690604d2d873f3a4ffaed6ab6f29a348"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "44fd2371c9d4dffe05e9173ea1c16752956318d3a0551bde3c301b55b4030820"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 9
+  },
+  {
+   "name": "LIMIT_INT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION LIMIT_INT : INT\nVAR_INPUT\n    MN : INT;\n    IN : INT;\n    MX : INT;\nEND_VAR\nIF IN < MN THEN\n    LIMIT_INT := MN;\nELSIF IN > MX THEN\n    LIMIT_INT := MX;\nELSE\n    LIMIT_INT := IN;\nEND_IF;\nEND_FUNCTION\n",
+   "note": "PC WORX INT version of the IEC LIMIT function (MN, IN, MX).",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "44fd2371c9d4dffe05e9173ea1c16752956318d3a0551bde3c301b55b4030820"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 24
+  },
+  {
+   "name": "LIMIT_REAL",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION LIMIT_REAL : REAL\nVAR_INPUT\n    MN : REAL;\n    IN : REAL;\n    MX : REAL;\nEND_VAR\nIF IN < MN THEN\n    LIMIT_REAL := MN;\nELSIF IN > MX THEN\n    LIMIT_REAL := MX;\nELSE\n    LIMIT_REAL := IN;\nEND_IF;\nEND_FUNCTION\n",
+   "note": "PC WORX REAL version of the IEC LIMIT function.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "44fd2371c9d4dffe05e9173ea1c16752956318d3a0551bde3c301b55b4030820"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 15
+  },
+  {
+   "name": "LINEAR_INT",
+   "kind": "FUNCTION_BLOCK",
+   "category": "pure",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK LINEAR_INT\nVAR_INPUT\n    X : REAL;\n    XY : oscat_XY;\n    Pts : INT;\nEND_VAR\nVAR_OUTPUT\n    LINEAR_INT : REAL;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "OSCAT linear interpolation over a table of points. In the PC WORX port it is a function block whose result is in the output LINEAR_INT. Body left empty because the layout of oscat_XY is not shown.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/16_Phoenix_PC_Worx/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 181,
+     "sha256": "5898b8068888c9872fcd4a3b7910dd26c93e8d7c7c978cba204abd6d12cbb9a8"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 181,
+     "sha256": "cb519be7a2a150b078177ce45af29a6763f9956f23a0c3266ba08814972f55e3"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "44fd2371c9d4dffe05e9173ea1c16752956318d3a0551bde3c301b55b4030820"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "MANUAL_2",
+   "kind": "FUNCTION_BLOCK",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK MANUAL_2\nVAR_INPUT\n    IN : BOOL;\n    ENA : BOOL;\n    ON : BOOL;\n    OFF : BOOL;\n    MAN : BOOL;\nEND_VAR\nVAR_OUTPUT\n    Q : BOOL;\n    STATUS : BYTE;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "OSCAT MANUAL_2: manual override of a boolean signal (on, off, manual), with a STATUS byte. STATUS is declared as BYTE as in OSCAT. Body left empty because the exact status codes are not certain.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "44fd2371c9d4dffe05e9173ea1c16752956318d3a0551bde3c301b55b4030820"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "MAX_REAL",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION MAX_REAL : REAL\nVAR_INPUT\n    IN1 : REAL;\n    IN2 : REAL;\nEND_VAR\nIF IN1 > IN2 THEN\n    MAX_REAL := IN1;\nELSE\n    MAX_REAL := IN2;\nEND_IF;\nEND_FUNCTION\n",
+   "note": "PC WORX REAL version of the IEC MAX function.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "44fd2371c9d4dffe05e9173ea1c16752956318d3a0551bde3c301b55b4030820"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 6
+  },
+  {
+   "name": "MEMSET",
+   "kind": "FUNCTION",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION MEMSET : WORD\nVAR_IN_OUT\n    ERR : INT;\nEND_VAR\nVAR_INPUT\n    VALUE : BYTE;\n    SIZE : DINT;\nEND_VAR\nVAR_IN_OUT\n    DEST : BYTE;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "PC WORX memory-fill function: fills SIZE bytes starting at DEST with VALUE, returns a WORD and reports errors in ERR. The type of the pt[] elements is not visible at the call sites, so DEST is assumed to be BYTE; check this. Body left empty.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "44fd2371c9d4dffe05e9173ea1c16752956318d3a0551bde3c301b55b4030820"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 23
+  },
+  {
+   "name": "MIN_INT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION MIN_INT : INT\nVAR_INPUT\n    IN1 : INT;\n    IN2 : INT;\nEND_VAR\nIF IN1 < IN2 THEN\n    MIN_INT := IN1;\nELSE\n    MIN_INT := IN2;\nEND_IF;\nEND_FUNCTION\n",
+   "note": "PC WORX INT version of the IEC MIN function.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "44fd2371c9d4dffe05e9173ea1c16752956318d3a0551bde3c301b55b4030820"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 15
+  },
+  {
+   "name": "MIN_REAL",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION MIN_REAL : REAL\nVAR_INPUT\n    IN1 : REAL;\n    IN2 : REAL;\nEND_VAR\nMIN_REAL := MIN(IN1, IN2);\nEND_FUNCTION\n",
+   "note": "PC WORX typed variant of the standard MIN function for REAL.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "d43bc17ef634bac8451fb7781df46d9eb61937af81ae5f4e17f56b66711bd88c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 6
+  },
+  {
+   "name": "MONTH_END",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION MONTH_END : DATE\nVAR_INPUT\n    IDATE : DATE;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT: returns the date of the last day of the month of IDATE. Body left empty because the real code needs other OSCAT date functions, so it returns zero.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/16_Phoenix_PC_Worx/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 242,
+     "sha256": "32b453b2cd4da9ce25160737502cfd08dfefe97d8ba58bf1a25129c29059adf3"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 242,
+     "sha256": "199c8ce86b903d88c0e30bc240b85d00a7b90466bfb81ad732202eccada6d19c"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "d43bc17ef634bac8451fb7781df46d9eb61937af81ae5f4e17f56b66711bd88c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "MONTH_OF_DATE",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION MONTH_OF_DATE : INT\nVAR_INPUT\n    IDATE : DATE;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT: returns the month (1..12) of IDATE. The result is used as the month argument of SET_DATE. Body left empty, so it returns zero. Call sites pass UDINT, which RuSTy converts implicitly.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/16_Phoenix_PC_Worx/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 243,
+     "sha256": "248a1ac39e0cbc2ef335b4fd24fec0e63b90ac02bd6624d5a3a0f0dc2d39b6f0"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 243,
+     "sha256": "473fcc6505ba3229fc28b4c390c8fc5d343d45aef4ff3f14be0f768ae0761a56"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "d43bc17ef634bac8451fb7781df46d9eb61937af81ae5f4e17f56b66711bd88c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "MULTI_IN",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION MULTI_IN : REAL\nVAR_INPUT\n    IN_1 : REAL;\n    IN_2 : REAL;\n    IN_3 : REAL;\n    IN_DEFAULT : REAL;\n    IN_MIN : REAL;\n    IN_MAX : REAL;\n    MODE : BYTE;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT MULTI_IN: picks or averages up to 3 sensor inputs within limits, depending on MODE. The behaviour is too complex to reproduce safely, so the body is empty. The OSCAT input 'default' is renamed IN_DEFAULT, which is safe because the call is positional.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "d43bc17ef634bac8451fb7781df46d9eb61937af81ae5f4e17f56b66711bd88c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "MUL_T_AI",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION MUL_T_AI : TIME\nVAR_INPUT\n    IN1 : TIME;\n    IN2 : DINT;\nEND_VAR\nMUL_T_AI := IN1 * IN2;\nEND_FUNCTION\n",
+   "note": "PC WORX typed MUL: TIME multiplied by an integer.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "d43bc17ef634bac8451fb7781df46d9eb61937af81ae5f4e17f56b66711bd88c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 6
+  },
+  {
+   "name": "NE_STRING",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION NE_STRING : BOOL\nVAR_INPUT\n    IN1 : STRING[1024];\n    IN2 : STRING[1024];\nEND_VAR\nNE_STRING := IN1 <> IN2;\nEND_FUNCTION\n",
+   "note": "PC WORX typed string inequality. The parameters are long enough for oscat_STRING250 arguments.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "d43bc17ef634bac8451fb7781df46d9eb61937af81ae5f4e17f56b66711bd88c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 17
+  },
+  {
+   "name": "oscat_arb_0_3",
+   "kind": "TYPE",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE oscat_arb_0_3 : ARRAY[0..3] OF BYTE; END_TYPE\n",
+   "note": "OSCAT byte array alias.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "d43bc17ef634bac8451fb7781df46d9eb61937af81ae5f4e17f56b66711bd88c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "oscat_CALENDAR",
+   "kind": "TYPE",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE oscat_CALENDAR :\nSTRUCT\n    UTC : DT;\n    LDT : DT;\n    LDATE : DATE;\n    LTOD : TOD;\n    YEAR : INT;\n    MONTH : INT;\n    DAY : INT;\n    WEEKDAY : INT;\n    OFFSET : INT;\n    DST_EN : BOOL;\n    DST_ON : BOOL;\n    NAME : STRING[5];\n    LANGUAGE : INT;\n    LONGITUDE : REAL;\n    LATITUDE : REAL;\n    SUN_RISE : TOD;\n    SUN_SET : TOD;\n    SUN_MIDDAY : TOD;\n    SUN_HEIGTH : REAL;\n    SUN_HOR : REAL;\n    SUN_VER : REAL;\n    NIGHT : BOOL;\n    HOLIDAY : BOOL;\n    HOLY_NAME : STRING[30];\n    WORK_WEEK : INT;\nEND_STRUCT\nEND_TYPE\n",
+   "note": "OSCAT CALENDAR structure.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "d43bc17ef634bac8451fb7781df46d9eb61937af81ae5f4e17f56b66711bd88c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "oscat_NW_BUF_LONG",
+   "kind": "TYPE",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE oscat_NW_BUF_LONG : ARRAY[0..2047] OF BYTE; END_TYPE\n",
+   "note": "OSCAT long network byte buffer alias.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "d43bc17ef634bac8451fb7781df46d9eb61937af81ae5f4e17f56b66711bd88c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "oscat_STRING1",
+   "kind": "TYPE",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE oscat_STRING1 : STRING[1]; END_TYPE\n",
+   "note": "PC WORX OSCAT fixed-length string alias.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "d43bc17ef634bac8451fb7781df46d9eb61937af81ae5f4e17f56b66711bd88c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 11
+  },
+  {
+   "name": "oscat_STRING10",
+   "kind": "TYPE",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE oscat_STRING10 : STRING[10]; END_TYPE\n",
+   "note": "PC WORX OSCAT fixed-length string alias.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "d43bc17ef634bac8451fb7781df46d9eb61937af81ae5f4e17f56b66711bd88c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 10
+  },
+  {
+   "name": "oscat_STRING120",
+   "kind": "TYPE",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE oscat_STRING120 : STRING[120]; END_TYPE\n",
+   "note": "PC WORX OSCAT fixed-length string alias.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "d43bc17ef634bac8451fb7781df46d9eb61937af81ae5f4e17f56b66711bd88c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 8
+  },
+  {
+   "name": "OSCAT_STRING2",
+   "kind": "TYPE",
+   "category": "constant",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE OSCAT_STRING2 : STRING[2]; END_TYPE\n",
+   "note": "OSCAT PC WORX string alias",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "426f2e453229bb90805cfff4450dfdce449a4341d3a0fd235534f05cceec343a"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 10
+  },
+  {
+   "name": "oscat_STRING250",
+   "kind": "TYPE",
+   "category": "constant",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE oscat_STRING250 : STRING[250]; END_TYPE\n",
+   "note": "OSCAT PC WORX string alias",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "426f2e453229bb90805cfff4450dfdce449a4341d3a0fd235534f05cceec343a"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 9
+  },
+  {
+   "name": "oscat_STRING255",
+   "kind": "TYPE",
+   "category": "constant",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE oscat_STRING255 : STRING[255]; END_TYPE\n",
+   "note": "OSCAT PC WORX string alias",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "426f2e453229bb90805cfff4450dfdce449a4341d3a0fd235534f05cceec343a"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "OSCAT_STRING3",
+   "kind": "TYPE",
+   "category": "constant",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE OSCAT_STRING3 : STRING[3]; END_TYPE\n",
+   "note": "OSCAT PC WORX string alias",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "426f2e453229bb90805cfff4450dfdce449a4341d3a0fd235534f05cceec343a"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 10
+  },
+  {
+   "name": "oscat_STRING32",
+   "kind": "TYPE",
+   "category": "constant",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE oscat_STRING32 : STRING[32]; END_TYPE\n",
+   "note": "OSCAT PC WORX string alias",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "426f2e453229bb90805cfff4450dfdce449a4341d3a0fd235534f05cceec343a"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 9
+  },
+  {
+   "name": "oscat_STRING4",
+   "kind": "TYPE",
+   "category": "constant",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE oscat_STRING4 : STRING[4]; END_TYPE\n",
+   "note": "OSCAT PC WORX string alias",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "426f2e453229bb90805cfff4450dfdce449a4341d3a0fd235534f05cceec343a"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 9
+  },
+  {
+   "name": "oscat_STRING50",
+   "kind": "TYPE",
+   "category": "constant",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE oscat_STRING50 : STRING[50]; END_TYPE\n",
+   "note": "OSCAT PC WORX string alias",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "426f2e453229bb90805cfff4450dfdce449a4341d3a0fd235534f05cceec343a"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 9
+  },
+  {
+   "name": "oscat_STRING60",
+   "kind": "TYPE",
+   "category": "constant",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE oscat_STRING60 : STRING[60]; END_TYPE\n",
+   "note": "OSCAT PC WORX string alias",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "426f2e453229bb90805cfff4450dfdce449a4341d3a0fd235534f05cceec343a"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 6
+  },
+  {
+   "name": "oscat_XY",
+   "kind": "TYPE",
+   "category": "constant",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 2,
+   "declaration": "TYPE oscat_XY : ARRAY[1..50] OF ARRAY[0..1] OF REAL; END_TYPE\n",
+   "note": "Indexed as data[i][0/1] with REAL values. The outer bound of 50 is a guess.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "426f2e453229bb90805cfff4450dfdce449a4341d3a0fd235534f05cceec343a"
+    },
+    {
+     "round": 2,
+     "llm_key": "1c3023055c6c0b8fea6505053f304891f0b58166e2ea73dada111cb3c824f3c5"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "PLC_SYS_TICK_CNT",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    PLC_SYS_TICK_CNT : DINT;\nEND_VAR\n",
+   "note": "PC WORX system variable: count of system ticks since start.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "734642b386d45f159c16434d7b72a51aff4ba8b7e9c0c04eef07dac911c45f7d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 17
+  },
+  {
+   "name": "PLC_TICKS_PER_SEC",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    PLC_TICKS_PER_SEC : INT;\nEND_VAR\n",
+   "note": "PC WORX system variable: system ticks per second. It is zero in the stub, so the callers' > 0 guard is taken.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "734642b386d45f159c16434d7b72a51aff4ba8b7e9c0c04eef07dac911c45f7d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 17
+  },
+  {
+   "name": "RAD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION RAD : REAL\nVAR_INPUT\n    DEG : REAL;\nEND_VAR\n    RAD := DEG * 0.0174532925199433;\nEND_FUNCTION\n",
+   "note": "OSCAT RAD converts degrees to radians. OSCAT also reduces the result modulo 2*PI; that step is left out.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/16_Phoenix_PC_Worx/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 95,
+     "sha256": "c6686c8a90c240687bb50417f3f16effdfc032ba674453e4a5565cfaafb45dce"
+    },
+    {
+     "file": "rusty_compatibility/02_CODESYS23/库说明书/01_OSCAT Basic 文档.html.txt",
+     "line": 405,
+     "sha256": "3ceb42e4f8fe580419ee4e4f17d388bd3873d083a0e3b57d852bab1b500e753f"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "ce51232e75da1a8b9ce1021df7bcce71e86520303b9272c2d6f8c2f5e435fa04"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "REAL_TO_BYTE",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION REAL_TO_BYTE : BYTE\nVAR_INPUT\n    IN : REAL;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Standard conversion; returns BYTE because the result is ORed and assigned as BYTE. Body left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_real_to.html.txt",
+     "line": 52,
+     "sha256": "96b824ba6f2395b6d8210c76fcd5b24c3293a83b9270a88ccb6e2d2b5abf9214"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "ce51232e75da1a8b9ce1021df7bcce71e86520303b9272c2d6f8c2f5e435fa04"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 15
+  },
+  {
+   "name": "REAL_TO_TIME",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION REAL_TO_TIME : TIME\nVAR_INPUT\n    IN : REAL;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Standard conversion; the input is taken as milliseconds. Body left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_real_to.html.txt",
+     "line": 125,
+     "sha256": "eb227d3ce39a87af94b477048f749a15696d7be552da5ca4be48dc77b1112a53"
+    },
+    {
+     "file": "rusty_compatibility/21_Panasonic_FPWIN/该厂商st规范/ST规范/retry_0.validation.txt",
+     "line": 475,
+     "sha256": "7f786202140cc906908726edc7c6984d4aa06f114252632b8a4ec6ec26d27e07"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "ce51232e75da1a8b9ce1021df7bcce71e86520303b9272c2d6f8c2f5e435fa04"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "REAL_TO_WORD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION REAL_TO_WORD : WORD\nVAR_INPUT\n    IN : REAL;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Standard conversion. Body left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_real_to.html.txt",
+     "line": 152,
+     "sha256": "a9d7020c96d259db149e1641aae36bc9ec9ac736e6828254413b7961fe26af7f"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "ce51232e75da1a8b9ce1021df7bcce71e86520303b9272c2d6f8c2f5e435fa04"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 15
+  },
+  {
+   "name": "rmp_B",
+   "kind": "FUNCTION_BLOCK",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK rmp_B\nVAR_INPUT\n    SET : BOOL;\n    PT : TIME;\n    E : BOOL := TRUE;\n    UP : BOOL := TRUE;\n    RST : BOOL;\nEND_VAR\nVAR_OUTPUT\n    OUT : BYTE;\n    BUSY : BOOL;\n    HIGH : BOOL;\n    LOW : BOOL;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "OSCAT RMP_B, a byte ramp generator that depends on time. OUT is declared as an output because the call sites read it as a member. No body.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/16_Phoenix_PC_Worx/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 456,
+     "sha256": "9863ee67e24bd153e3007f3da8e79513ff72a66eac272481dfc76fcd8713db18"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 456,
+     "sha256": "0a7b8a57c4af3f6f674a8dd7c7f0f0744ea2b0a69dfbb67548bd62bc36fb3313"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "ce51232e75da1a8b9ce1021df7bcce71e86520303b9272c2d6f8c2f5e435fa04"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "ROL_BYTE",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION ROL_BYTE : BYTE\nVAR_INPUT\n    IN : BYTE;\n    N : DINT;\nEND_VAR\nVAR\n    s : DINT;\nEND_VAR\n    s := N MOD 8;\n    IF s < 0 THEN s := s + 8; END_IF;\n    ROL_BYTE := SHL(IN, s) OR SHR(IN, 8 - s);\nEND_FUNCTION\n",
+   "note": "Rotates a byte left. The 'BOOL' result type was inferred wrongly: the result is combined with BYTE masks, so it returns BYTE.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "ce51232e75da1a8b9ce1021df7bcce71e86520303b9272c2d6f8c2f5e435fa04"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 15
+  },
+  {
+   "name": "ROL_DWORD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION ROL_DWORD : DWORD\nVAR_INPUT\n    IN : DWORD;\n    N : DINT;\nEND_VAR\nVAR\n    s : DINT;\nEND_VAR\n    s := N MOD 32;\n    IF s < 0 THEN s := s + 32; END_IF;\n    ROL_DWORD := SHL(IN, s) OR SHR(IN, 32 - s);\nEND_FUNCTION\n",
+   "note": "Rotates a DWORD left. Returns DWORD, not BOOL. INT counts from the call sites widen to DINT.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/29_Emerson_PACSystems/该厂商st规范/spec/PACSystems_GFK2950N_Instrumart.txt",
+     "line": 3309,
+     "sha256": "8e9c750078ec78d4afd34748506a470ba903e7c257f065d3d35f819af1083ee7"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "ce51232e75da1a8b9ce1021df7bcce71e86520303b9272c2d6f8c2f5e435fa04"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 23
+  },
+  {
+   "name": "ROL_WORD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION ROL_WORD : WORD\nVAR_INPUT\n    IN : WORD;\n    N : DINT;\nEND_VAR\nVAR\n    s : DINT;\nEND_VAR\n    s := N MOD 16;\n    IF s < 0 THEN s := s + 16; END_IF;\n    ROL_WORD := SHL(IN, s) OR SHR(IN, 16 - s);\nEND_FUNCTION\n",
+   "note": "Rotates a WORD left.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/29_Emerson_PACSystems/该厂商st规范/spec/PACSystems_GFK2950N_Instrumart.txt",
+     "line": 3310,
+     "sha256": "35e81624433be34cf05192238c53877008a5d65d5ba0677ceb6c2e5acf605759"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "ce51232e75da1a8b9ce1021df7bcce71e86520303b9272c2d6f8c2f5e435fa04"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 15
+  },
+  {
+   "name": "ROR_BYTE",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION ROR_BYTE : BYTE\nVAR_INPUT\n    IN : BYTE;\n    N : DINT;\nEND_VAR\nVAR\n    s : DINT;\nEND_VAR\n    s := N MOD 8;\n    IF s < 0 THEN s := s + 8; END_IF;\n    ROR_BYTE := SHR(IN, s) OR SHL(IN, 8 - s);\nEND_FUNCTION\n",
+   "note": "Rotates a byte right. Returns BYTE, not BOOL.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "ce51232e75da1a8b9ce1021df7bcce71e86520303b9272c2d6f8c2f5e435fa04"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 15
+  },
+  {
+   "name": "ROR_DWORD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION ROR_DWORD : DWORD\nVAR_INPUT\n    IN : DWORD;\n    N : DINT;\nEND_VAR\nVAR\n    s : DINT;\nEND_VAR\n    s := N MOD 32;\n    IF s < 0 THEN s := s + 32; END_IF;\n    ROR_DWORD := SHR(IN, s) OR SHL(IN, 32 - s);\nEND_FUNCTION\n",
+   "note": "Rotates a DWORD right. Returns DWORD, not BOOL.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/29_Emerson_PACSystems/该厂商st规范/spec/PACSystems_GFK2950N_Instrumart.txt",
+     "line": 3313,
+     "sha256": "b916f2e82d25b4630042d24e1bf0d016027630b234666ff77a2c99d125ff403b"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "ce51232e75da1a8b9ce1021df7bcce71e86520303b9272c2d6f8c2f5e435fa04"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 23
+  },
+  {
+   "name": "RTC_DAY",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    RTC_DAY : INT;\nEND_VAR\n",
+   "note": "PC WORX real-time clock system variable: day of the month.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "734642b386d45f159c16434d7b72a51aff4ba8b7e9c0c04eef07dac911c45f7d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 6
+  },
+  {
+   "name": "RTC_HOURS",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    RTC_HOURS : INT;\nEND_VAR\n",
+   "note": "PC WORX real-time clock system variable: hours.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "734642b386d45f159c16434d7b72a51aff4ba8b7e9c0c04eef07dac911c45f7d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 6
+  },
+  {
+   "name": "RTC_MINUTES",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    RTC_MINUTES : INT;\nEND_VAR\n",
+   "note": "PC WORX real-time clock system variable: minutes.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "734642b386d45f159c16434d7b72a51aff4ba8b7e9c0c04eef07dac911c45f7d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 6
+  },
+  {
+   "name": "RTC_MONTH",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    RTC_MONTH : INT;\nEND_VAR\n",
+   "note": "PC WORX real-time clock system variable: month.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "734642b386d45f159c16434d7b72a51aff4ba8b7e9c0c04eef07dac911c45f7d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 6
+  },
+  {
+   "name": "RTC_SECONDS",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    RTC_SECONDS : INT;\nEND_VAR\n",
+   "note": "PC WORX real-time clock system variable: seconds.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "734642b386d45f159c16434d7b72a51aff4ba8b7e9c0c04eef07dac911c45f7d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "RTC_YEAR",
+   "kind": "VAR_GLOBAL",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    RTC_YEAR : INT;\nEND_VAR\n",
+   "note": "PC WORX real-time clock system variable: year.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "734642b386d45f159c16434d7b72a51aff4ba8b7e9c0c04eef07dac911c45f7d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 6
+  },
+  {
+   "name": "SEL_BYTE",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION SEL_BYTE : BYTE\nVAR_INPUT\n    G : BOOL;\n    IN0 : BYTE;\n    IN1 : BYTE;\nEND_VAR\n    IF G THEN SEL_BYTE := IN1; ELSE SEL_BYTE := IN0; END_IF;\nEND_FUNCTION\n",
+   "note": "Typed IEC SEL: returns IN0 when G is FALSE and IN1 when G is TRUE.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "ce51232e75da1a8b9ce1021df7bcce71e86520303b9272c2d6f8c2f5e435fa04"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "SEL_DINT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION SEL_DINT : DINT\nVAR_INPUT\n    G : BOOL;\n    IN0 : DINT;\n    IN1 : DINT;\nEND_VAR\n    IF G THEN SEL_DINT := IN1; ELSE SEL_DINT := IN0; END_IF;\nEND_FUNCTION\n",
+   "note": "Typed IEC SEL for DINT.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "ce51232e75da1a8b9ce1021df7bcce71e86520303b9272c2d6f8c2f5e435fa04"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 6
+  },
+  {
+   "name": "SEL_REAL",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION SEL_REAL : REAL\nVAR_INPUT\n    G : BOOL;\n    IN0 : REAL;\n    IN1 : REAL;\nEND_VAR\n    IF G THEN SEL_REAL := IN1; ELSE SEL_REAL := IN0; END_IF;\nEND_FUNCTION\n",
+   "note": "Typed IEC SEL for REAL.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "ce51232e75da1a8b9ce1021df7bcce71e86520303b9272c2d6f8c2f5e435fa04"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 9
+  },
+  {
+   "name": "SEL_STRING",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION SEL_STRING : STRING[255]\nVAR_INPUT\n    G : BOOL;\n    IN0 : STRING[255];\n    IN1 : STRING[255];\nEND_VAR\n    IF G THEN SEL_STRING := IN1; ELSE SEL_STRING := IN0; END_IF;\nEND_FUNCTION\n",
+   "note": "Typed IEC SEL for STRING. Declared STRING[255] because some results are assigned to oscat_STRING250.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "ce51232e75da1a8b9ce1021df7bcce71e86520303b9272c2d6f8c2f5e435fa04"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 19
+  },
+  {
+   "name": "SEL_TIME",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION SEL_TIME : TIME\nVAR_INPUT\n    G : BOOL;\n    IN0 : TIME;\n    IN1 : TIME;\nEND_VAR\n    IF G THEN SEL_TIME := IN1; ELSE SEL_TIME := IN0; END_IF;\nEND_FUNCTION\n",
+   "note": "Typed IEC SEL for TIME.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "ce51232e75da1a8b9ce1021df7bcce71e86520303b9272c2d6f8c2f5e435fa04"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 9
+  },
+  {
+   "name": "sequence_8",
+   "kind": "FUNCTION_BLOCK",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK sequence_8\nVAR_INPUT\n    in0 : BOOL := TRUE;\n    in1 : BOOL := TRUE;\n    in2 : BOOL := TRUE;\n    in3 : BOOL := TRUE;\n    in4 : BOOL := TRUE;\n    in5 : BOOL := TRUE;\n    in6 : BOOL := TRUE;\n    in7 : BOOL := TRUE;\n    start : BOOL;\n    rst : BOOL;\n    wait0 : TIME;\n    delay0 : TIME;\n    wait1 : TIME;\n    delay1 : TIME;\n    wait2 : TIME;\n    delay2 : TIME;\n    wait3 : TIME;\n    delay3 : TIME;\n    wait4 : TIME;\n    delay4 : TIME;\n    wait5 : TIME;\n    delay5 : TIME;\n    wait6 : TIME;\n    delay6 : TIME;\n    wait7 : TIME;\n    delay7 : TIME;\n    stop_on_error : BOOL;\nEND_VAR\nVAR_OUTPUT\n    Q0 : BOOL;\n    Q1 : BOOL;\n    Q2 : BOOL;\n    Q3 : BOOL;\n    Q4 : BOOL;\n    Q5 : BOOL;\n    Q6 : BOOL;\n    Q7 : BOOL;\n    QX : BOOL;\n    run : BOOL;\n    step : INT;\n    status : BYTE;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "OSCAT SEQUENCE_8 timed 8-step sequencer; time-based, body left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/16_Phoenix_PC_Worx/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 371,
+     "sha256": "0b1c1e35bbe282d5adca767c109d28524d2d0e7a7d9d92e65198ad1168c06ca2"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 371,
+     "sha256": "0b1c1e35bbe282d5adca767c109d28524d2d0e7a7d9d92e65198ad1168c06ca2"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5135d1702c86d976c2b7858d923eb0c755f28b679f9019de866d9976aeec8abf"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "set_Date",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION set_Date : UDINT\nVAR_INPUT\n    YEAR : INT;\n    MONTH : INT;\n    DAY : INT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT SET_DATE builds a date from year/month/day; result used as UDINT in this port. Not implemented.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/16_Phoenix_PC_Worx/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 256,
+     "sha256": "bdca7d44fc8fe023fd3f1750a7025b7af431f764f2bb0449e437246e6152ab82"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 256,
+     "sha256": "1818ab5bf6c92539c95c2ce21be69cd9094199aa85456422d303c3d318ed8688"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5135d1702c86d976c2b7858d923eb0c755f28b679f9019de866d9976aeec8abf"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 8
+  },
+  {
+   "name": "SHL_DWORD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION SHL_DWORD : DWORD\nVAR_INPUT\n    IN : DWORD;\n    N : INT;\nEND_VAR\nSHL_DWORD := SHL(IN, N);\nEND_FUNCTION\n",
+   "note": "PC WORX typed shift left.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5135d1702c86d976c2b7858d923eb0c755f28b679f9019de866d9976aeec8abf"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 24
+  },
+  {
+   "name": "SHL_WORD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION SHL_WORD : WORD\nVAR_INPUT\n    IN : WORD;\n    N : INT;\nEND_VAR\nSHL_WORD := SHL(IN, N);\nEND_FUNCTION\n",
+   "note": "PC WORX typed shift left.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5135d1702c86d976c2b7858d923eb0c755f28b679f9019de866d9976aeec8abf"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 23
+  },
+  {
+   "name": "SHR_BYTE",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION SHR_BYTE : BYTE\nVAR_INPUT\n    IN : BYTE;\n    N : INT;\nEND_VAR\nSHR_BYTE := SHR(IN, N);\nEND_FUNCTION\n",
+   "note": "PC WORX typed shift right.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5135d1702c86d976c2b7858d923eb0c755f28b679f9019de866d9976aeec8abf"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 24
+  },
+  {
+   "name": "SHR_DWORD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION SHR_DWORD : DWORD\nVAR_INPUT\n    IN : DWORD;\n    N : INT;\nEND_VAR\nSHR_DWORD := SHR(IN, N);\nEND_FUNCTION\n",
+   "note": "PC WORX typed shift right.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5135d1702c86d976c2b7858d923eb0c755f28b679f9019de866d9976aeec8abf"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 24
+  },
+  {
+   "name": "SHR_WORD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION SHR_WORD : WORD\nVAR_INPUT\n    IN : WORD;\n    N : INT;\nEND_VAR\nSHR_WORD := SHR(IN, N);\nEND_FUNCTION\n",
+   "note": "PC WORX typed shift right.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5135d1702c86d976c2b7858d923eb0c755f28b679f9019de866d9976aeec8abf"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 15
+  },
+  {
+   "name": "STRING_TO_BYTE",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION STRING_TO_BYTE : BYTE\nVAR_INPUT\n    IN : STRING[255];\nEND_VAR\nEND_FUNCTION\n",
+   "note": "String to integer conversion; parsing not implemented.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_string_to.html.txt",
+     "line": 59,
+     "sha256": "d82a4f4b9e70dc614f0d09124533827600b5892ee42c24ddc9b49e5b729191be"
+    },
+    {
+     "file": "rusty_compatibility/09_Schneider_Machine_Expert/该厂商st规范/spec/MachineExpert_V2.2_ST_Programming_Reference.html",
+     "line": 7254,
+     "sha256": "0d458ab814f6a61f610f54aa8543a96089523e31107b98a37024ab5c7bba83d3"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5135d1702c86d976c2b7858d923eb0c755f28b679f9019de866d9976aeec8abf"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 20
+  },
+  {
+   "name": "STRING_TO_DWORD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION STRING_TO_DWORD : DWORD\nVAR_INPUT\n    IN : STRING[255];\nEND_VAR\nEND_FUNCTION\n",
+   "note": "String to DWORD conversion; result OR-ed with DWORDs. Not implemented.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_string_to.html.txt",
+     "line": 81,
+     "sha256": "4321c218b795aaf92f632777d5c0b58a43ddf25f4ab3fb9a33443e215b84f025"
+    },
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_vartypes_var_in_out.html.txt",
+     "line": 123,
+     "sha256": "8b31cc4ebe6aecd409d564c1c97b4518062773af5f71292df8b02a8886817879"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5135d1702c86d976c2b7858d923eb0c755f28b679f9019de866d9976aeec8abf"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 23
+  },
+  {
+   "name": "STRING_TO_INT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION STRING_TO_INT : INT\nVAR_INPUT\n    IN : STRING[255];\nEND_VAR\nEND_FUNCTION\n",
+   "note": "String to INT conversion; not implemented.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_string_to.html.txt",
+     "line": 84,
+     "sha256": "b77ac2025ee7448b3e50dee5527bf3f204e2a1280a770c5b0e18e1598155b624"
+    },
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 719,
+     "sha256": "e9d6e02301c9f4fb2f6cfec6648e529f236c8366e645d26988b0f927d5b01a79"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5135d1702c86d976c2b7858d923eb0c755f28b679f9019de866d9976aeec8abf"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 24
+  },
+  {
+   "name": "STRING_TO_UDINT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION STRING_TO_UDINT : UDINT\nVAR_INPUT\n    IN : STRING;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "String to UDINT conversion; not implemented.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_string_to.html.txt",
+     "line": 152,
+     "sha256": "678551adfd35b141ddab0ab6ce57d1ffa705af44d9e1d6723cdb1b703fd48302"
+    },
+    {
+     "file": "rusty_compatibility/21_Panasonic_FPWIN/该厂商st规范/ST规范/retry_0.validation.txt",
+     "line": 455,
+     "sha256": "90ffd4765d0e87d535a77fd7c9a16f4e93b8d2522848b4fc7ce3af2e9b7aa28f"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5135d1702c86d976c2b7858d923eb0c755f28b679f9019de866d9976aeec8abf"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 22
+  },
+  {
+   "name": "STRING_TO_WORD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION STRING_TO_WORD : WORD\nVAR_INPUT\n    IN : STRING;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "String to WORD conversion (used for URL port); not implemented.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_string_to.html.txt",
+     "line": 167,
+     "sha256": "1e4203b31d22b37231fb4824e78a462a621e83a3aa44f9dc25ca44056bf68b4d"
+    },
+    {
+     "file": "rusty_compatibility/09_Schneider_Machine_Expert/该厂商st规范/spec/MachineExpert_V2.2_ST_Programming_Reference.html",
+     "line": 7246,
+     "sha256": "e20d215308b4229dd1721a1ba0ce3b7a171d8797ae80d8bd49475d6514eade13"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5135d1702c86d976c2b7858d923eb0c755f28b679f9019de866d9976aeec8abf"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 15
+  },
+  {
+   "name": "sx",
+   "kind": "VAR_GLOBAL",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    sx : oscat_blind_scene_array;\nEND_VAR\n",
+   "note": "Scene storage array of BYTE arrays, indexed sx[x][0..2]; type from library.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/09_Schneider_Machine_Expert/该厂商st规范/spec/MachineExpert_V2.2_ST_Programming_Reference.html",
+     "line": 1165,
+     "sha256": "eb680a6bb1c5d5bf58a0c7dbd4e389546656e7ea57a8278b3feade3287d15468"
+    },
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/该厂商st规范/ST规范/spec_02.validation.txt",
+     "line": 747,
+     "sha256": "4d61bf8ca9c8eafb785426bc194914b76bbe45f6b21238707f7986d1e77c073a"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5135d1702c86d976c2b7858d923eb0c755f28b679f9019de866d9976aeec8abf"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "TIMECHECK",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TIMECHECK : BOOL\nVAR_INPUT\n    TD : TOD;\n    START : TOD;\n    STOP : TOD;\nEND_VAR\nIF STOP < START THEN\n    TIMECHECK := (START <= TD) OR (TD < STOP);\nELSE\n    TIMECHECK := (START <= TD) AND (TD < STOP);\nEND_IF;\nEND_FUNCTION\n",
+   "note": "OSCAT TIMECHECK: TRUE when TD lies in [START, STOP), wrapping past midnight.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/02_CODESYS23/库说明书/01_OSCAT Basic 文档.html.txt",
+     "line": 662,
+     "sha256": "361ed6519c88b1024bb5cc6e8c75df54b4a9b09849de1bf59cbcbb0540d7738d"
+    },
+    {
+     "file": "rusty_compatibility/04_TwinCAT2/库说明书/01_OSCAT Basic 文档及历史手册入口.html.txt",
+     "line": 662,
+     "sha256": "361ed6519c88b1024bb5cc6e8c75df54b4a9b09849de1bf59cbcbb0540d7738d"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5135d1702c86d976c2b7858d923eb0c755f28b679f9019de866d9976aeec8abf"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "TIME_TO_DINT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TIME_TO_DINT : DINT\nVAR_INPUT\n    IN : TIME;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "TIME to DINT (ms); not implemented due to RuSTy time units.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_time_to.html.txt",
+     "line": 58,
+     "sha256": "50c9691a5b3b0d5ab8151b431ae1edc44845e51874d3fa9eda05ab639f996e72"
+    },
+    {
+     "file": "rusty_compatibility/21_Panasonic_FPWIN/该厂商st规范/ST规范/retry_0.validation.txt",
+     "line": 446,
+     "sha256": "c0657cec97f5c240e45f3f30346c0a637b7e9fe93a6b934e44e55ab2aba1cb50"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5135d1702c86d976c2b7858d923eb0c755f28b679f9019de866d9976aeec8abf"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 17
+  },
+  {
+   "name": "TIME_TO_DWORD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TIME_TO_DWORD : DWORD\nVAR_INPUT\n    IN : TIME;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "TIME to DWORD milliseconds (T#5m -> 300000); not implemented.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/09_Schneider_Machine_Expert/该厂商st规范/spec/MachineExpert_V2.2_ST_Programming_Reference.html",
+     "line": 7124,
+     "sha256": "e3b10c64ddaf44b7b12645f8af7b4c31202971b586555ec469bdf67d8e424185"
+    },
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_time_to.html.txt",
+     "line": 67,
+     "sha256": "d9dbadb8b3aa9610f29965451d82dfc83ffc965203d0c9c357bf3d2a2c7462c8"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5135d1702c86d976c2b7858d923eb0c755f28b679f9019de866d9976aeec8abf"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "TIME_TO_INT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TIME_TO_INT : INT\nVAR_INPUT\n    IN : TIME;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "TIME to INT conversion; not implemented.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 720,
+     "sha256": "e76e2f1b9266082f118410efb1973434bfa3b262554828a8b6de88ae0ea1008f"
+    },
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_time_to.html.txt",
+     "line": 70,
+     "sha256": "16589e1c4125059b4b100a910f71d8fc2f586bc1c86ec623f7928446a16d8a80"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5135d1702c86d976c2b7858d923eb0c755f28b679f9019de866d9976aeec8abf"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "TIME_TO_REAL",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TIME_TO_REAL : REAL\nVAR_INPUT\n    IN : TIME;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "TIME to REAL milliseconds; not implemented.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_time_to.html.txt",
+     "line": 102,
+     "sha256": "70e4f3284a41d14954dfb18f6d1185932d91ccabe24adbcb69915ee9de494e87"
+    },
+    {
+     "file": "rusty_compatibility/21_Panasonic_FPWIN/该厂商st规范/ST规范/retry_0.validation.txt",
+     "line": 464,
+     "sha256": "e2f456f3b03066f94b17bb29aaa1e4aed671edb2b517243e32b4389918246c2b"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5135d1702c86d976c2b7858d923eb0c755f28b679f9019de866d9976aeec8abf"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "TIME_TO_TOD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TIME_TO_TOD : TOD\nVAR_INPUT\n    IN : TIME;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "TIME to TIME_OF_DAY conversion; not implemented.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_time_to.html.txt",
+     "line": 123,
+     "sha256": "42d261b06eca0ef1d287dd8d6ad6c2826b6ec4177267399007ff3fd7fcfe45f7"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5135d1702c86d976c2b7858d923eb0c755f28b679f9019de866d9976aeec8abf"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "TIME_TO_UDINT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TIME_TO_UDINT : UDINT\nVAR_INPUT\n    IN : TIME;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "IEC conversion: returns the TIME as milliseconds. The return type is UDINT, not the inferred BOOL, because MAX(UDINT#200, ...) needs a UDINT. The body is left empty because RuSTy stores TIME in nanoseconds.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_time_to.html.txt",
+     "line": 130,
+     "sha256": "69fac926a27c3a0d9734e34abc5dc47807a29b879483cb2cb37e83fcd1129aa6"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "25d592de03dfd460ed4443f1a0e7b280e7e2d85cc216d5ae494cc88c4970fcc1"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 10
+  },
+  {
+   "name": "TOD_TO_DINT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TOD_TO_DINT : DINT\nVAR_INPUT\n    IN : TOD;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "IEC conversion: returns the time of day in milliseconds. The body is left empty because RuSTy stores TOD in nanoseconds.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_date_to.html.txt",
+     "line": 76,
+     "sha256": "ca85c7336fd4213f472fb34dfc55ab9e2e5d0b723e4a59339a8a5c8bd71071a6"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "25d592de03dfd460ed4443f1a0e7b280e7e2d85cc216d5ae494cc88c4970fcc1"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "TOD_TO_DWORD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TOD_TO_DWORD : DWORD\nVAR_INPUT\n    IN : TOD;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "IEC conversion: returns the time of day in milliseconds. No body.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_date_to.html.txt",
+     "line": 100,
+     "sha256": "119541b7c4a710203a403ed37e95ebf4ab6321654a1b4ea5149d9ad38abeb7d8"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "25d592de03dfd460ed4443f1a0e7b280e7e2d85cc216d5ae494cc88c4970fcc1"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "TOD_TO_TIME",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TOD_TO_TIME : TIME\nVAR_INPUT\n    IN : TOD;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "IEC conversion from TOD to TIME. The input is declared TOD as the standard says, although the one call site passes a UDINT. No body.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_time_to.html.txt",
+     "line": 245,
+     "sha256": "0da048f2090f5a812e5c91fa3c83c2904157c3366c728dda586cd7ef5b10dcd1"
+    },
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_date_to.html.txt",
+     "line": 154,
+     "sha256": "6e1c48fd0376959f09d6d99fa59cf9fc6600d9dbfa01a7b3df30ba3e818448ed"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "25d592de03dfd460ed4443f1a0e7b280e7e2d85cc216d5ae494cc88c4970fcc1"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "TONOF",
+   "kind": "FUNCTION_BLOCK",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK TONOF\nVAR_INPUT\n    IN : BOOL;\n    T_ON : TIME;\n    T_OFF : TIME;\nEND_VAR\nVAR_OUTPUT\n    Q : BOOL;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "OSCAT timer with both on-delay and off-delay. It reads the system time. No body.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/16_Phoenix_PC_Worx/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 375,
+     "sha256": "441bc6bc88420347a5a81fdada5d1f0b651b0bd55382937ab9c49c677c2aa478"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 375,
+     "sha256": "441bc6bc88420347a5a81fdada5d1f0b651b0bd55382937ab9c49c677c2aa478"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "25d592de03dfd460ed4443f1a0e7b280e7e2d85cc216d5ae494cc88c4970fcc1"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "TP_1D",
+   "kind": "FUNCTION_BLOCK",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK TP_1D\nVAR_INPUT\n    IN : BOOL;\n    PT1 : TIME;\n    PTD : TIME;\n    RST : BOOL;\nEND_VAR\nVAR_OUTPUT\n    Q : BOOL;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "OSCAT pulse timer with a dead time. RST and rst are the same name because names are not case-sensitive. No body.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/16_Phoenix_PC_Worx/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 377,
+     "sha256": "ab1f453b6ca2a0bb79c32eec87a3225363094b32a0592d1ef007fad3d1085864"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 377,
+     "sha256": "ab1f453b6ca2a0bb79c32eec87a3225363094b32a0592d1ef007fad3d1085864"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "25d592de03dfd460ed4443f1a0e7b280e7e2d85cc216d5ae494cc88c4970fcc1"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "UDINT_TO_DATE",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION UDINT_TO_DATE : DATE\nVAR_INPUT\n    IN : UDINT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "IEC conversion: the input is seconds since 1970. No body.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 153,
+     "sha256": "e4fea279294b9d73c3c2e2993edab372be69e4549005d3b13fb791707346fd5f"
+    },
+    {
+     "file": "rusty_compatibility/21_Panasonic_FPWIN/该厂商st规范/ST规范/retry_0.validation.txt",
+     "line": 480,
+     "sha256": "6d27656c19c26ccd670609a727ce72a7b8d0a9abe09ee0230a32c3815f5743e2"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "25d592de03dfd460ed4443f1a0e7b280e7e2d85cc216d5ae494cc88c4970fcc1"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "UDINT_TO_DT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION UDINT_TO_DT : DT\nVAR_INPUT\n    IN : UDINT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "IEC conversion: the input is seconds since 1970. No body.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 187,
+     "sha256": "1fae8ee8ed03c86c02895aba6d40d7fba7fabd2ea057f3c109fc526affbc21c5"
+    },
+    {
+     "file": "rusty_compatibility/21_Panasonic_FPWIN/该厂商st规范/ST规范/retry_0.validation.txt",
+     "line": 477,
+     "sha256": "5a3a4d42f9ea75e8b666e99804c069bf1e4f7f9df4e98e03682325675299666f"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "25d592de03dfd460ed4443f1a0e7b280e7e2d85cc216d5ae494cc88c4970fcc1"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "UDINT_TO_TIME",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION UDINT_TO_TIME : TIME\nVAR_INPUT\n    IN : UDINT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "IEC conversion: the input is milliseconds. No body.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 408,
+     "sha256": "599065a4e0cc47bdffa7f34325342754bbd0d2deec363becb1f9ff5730253457"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "25d592de03dfd460ed4443f1a0e7b280e7e2d85cc216d5ae494cc88c4970fcc1"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 10
+  },
+  {
+   "name": "WORD_OF_BYTE",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION WORD_OF_BYTE : WORD\nVAR_INPUT\n    B1 : BYTE;\n    B0 : BYTE;\nEND_VAR\nWORD_OF_BYTE := SHL(BYTE_TO_WORD(B1), 8) OR BYTE_TO_WORD(B0);\nEND_FUNCTION\n",
+   "note": "OSCAT: builds a WORD with B1 as the high byte and B0 as the low byte.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/16_Phoenix_PC_Worx/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 422,
+     "sha256": "23edeaa28c3ed8b2999df49569680d908a79971b6d0ff319c17da2c25ad0c1be"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 422,
+     "sha256": "23edeaa28c3ed8b2999df49569680d908a79971b6d0ff319c17da2c25ad0c1be"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "ee71fb6c53f0451f73bbffca54d3a67ad91cd528920779bf1ce91ae8fcc9340d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 9
+  },
+  {
+   "name": "WORD_TO_REAL",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION WORD_TO_REAL : REAL\nVAR_INPUT\n    IN : WORD;\nEND_VAR\nWORD_TO_REAL := UINT_TO_REAL(WORD_TO_UINT(IN));\nEND_FUNCTION\n",
+   "note": "Standard unsigned conversion from WORD to REAL.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 361,
+     "sha256": "67d48c7f681dec5c9a647fca4202c440ed5d9215865a9eff2b7f11b86b81eb4a"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "ee71fb6c53f0451f73bbffca54d3a67ad91cd528920779bf1ce91ae8fcc9340d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 6
+  },
+  {
+   "name": "WORD_TO_STRING",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION WORD_TO_STRING : STRING\nVAR_INPUT\n    IN : WORD;\n    FORMAT : STRING;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "PC WORX version that formats with a printf-style format string. The formatting is not implemented, so the result is an empty string.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 395,
+     "sha256": "26062c245fc392a8f780177eba0d37dcc9607a36b6001c2a5c09801be4e04777"
+    },
+    {
+     "file": "rusty_compatibility/21_Panasonic_FPWIN/该厂商st规范/ST规范/retry_0.validation.txt",
+     "line": 486,
+     "sha256": "3ea6284bdfb643d62c81f3ab0b351fbd9b67948d45d1509cee3a1e4918449865"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "ee71fb6c53f0451f73bbffca54d3a67ad91cd528920779bf1ce91ae8fcc9340d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 19
+  },
+  {
+   "name": "_BYTE_TO_DINT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION _BYTE_TO_DINT : DINT\nVAR_INPUT\n    IN : BYTE;\nEND_VAR\n_BYTE_TO_DINT := UDINT_TO_DINT(BYTE_TO_UDINT(IN));\nEND_FUNCTION\n",
+   "note": "PC WORX conversion helper (unsigned).",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "ee71fb6c53f0451f73bbffca54d3a67ad91cd528920779bf1ce91ae8fcc9340d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "_BYTE_TO_INT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION _BYTE_TO_INT : INT\nVAR_INPUT\n    IN : BYTE;\nEND_VAR\n_BYTE_TO_INT := UINT_TO_INT(BYTE_TO_UINT(IN));\nEND_FUNCTION\n",
+   "note": "PC WORX conversion helper (unsigned).",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "ee71fb6c53f0451f73bbffca54d3a67ad91cd528920779bf1ce91ae8fcc9340d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 10
+  },
+  {
+   "name": "_RMP_B",
+   "kind": "FUNCTION_BLOCK",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK _RMP_B\nVAR_INPUT\n    DIR : BOOL;\n    E : BOOL := TRUE;\n    TR : TIME;\n    RMP : BYTE;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "OSCAT byte ramp generator, which reads the system timer. In OSCAT, RMP is IN_OUT. Here it is an input because the call sites read and write it as a member.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/16_Phoenix_PC_Worx/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 442,
+     "sha256": "8ec69edefabc14bf7e31e7402dd2f06e75aab267dbf3c62410e261d3eca214b1"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 442,
+     "sha256": "c5e40288e00ded18ec8cb05a4ee3359217ae036f74f8be9058616b1e67500587"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "ee71fb6c53f0451f73bbffca54d3a67ad91cd528920779bf1ce91ae8fcc9340d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "_RMP_NEXT",
+   "kind": "FUNCTION_BLOCK",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK _RMP_NEXT\nVAR_INPUT\n    E : BOOL := TRUE;\n    IN : BYTE;\n    TR : TIME;\n    TF : TIME;\n    TL : TIME;\n    OUT : BYTE;\nEND_VAR\nVAR_OUTPUT\n    UP : BOOL;\n    DN : BOOL;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "OSCAT ramp that follows IN, which reads the system timer. In OSCAT, OUT is IN_OUT. Here it is an input because the call sites read and write it as a member.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/16_Phoenix_PC_Worx/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 443,
+     "sha256": "44e16b338fc52f30c9f15a53cbaf593f697e9e3c704569e5257326c3a431283a"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 443,
+     "sha256": "d69eaa091b1fae21db368a894cbede464742932aeb8f68ded0d0f9979b0cc097"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "ee71fb6c53f0451f73bbffca54d3a67ad91cd528920779bf1ce91ae8fcc9340d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "_WORD_TO_DINT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION _WORD_TO_DINT : DINT\nVAR_INPUT\n    IN : WORD;\nEND_VAR\n_WORD_TO_DINT := UDINT_TO_DINT(WORD_TO_UDINT(IN));\nEND_FUNCTION\n",
+   "note": "PC WORX conversion helper (unsigned).",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "ee71fb6c53f0451f73bbffca54d3a67ad91cd528920779bf1ce91ae8fcc9340d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 9
+  }
+ ]
+}

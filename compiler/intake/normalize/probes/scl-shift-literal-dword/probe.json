@@ -1,0 +1,1 @@
+{"rule": "scl-shift-literal-dword", "dialect": "siemens-scl", "reject_codes": ["E064"], "expected_output": "131327 1048575\n"}

@@ -1,0 +1,3079 @@
+{
+ "schema_version": "semantist.environment-stubs/1.0.0",
+ "family": "br",
+ "stubs": [
+  {
+   "name": "BAND_B",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION BAND_B : BYTE\nVAR_INPUT\n    X : BYTE;\n    B : BYTE;\nEND_VAR\nIF X < B THEN\n    BAND_B := BYTE#0;\nELSIF X > BYTE#255 - B THEN\n    BAND_B := BYTE#255;\nELSE\n    BAND_B := X;\nEND_IF;\nEND_FUNCTION\n",
+   "note": "OSCAT BAND_B: returns 0 below B, 255 above 255-B, and X otherwise.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "76cbcbdb7203965bda040b2d1c6b5e2727f489840740aebf0fbd1e8be17f24bc"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "BIT_LOAD_W",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION BIT_LOAD_W : WORD\nVAR_INPUT\n    IN : WORD;\n    VAL : BOOL;\n    POS : INT;\nEND_VAR\nIF VAL THEN\n    BIT_LOAD_W := IN OR SHL(WORD#1, POS);\nELSE\n    BIT_LOAD_W := IN AND NOT SHL(WORD#1, POS);\nEND_IF;\nEND_FUNCTION\n",
+   "note": "OSCAT BIT_LOAD_W: sets or clears bit POS of IN depending on VAL.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 386,
+     "sha256": "6e5bc64b9cb8207a0068f1cbd054ddcaf9b34b7f64d0d17f1579a090b1f38bd5"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 386,
+     "sha256": "6e5bc64b9cb8207a0068f1cbd054ddcaf9b34b7f64d0d17f1579a090b1f38bd5"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "76cbcbdb7203965bda040b2d1c6b5e2727f489840740aebf0fbd1e8be17f24bc"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "BUFFER_TO_STRING",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION BUFFER_TO_STRING : STRING[255]\nVAR_INPUT\n    PT : POINTER TO BYTE;\n    SIZE : UINT;\n    START : UINT;\n    STOP : UINT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT BUFFER_TO_STRING copies buffer bytes START..STOP into a string. STRING_LENGTH (default 254) is replaced by 255 here. The function reads through a pointer, so the body is left empty.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "76cbcbdb7203965bda040b2d1c6b5e2727f489840740aebf0fbd1e8be17f24bc"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "BYTE_OF_BIT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION BYTE_OF_BIT : BYTE\nVAR_INPUT\n    B0 : BOOL;\n    B1 : BOOL;\n    B2 : BOOL;\n    B3 : BOOL;\n    B4 : BOOL;\n    B5 : BOOL;\n    B6 : BOOL;\n    B7 : BOOL;\nEND_VAR\nBYTE_OF_BIT := BYTE#0;\nIF B0 THEN BYTE_OF_BIT := BYTE_OF_BIT OR BYTE#1; END_IF;\nIF B1 THEN BYTE_OF_BIT := BYTE_OF_BIT OR BYTE#2; END_IF;\nIF B2 THEN BYTE_OF_BIT := BYTE_OF_BIT OR BYTE#4; END_IF;\nIF B3 THEN BYTE_OF_BIT := BYTE_OF_BIT OR BYTE#8; END_IF;\nIF B4 THEN BYTE_OF_BIT := BYTE_OF_BIT OR BYTE#16; END_IF;\nIF B5 THEN BYTE_OF_BIT := BYTE_OF_BIT OR BYTE#32; END_IF;\nIF B6 THEN BYTE_OF_BIT := BYTE_OF_BIT OR BYTE#64; END_IF;\nIF B7 THEN BYTE_OF_BIT := BYTE_OF_BIT OR BYTE#128; END_IF;\nEND_FUNCTION\n",
+   "note": "OSCAT BYTE_OF_BIT: builds a byte from 8 bits, with B0 as the least significant bit.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 392,
+     "sha256": "f22575ef0e07639f11d88db0b2146653be0dd9165457575333a456f6ada6c973"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 392,
+     "sha256": "f22575ef0e07639f11d88db0b2146653be0dd9165457575333a456f6ada6c973"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "76cbcbdb7203965bda040b2d1c6b5e2727f489840740aebf0fbd1e8be17f24bc"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "BYTE_OF_DWORD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION BYTE_OF_DWORD : BYTE\nVAR_INPUT\n    IN : DWORD;\n    N : BYTE;\nEND_VAR\nBYTE_OF_DWORD := DWORD_TO_BYTE(SHR(IN, BYTE_TO_INT(N) * 8));\nEND_FUNCTION\n",
+   "note": "OSCAT BYTE_OF_DWORD: returns byte N (0 = lowest) of IN.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 393,
+     "sha256": "26ca210b8ac45bcec947ce63c5f6250c41b5a261614fd2e2464f1eb4d547f3f3"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 393,
+     "sha256": "966261ffc1c72db01599316856b6b817b52f266bce5824c71d40694707c87779"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "76cbcbdb7203965bda040b2d1c6b5e2727f489840740aebf0fbd1e8be17f24bc"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "CALENDAR",
+   "kind": "TYPE",
+   "category": "unknown",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE CALENDAR :\nSTRUCT\n    UTC : DT;\n    LDT : DT;\n    LDATE : DATE;\n    LTOD : TOD;\n    YEAR : INT;\n    MONTH : INT;\n    DAY : INT;\n    WEEKDAY : INT;\n    OFFSET : INT;\n    DST_EN : BOOL;\n    DST_ON : BOOL;\n    NAME : STRING[5];\n    LANGUAGE : INT;\n    LONGITUDE : REAL;\n    LATITUDE : REAL;\n    SUN_RISE : TOD;\n    SUN_SET : TOD;\n    SUN_MIDDAY : TOD;\n    SUN_HEIGTH : REAL;\n    SUN_HOR : REAL;\n    SUN_VER : REAL;\n    NIGHT : BOOL;\n    HOLIDAY : BOOL;\n    HOLY_NAME : STRING[30];\n    WORK_WEEK : INT;\nEND_STRUCT\nEND_TYPE\n",
+   "note": "Field layout of the OSCAT CALENDAR data type. SUN_HOR and SUN_VER are sun angles (REAL); the call sites compare them.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 21,
+     "sha256": "55a61e3c8240d96937b0e338cf1e6aa11a26fcfa58769196f5f1b5caf4d0576f"
+    },
+    {
+     "file": "rusty_compatibility/02_CODESYS23/库说明书/01_OSCAT Basic 文档.html.txt",
+     "line": 23,
+     "sha256": "526616747fd5442dc534142cde1de46543c546dd922e84c229d5ab12c96216e7"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "76cbcbdb7203965bda040b2d1c6b5e2727f489840740aebf0fbd1e8be17f24bc"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "CHARCODE",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION CHARCODE : BYTE\nVAR_INPUT\n    STR : STRING[10];\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT CHARCODE: returns the character code for an HTML entity name. It uses a lookup table, so the body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 276,
+     "sha256": "fce4bd9adbc13e043e803c2d57c44d6a23adadee81eab7bdfd532f66613e8e95"
+    },
+    {
+     "file": "rusty_compatibility/02_CODESYS23/库说明书/01_OSCAT Basic 文档.html.txt",
+     "line": 540,
+     "sha256": "cbfc0f2762109fa231c1f871cd4e546c2a3542da11af47e2015e332131e67e6d"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "76cbcbdb7203965bda040b2d1c6b5e2727f489840740aebf0fbd1e8be17f24bc"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "CHARNAME",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION CHARNAME : STRING[10]\nVAR_INPUT\n    C : BYTE;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT CHARNAME: returns the HTML entity name for a character code. It uses a lookup table, so the body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 277,
+     "sha256": "db41700533af5f0e716bd7a6d71599385a1a1edf1474f20d664cfd071ad098fc"
+    },
+    {
+     "file": "rusty_compatibility/02_CODESYS23/库说明书/01_OSCAT Basic 文档.html.txt",
+     "line": 541,
+     "sha256": "174f6344d55da34d9f79e0762f40f377db6793b275618adc60c6e400544cd342"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "76cbcbdb7203965bda040b2d1c6b5e2727f489840740aebf0fbd1e8be17f24bc"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "CHR_TO_STRING",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION CHR_TO_STRING : STRING[1]\nVAR_INPUT\n    C : BYTE;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT CHR_TO_STRING: turns a character code into a one-character string. The body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 278,
+     "sha256": "57b7195b003b4a72954beaf2907b3565a001380dfd1eafaa3ecd734aa9bb390f"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 278,
+     "sha256": "57b7195b003b4a72954beaf2907b3565a001380dfd1eafaa3ecd734aa9bb390f"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "76cbcbdb7203965bda040b2d1c6b5e2727f489840740aebf0fbd1e8be17f24bc"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "CIRCLE_SEG",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION CIRCLE_SEG : REAL\nVAR_INPUT\n    RX : REAL;\n    HX : REAL;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT CIRCLE_SEG: area of a circle segment with radius RX and height HX. OSCAT has its own edge-case handling, so the body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 186,
+     "sha256": "8b8dd357c5ac07d0fedb07de9b88a49186a902f1ec771db8604050dbf843425f"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 186,
+     "sha256": "8d60b660befab4bc0e3e800737b3e711366c40decdf1ef019b5c51b5f0ec76e2"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "76cbcbdb7203965bda040b2d1c6b5e2727f489840740aebf0fbd1e8be17f24bc"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "COUNT_CHAR",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION COUNT_CHAR : INT\nVAR_INPUT\n    STR : STRING[255];\n    CHR : BYTE;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT COUNT_CHAR: counts how often character CHR occurs in STR. The body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 281,
+     "sha256": "9bfd30f88d271c61abdb2c31839bed54dd7b4fe8a7ef2ddc1e5b497e92201971"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 281,
+     "sha256": "9bfd30f88d271c61abdb2c31839bed54dd7b4fe8a7ef2ddc1e5b497e92201971"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "76cbcbdb7203965bda040b2d1c6b5e2727f489840740aebf0fbd1e8be17f24bc"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "cPI",
+   "kind": "VAR_GLOBAL",
+   "category": "constant",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL CONSTANT\n    cPI : REAL := 3.14159265;\nEND_VAR\n",
+   "note": "The constant pi.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "76cbcbdb7203965bda040b2d1c6b5e2727f489840740aebf0fbd1e8be17f24bc"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "cPN",
+   "kind": "VAR_GLOBAL",
+   "category": "constant",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL CONSTANT\n    cPN : REAL := 101325.0;\nEND_VAR\n",
+   "note": "Assumed to be standard air pressure in Pa, based on its use in AIR_DENSITY. The value is not documented.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "76cbcbdb7203965bda040b2d1c6b5e2727f489840740aebf0fbd1e8be17f24bc"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "cT0",
+   "kind": "VAR_GLOBAL",
+   "category": "constant",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL CONSTANT\n    cT0 : REAL := -273.15;\nEND_VAR\n",
+   "note": "Absolute zero in °C. The value is inferred: T - cT0 is the temperature in Kelvin, and DEW_TEMP uses cT0 as its lower limit.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "76cbcbdb7203965bda040b2d1c6b5e2727f489840740aebf0fbd1e8be17f24bc"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "CYCLE_4",
+   "kind": "FUNCTION_BLOCK",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK CYCLE_4\nVAR_INPUT\n    E : BOOL := TRUE;\n    T0 : TIME;\n    T1 : TIME;\n    T2 : TIME;\n    T3 : TIME;\n    S0 : BOOL;\n    SX : INT;\n    SL : BOOL;\nEND_VAR\nVAR_OUTPUT\n    STATE : INT;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "OSCAT CYCLE_4: a timed sequencer that steps through 4 states. It reads the system time, so the body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 363,
+     "sha256": "37cd06d26d42b777031be75edef2602d7cb7772431361c3d52e940d4241e03e9"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 363,
+     "sha256": "8949968ea431ee680d28d2c025b4227d79aa5dfcb7c8ef71ed23d61247b5a5ec"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "76cbcbdb7203965bda040b2d1c6b5e2727f489840740aebf0fbd1e8be17f24bc"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "C_TO_F",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION C_TO_F : REAL\nVAR_INPUT\n    CELSIUS : REAL;\nEND_VAR\nC_TO_F := CELSIUS * 1.8 + 32.0;\nEND_FUNCTION\n",
+   "note": "Converts Celsius to Fahrenheit.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "76cbcbdb7203965bda040b2d1c6b5e2727f489840740aebf0fbd1e8be17f24bc"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DATE_TO_DT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DATE_TO_DT : DT\nVAR_INPUT\n    IN : DATE;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "IEC conversion from DATE to DT at midnight. The body is left empty because the DATE representation differs between B&R and RuSTy.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_date_to.html.txt",
+     "line": 94,
+     "sha256": "2dcc0d54f25e4867e668102307fc730643a64b5387d51081e78bc76665cc704f"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "76cbcbdb7203965bda040b2d1c6b5e2727f489840740aebf0fbd1e8be17f24bc"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DATE_TO_DWORD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DATE_TO_DWORD : DWORD\nVAR_INPUT\n    IN : DATE;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "B&R conversion that gives seconds since 1970. The body is left empty because RuSTy stores DATE in nanoseconds.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_date_to.html.txt",
+     "line": 98,
+     "sha256": "3e09ef463f478b791dd6d7d45d508c8d76d60eb500a0772e4e64cbd748615b72"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "76cbcbdb7203965bda040b2d1c6b5e2727f489840740aebf0fbd1e8be17f24bc"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 3
+  },
+  {
+   "name": "DATE_TO_UDINT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DATE_TO_UDINT : UDINT\nVAR_INPUT\n    IN : DATE;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "B&R conversion that gives seconds since 1970. The body is left empty because the DATE representation differs between B&R and RuSTy.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_date_to.html.txt",
+     "line": 160,
+     "sha256": "7fa1e97ebe07236cf4fbf58c0aff36c4daf536091c386f6e006d208dd30809b4"
+    },
+    {
+     "file": "rusty_compatibility/21_Panasonic_FPWIN/该厂商st规范/ST规范/retry_0.validation.txt",
+     "line": 456,
+     "sha256": "715edf0d9c839a8090d2100bf5c6d4c011ca7bf00c8566e701b4e3d7f61ed5ad"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "76cbcbdb7203965bda040b2d1c6b5e2727f489840740aebf0fbd1e8be17f24bc"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DAY_OF_MONTH",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DAY_OF_MONTH : INT\nVAR_INPUT\n    IDATE : DATE;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT DAY_OF_MONTH: returns the day of the month (1..31). The call sites compare the result with integers, so it returns INT, not the inferred BOOL. The body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 213,
+     "sha256": "5343780ddafdb3ad9fbf39521f4c293be5e6c3679293e121491298ea42a52733"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 213,
+     "sha256": "763d9e8d9498cd91ced4cd061fbf985a47d107daf1c7887036b66c5be2114c82"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "76cbcbdb7203965bda040b2d1c6b5e2727f489840740aebf0fbd1e8be17f24bc"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DAY_OF_YEAR",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DAY_OF_YEAR : INT\nVAR_INPUT\n    IDATE : DATE;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT BASIC: returns the day of the year (1..366) for a date. The result is compared with INT values. The body is left empty because the leap-year logic is not given in the passage.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 215,
+     "sha256": "bbc753773e1238da6bc44e0b15525cb74b6cfdda7081affe7c3e24bccb220658"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 215,
+     "sha256": "2b077e254c952c1cba794d61cdb84b10bd2ba313a85dc0810a6d352228be1999"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5fcb22bd829868cccd8f8471e8baae0ba13f693f45847a1752fd78ccd80799b9"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DEG",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DEG : REAL\nVAR_INPUT\n    RAD : REAL;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT BASIC: converts radians to degrees, wrapped with MODR to 0..360. The body is left empty because MODR is not available here.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 62,
+     "sha256": "863d49f0827131cd2349389ea58ee7b1302683cdd4608ae1e27aa7d9a567fb38"
+    },
+    {
+     "file": "rusty_compatibility/02_CODESYS23/库说明书/01_OSCAT Basic 文档.html.txt",
+     "line": 83,
+     "sha256": "4ff38376ed17c188ce558d5dc76a5aca8b1287fb75d34d6514b06766c283e746"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5fcb22bd829868cccd8f8471e8baae0ba13f693f45847a1752fd78ccd80799b9"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DINT_TO_TIME",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DINT_TO_TIME : TIME\nVAR_INPUT\n    IN : DINT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "IEC conversion that reads the DINT as milliseconds. The body is left empty because RuSTy stores TIME in nanoseconds, so the scaling is unclear.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 402,
+     "sha256": "00f4c8b31bc277d51bcf18f5c4324d513bae57f021c5cd3595c34a777e17f05b"
+    },
+    {
+     "file": "rusty_compatibility/21_Panasonic_FPWIN/该厂商st规范/ST规范/retry_0.validation.txt",
+     "line": 473,
+     "sha256": "8edf7750048e1bcb661b02420723daecaf9a604528f99354d027ee323442c6fe"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5fcb22bd829868cccd8f8471e8baae0ba13f693f45847a1752fd78ccd80799b9"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DINT_TO_TOD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DINT_TO_TOD : TOD\nVAR_INPUT\n    IN : DINT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "IEC conversion from milliseconds since midnight to TOD. The body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 419,
+     "sha256": "cc077a8bcf03ca3536a0c9d0c2f11a64028d929ac3aed18dd05ae6f2dff11660"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5fcb22bd829868cccd8f8471e8baae0ba13f693f45847a1752fd78ccd80799b9"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DLOG_REAL_ARRAY_DATA",
+   "kind": "TYPE",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 2,
+   "declaration": "TYPE DLOG_REAL_ARRAY_ELEMENT :\nSTRUCT\n    COLUMN : STRING[40];\n    DELTA : REAL;\n    VALUE : REAL;\n    _delta_last : REAL;\n    _value_last : REAL;\nEND_STRUCT\nEND_TYPE\nTYPE DLOG_REAL_ARRAY_DATA : ARRAY[0..255] OF DLOG_REAL_ARRAY_ELEMENT; END_TYPE\n",
+   "note": "Indexed at call sites (R_ARRAY[idx].member), so declared as an array of a helper element struct.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5fcb22bd829868cccd8f8471e8baae0ba13f693f45847a1752fd78ccd80799b9"
+    },
+    {
+     "round": 2,
+     "llm_key": "d3e12c776e36a835d3fcf805865d7710772c0da7fe7f32fceeb7a0580c783b6c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DT_TO_DWORD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DT_TO_DWORD : DWORD\nVAR_INPUT\n    IN : DT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "IEC conversion from DT to seconds since 1970. The body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_date_to.html.txt",
+     "line": 99,
+     "sha256": "5dd4db2db6ec394ff0ab71ddd025519b1866a313023f19ffd8d8797d1c53dae7"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5fcb22bd829868cccd8f8471e8baae0ba13f693f45847a1752fd78ccd80799b9"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "DT_TO_STRF",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DT_TO_STRF : STRING[255]\nVAR_INPUT\n    DTI : DT;\n    MS : INT;\n    FMT : STRING[255];\n    LANG : INT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT BASIC: formats a DT as a string using a format template. The body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 286,
+     "sha256": "732c3751c458ef002fe294620269b157b744296085dd106bcb0b8f1e98b4aec2"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 286,
+     "sha256": "732c3751c458ef002fe294620269b157b744296085dd106bcb0b8f1e98b4aec2"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5fcb22bd829868cccd8f8471e8baae0ba13f693f45847a1752fd78ccd80799b9"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DT_TO_UDINT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DT_TO_UDINT : UDINT\nVAR_INPUT\n    IN : DT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "IEC conversion from DT to seconds since 1970. The body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_date_to.html.txt",
+     "line": 161,
+     "sha256": "d6364d4fdf493b839a1740cb61caa2390e30286a4f2a252bc92ddf18d75a212c"
+    },
+    {
+     "file": "rusty_compatibility/21_Panasonic_FPWIN/该厂商st规范/ST规范/retry_0.validation.txt",
+     "line": 457,
+     "sha256": "c626fd4427595322ba15e5981b13056214792c30dc23f9c9247e03f4b0a5526b"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5fcb22bd829868cccd8f8471e8baae0ba13f693f45847a1752fd78ccd80799b9"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "DWORD_OF_BYTE",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DWORD_OF_BYTE : DWORD\nVAR_INPUT\n    B3 : BYTE;\n    B2 : BYTE;\n    B1 : BYTE;\n    B0 : BYTE;\nEND_VAR\nDWORD_OF_BYTE := SHL(BYTE_TO_DWORD(B3), 24) OR SHL(BYTE_TO_DWORD(B2), 16) OR SHL(BYTE_TO_DWORD(B1), 8) OR BYTE_TO_DWORD(B0);\nEND_FUNCTION\n",
+   "note": "OSCAT BASIC: builds a DWORD from 4 bytes, with B3 as the most significant byte.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 406,
+     "sha256": "b2d7806079cf5a6bfccb01c7885498fc4c4eb38076337dcb75aefbe2e6eb593c"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 406,
+     "sha256": "8baeb3ec30b62e951163e076de199007d3e4b85e6d06a84384f9809f1db29bed"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5fcb22bd829868cccd8f8471e8baae0ba13f693f45847a1752fd78ccd80799b9"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DWORD_TO_DT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DWORD_TO_DT : DT\nVAR_INPUT\n    IN : DWORD;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "IEC conversion from seconds since 1970 to DT. The body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 182,
+     "sha256": "026e476ccebb829643385f87e93b92f397df0fd03b59f688175d4fdb93bd944d"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5fcb22bd829868cccd8f8471e8baae0ba13f693f45847a1752fd78ccd80799b9"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "DWORD_TO_TIME",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DWORD_TO_TIME : TIME\nVAR_INPUT\n    IN : DWORD;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "IEC conversion that reads the DWORD as milliseconds. The body is left empty because of the TIME scaling in RuSTy.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/库说明书/gxw2-libraries/libraries/TimeControl/CHANGELOG.md",
+     "line": 4,
+     "sha256": "43e50920bb4fc317ec52348b8d84d6ef3f7773aa912b1fe3aa17259b79235d26"
+    },
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 403,
+     "sha256": "c1c12f77b7403ff7390dfe3a7974a4e1a6acfe4a19a3a46df342e2c6efe12383"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5fcb22bd829868cccd8f8471e8baae0ba13f693f45847a1752fd78ccd80799b9"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 3
+  },
+  {
+   "name": "DWORD_TO_TOD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DWORD_TO_TOD : TOD\nVAR_INPUT\n    IN : DWORD;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "IEC conversion from milliseconds since midnight to TOD. The body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 420,
+     "sha256": "0e9cd9449af5b7166ea328a10c2ff9b16e2ed096bb72d5a2d0fd6c050eefe13b"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5fcb22bd829868cccd8f8471e8baae0ba13f693f45847a1752fd78ccd80799b9"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "DW_TO_REAL",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION DW_TO_REAL : REAL\nVAR_INPUT\n    X : DWORD;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT BASIC: reinterprets the bit pattern of a DWORD as an IEEE754 REAL. The body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 405,
+     "sha256": "6e7e99746f1e016980b6ff7a2a81004103ce29a18933aa7498437844adf3c16e"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 405,
+     "sha256": "ca351ed81092fdea80c014be1457237dd05c51b1db0293e1e226a52714bd85bd"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5fcb22bd829868cccd8f8471e8baae0ba13f693f45847a1752fd78ccd80799b9"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "EXP10",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION EXP10 : REAL\nVAR_INPUT\n    X : REAL;\nEND_VAR\nEXP10 := EXP(X * 2.30258509299405);\nEND_FUNCTION\n",
+   "note": "OSCAT BASIC: returns 10 to the power X.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 67,
+     "sha256": "8f0f145b53e829c7218e51ac48add9f326a1995f3d87e202b4442da8e4eabc88"
+    },
+    {
+     "file": "rusty_compatibility/02_CODESYS23/库说明书/01_OSCAT Basic 文档.html.txt",
+     "line": 379,
+     "sha256": "bee480b05c403293546cd397f19adfe2ea6fccfd60a9938fde4c85f2e3a41b11"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5fcb22bd829868cccd8f8471e8baae0ba13f693f45847a1752fd78ccd80799b9"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "FILTER_I",
+   "kind": "FUNCTION_BLOCK",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK FILTER_I\nVAR_INPUT\n    X : INT;\n    T : TIME;\nEND_VAR\nVAR_OUTPUT\n    Y : INT;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "OSCAT BASIC: first-order low-pass filter for INT with time constant T. It reads the PLC timer, so the body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 469,
+     "sha256": "53a6877c742310c9f1b001505b9277b049117dd47109ed8b15d8476f85b67a60"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 469,
+     "sha256": "53a6877c742310c9f1b001505b9277b049117dd47109ed8b15d8476f85b67a60"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5fcb22bd829868cccd8f8471e8baae0ba13f693f45847a1752fd78ccd80799b9"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "FINDP",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION FINDP : INT\nVAR_INPUT\n    str : STRING[255];\n    src : STRING[255];\n    pos : INT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT BASIC: finds src in str, starting at position pos. The body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 299,
+     "sha256": "19d3ef0fddbc4b235b8c82f3c50ef3c02989173a8d35cd458d73944d5b193ed8"
+    },
+    {
+     "file": "rusty_compatibility/02_CODESYS23/库说明书/01_OSCAT Basic 文档.html.txt",
+     "line": 564,
+     "sha256": "a91407bdd9e8874c540b876b1b6cedb19f011879ce6f0e2547bdd9ce171da0c2"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5fcb22bd829868cccd8f8471e8baae0ba13f693f45847a1752fd78ccd80799b9"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "FIX",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION FIX : STRING[255]\nVAR_INPUT\n    str : STRING[255];\n    L : INT;\n    C : BYTE;\n    M : INT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT BASIC: pads or truncates str to length L using fill character C, with mode M. The body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/库内说明/Piper_83da87a8374d/src/Ar/Piper/CHANGELOG.md",
+     "line": 2,
+     "sha256": "e1ce041cd13fd2176316794633c4263ca334bd843af00f9c44b5ece8871e8175"
+    },
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 300,
+     "sha256": "89355684e6d561dbe8604d3920c518a239fdf23315d93268d872f4cf7bce6a4c"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5fcb22bd829868cccd8f8471e8baae0ba13f693f45847a1752fd78ccd80799b9"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "FSTRING_TO_BYTE",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION FSTRING_TO_BYTE : BYTE\nVAR_INPUT\n    IN : STRING[255];\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT BASIC: converts a formatted string (e.g. 2#, 8#, 16# or decimal) to a BYTE. The body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 302,
+     "sha256": "627b2673822825874425c8bdc9869b3b5f04b519cab898300d3ef10ef0816c52"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 302,
+     "sha256": "cf8885234bbc5e6b20a400b3fba683dd36e173ad24e1e137bcd5333da8425855"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5fcb22bd829868cccd8f8471e8baae0ba13f693f45847a1752fd78ccd80799b9"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "FSTRING_TO_WEEK",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION FSTRING_TO_WEEK : BYTE\nVAR_INPUT\n    WEEK : STRING[255];\n    LANG : INT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT BASIC: converts a list of weekday names to a BYTE bitmask. The body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 306,
+     "sha256": "d931f0f1fb572ebf73a1422f7717f8938c24c88cbcd520e49a9db639d8ad57be"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 306,
+     "sha256": "72d47d235346d6feb1bad6eeb8f2f2b63f24fd3e9f7a84f2b9ced205b8555713"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5fcb22bd829868cccd8f8471e8baae0ba13f693f45847a1752fd78ccd80799b9"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "FSTRING_TO_WEEKDAY",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION FSTRING_TO_WEEKDAY : INT\nVAR_INPUT\n    WDAY : STRING;\n    LANG : INT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT: turns a weekday name into its number (1..7), using the language tables. The parameter is a STRING of default length so a STRING[60] argument can be passed. No body, so it returns 0.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 307,
+     "sha256": "72a66bd46446b776f5c867d33d4430a5630f7e42c5c6b35126d0d6ff128a89f2"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 307,
+     "sha256": "aa7b0a882feb34d82ce2e41350d9e8d260325fa7ef98348342c0d7576b050c97"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "a5a41f686ba163784682654ec275fdd2a76b4ab112fab6a23ef54ac3a3cfcf8d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "FT_INT2",
+   "kind": "FUNCTION_BLOCK",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK FT_INT2\nVAR_INPUT\n    IN : REAL;\n    K : REAL := 1.0;\n    RUN : BOOL := TRUE;\n    RST : BOOL;\n    OUT_MIN : REAL := -1.0E38;\n    OUT_MAX : REAL := 1.0E38;\nEND_VAR\nVAR_OUTPUT\n    OUT : REAL;\n    LIM : BOOL;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "OSCAT integrator that reads the PLC timer. No body, so OUT stays 0.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "a5a41f686ba163784682654ec275fdd2a76b4ab112fab6a23ef54ac3a3cfcf8d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "F_TO_C",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION F_TO_C : REAL\nVAR_INPUT\n    FAHRENHEIT : REAL;\nEND_VAR\nF_TO_C := (FAHRENHEIT - 32.0) * 0.5555555556;\nEND_FUNCTION\n",
+   "note": "OSCAT: converts Fahrenheit to Celsius.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "a5a41f686ba163784682654ec275fdd2a76b4ab112fab6a23ef54ac3a3cfcf8d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "GEN_PULSE",
+   "kind": "FUNCTION_BLOCK",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK GEN_PULSE\nVAR_INPUT\n    ENQ : BOOL := TRUE;\n    PTH : TIME;\n    PTL : TIME;\nEND_VAR\nVAR_OUTPUT\n    Q : BOOL;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "OSCAT pulse generator that depends on the system timer. No body.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 445,
+     "sha256": "1004717fbefdc7362268a5c635b49d08f16d30f8c7e553e1ce22d5cefb651b8f"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 445,
+     "sha256": "25b0a40595fba77c293104f1e9e34306446a619717b558dc437fa7ff68db9be5"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "a5a41f686ba163784682654ec275fdd2a76b4ab112fab6a23ef54ac3a3cfcf8d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "HEX_TO_DWORD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION HEX_TO_DWORD : DWORD\nVAR_INPUT\n    HEX : STRING[255];\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT: turns a hex string into a DWORD and ignores characters that are not hex. Left without a body.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 309,
+     "sha256": "05257a89a9c6b13d58d5194dd8b9fee3b36f5fd81b0fd13300f6cc7730026b68"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 309,
+     "sha256": "4fa29a55db220ed1805c06f4659762aa99fd3f2517f79f710f4d8bfbfd682359"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "a5a41f686ba163784682654ec275fdd2a76b4ab112fab6a23ef54ac3a3cfcf8d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "HYST_1",
+   "kind": "FUNCTION_BLOCK",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK HYST_1\nVAR_INPUT\n    IN : REAL;\n    HIGH : REAL;\n    LOW : REAL;\nEND_VAR\nVAR_OUTPUT\n    Q : BOOL;\n    WIN : BOOL;\nEND_VAR\nIF IN < LOW THEN\n    Q := FALSE;\n    WIN := FALSE;\nELSIF IN > HIGH THEN\n    Q := TRUE;\n    WIN := FALSE;\nELSE\n    WIN := TRUE;\nEND_IF;\nEND_FUNCTION_BLOCK\n",
+   "note": "OSCAT hysteresis: Q switches on above HIGH and off below LOW. WIN is TRUE while IN is between LOW and HIGH.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "a5a41f686ba163784682654ec275fdd2a76b4ab112fab6a23ef54ac3a3cfcf8d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "INC1",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION INC1 : INT\nVAR_INPUT\n    X : INT;\n    N : INT;\nEND_VAR\nIF X >= N - 1 THEN\n    INC1 := 0;\nELSE\n    INC1 := X + 1;\nEND_IF;\nEND_FUNCTION\n",
+   "note": "OSCAT: adds 1 to X and wraps to 0 when it reaches N-1.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 82,
+     "sha256": "93d7ab65afd2de05535e047a4ff59bda2f0980350bfe577197bcc9e9d8ad908b"
+    },
+    {
+     "file": "rusty_compatibility/02_CODESYS23/库说明书/01_OSCAT Basic 文档.html.txt",
+     "line": 394,
+     "sha256": "226063782fbe3b10c5a83fc4ac1c072ff1f0119345ef491212eb2302f391fbe0"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "a5a41f686ba163784682654ec275fdd2a76b4ab112fab6a23ef54ac3a3cfcf8d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "INC2",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION INC2 : INT\nVAR_INPUT\n    X : INT;\n    D : INT;\n    L : INT;\n    U : INT;\nEND_VAR\nVAR\n    tmp : INT;\nEND_VAR\ntmp := U - L + 1;\nINC2 := (X + D - L + tmp) MOD tmp + L;\nEND_FUNCTION\n",
+   "note": "OSCAT: adds D to X and wraps the result inside the range L..U.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 83,
+     "sha256": "ae9c7129a824c2c2d916244f5fb03c41551a352e669af51110b8d1af09c537c3"
+    },
+    {
+     "file": "rusty_compatibility/02_CODESYS23/库说明书/01_OSCAT Basic 文档.html.txt",
+     "line": 395,
+     "sha256": "73311578a169e71f7f24d513160a948ea03d505940c2bddbea73e7c1a9b35690"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "a5a41f686ba163784682654ec275fdd2a76b4ab112fab6a23ef54ac3a3cfcf8d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "INTERLOCK",
+   "kind": "FUNCTION_BLOCK",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK INTERLOCK\nVAR_INPUT\n    I1 : BOOL;\n    I2 : BOOL;\n    TL : TIME;\nEND_VAR\nVAR_OUTPUT\n    Q1 : BOOL;\n    Q2 : BOOL;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "OSCAT: two mutually exclusive outputs with a lockout time, which uses the timer. No body.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/docs/DMC_V19/4- Siemens Open Library - Detailed Block Overview.sample.txt",
+     "line": 48,
+     "sha256": "f813b4a12e8aae4f2e112785fd0064bc199b010b7b2746cdefb7ff6b318e4321"
+    },
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/docs/DMC_V19/1- Siemens Open Library - Library Overview and Architecture.sample.txt",
+     "line": 49,
+     "sha256": "79f7c29da56c81b70ebc8927e5a0ca1ccf3c0b6d48228819832b0c3b321b7fdb"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "a5a41f686ba163784682654ec275fdd2a76b4ab112fab6a23ef54ac3a3cfcf8d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "INT_TO_BCDC",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION INT_TO_BCDC : BYTE\nVAR_INPUT\n    IN : INT;\nEND_VAR\nINT_TO_BCDC := INT_TO_BYTE((IN / 10) * 16 + (IN MOD 10));\nEND_FUNCTION\n",
+   "note": "OSCAT: turns an INT from 0 to 99 into a BCD byte.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 409,
+     "sha256": "b99d7f9e24a2fbffbcad7a3149cd58a126f3fff79d8e8c451675c5ed15bc4754"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 409,
+     "sha256": "2d6c51885d74664c0fcd34a3d95386b7a727e0374c85a34a704851dc770acb8a"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "a5a41f686ba163784682654ec275fdd2a76b4ab112fab6a23ef54ac3a3cfcf8d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "INT_TO_STRING",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION INT_TO_STRING : STRING[10]\nVAR_INPUT\n    IN : INT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Standard conversion that turns an INT into its decimal string. No body, so it returns an empty string.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/05_Siemens_TIA_SCL/库说明书/库内说明/PACFramework_5ff28393539b/proc/oldprj/polyv_codesys/CTRLRECIPE_FUN.MD",
+     "line": 122,
+     "sha256": "215a30c0563e77e7db4d9a11404d48ea2ba6a328ad27c6acd132b868d9ef16b7"
+    },
+    {
+     "file": "rusty_compatibility/09_Schneider_Machine_Expert/库说明书/库内说明/PACFramework_5ff28393539b/proc/oldprj/polyv_codesys/CTRLRECIPE_FUN.MD",
+     "line": 122,
+     "sha256": "215a30c0563e77e7db4d9a11404d48ea2ba6a328ad27c6acd132b868d9ef16b7"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "a5a41f686ba163784682654ec275fdd2a76b4ab112fab6a23ef54ac3a3cfcf8d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "ISC_NUM",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION ISC_NUM : BOOL\nVAR_INPUT\n    IN : BYTE;\nEND_VAR\nISC_NUM := IN > BYTE#47 AND IN < BYTE#58;\nEND_FUNCTION\n",
+   "note": "OSCAT: TRUE when the byte is an ASCII digit from 0 to 9.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 325,
+     "sha256": "c31d18801b9f24ad4690828cc4c3dc50ed4f690295ecbc938da012ef976ec84e"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 325,
+     "sha256": "fd67f7a2ac3004a22ece74b08aa49bf9690604d2d873f3a4ffaed6ab6f29a348"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "a5a41f686ba163784682654ec275fdd2a76b4ab112fab6a23ef54ac3a3cfcf8d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "IS_CC",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION IS_CC : BOOL\nVAR_INPUT\n    str : STRING[255];\n    cmp : STRING[255];\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT: TRUE when every character of str appears in cmp. No body.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 312,
+     "sha256": "06ccc2555a155d12c454be3673011369541736d15f6e2729673bfdf0446ca444"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 312,
+     "sha256": "39b3d9807e009a25669a37f6007d1bd4293c8355ead6537613705418c6ddb671"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "a5a41f686ba163784682654ec275fdd2a76b4ab112fab6a23ef54ac3a3cfcf8d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "LINEAR_INT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION LINEAR_INT : REAL\nVAR_INPUT\n    X : REAL;\n    XY : ARRAY[1..20, 0..1] OF REAL;\n    PTS : INT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT: linear interpolation through a table of points. No body.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 181,
+     "sha256": "5898b8068888c9872fcd4a3b7910dd26c93e8d7c7c978cba204abd6d12cbb9a8"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 181,
+     "sha256": "cb519be7a2a150b078177ce45af29a6763f9956f23a0c3266ba08814972f55e3"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "a5a41f686ba163784682654ec275fdd2a76b4ab112fab6a23ef54ac3a3cfcf8d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "LOG_SIZE",
+   "kind": "VAR_GLOBAL",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "inferred",
+   "rounds": 0,
+   "declaration": "VAR_GLOBAL\n    LOG_SIZE : BOOL;\nEND_VAR\n",
+   "note": "inferred from the call sites",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "a5a41f686ba163784682654ec275fdd2a76b4ab112fab6a23ef54ac3a3cfcf8d"
+    },
+    {
+     "round": 2,
+     "llm_key": "d3e12c776e36a835d3fcf805865d7710772c0da7fe7f32fceeb7a0580c783b6c"
+    },
+    {
+     "round": 3,
+     "llm_key": "04ff38904df96f8af3cb5a72231f9c97c12ece95116bd16a3164f553806c3261"
+    },
+    {
+     "round": 4,
+     "llm_key": "b71ad8629f9212dbc78a8fbe58c3aaa3559c179a1f291d925e7710a78dd43dd3"
+    },
+    {
+     "round": 5,
+     "llm_key": "b71ad8629f9212dbc78a8fbe58c3aaa3559c179a1f291d925e7710a78dd43dd3"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "MANUAL_2",
+   "kind": "FUNCTION_BLOCK",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK MANUAL_2\nVAR_INPUT\n    IN : BOOL;\n    ENA : BOOL;\n    ON : BOOL;\n    OFF : BOOL;\n    MAN : BOOL;\nEND_VAR\nVAR_OUTPUT\n    Q : BOOL;\n    STATUS : BYTE;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "OSCAT: manual override for a digital signal. The exact status codes are not certain, so it has no body.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "a5a41f686ba163784682654ec275fdd2a76b4ab112fab6a23ef54ac3a3cfcf8d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "MONTH_OF_DATE",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION MONTH_OF_DATE : INT\nVAR_INPUT\n    IDATE : DATE;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT: returns the month (1..12) of a date. No body.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 243,
+     "sha256": "248a1ac39e0cbc2ef335b4fd24fec0e63b90ac02bd6624d5a3a0f0dc2d39b6f0"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 243,
+     "sha256": "473fcc6505ba3229fc28b4c390c8fc5d343d45aef4ff3f14be0f768ae0761a56"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "a5a41f686ba163784682654ec275fdd2a76b4ab112fab6a23ef54ac3a3cfcf8d"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "MULTI_IN",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION MULTI_IN : REAL\nVAR_INPUT\n    IN_1 : REAL;\n    IN_2 : REAL;\n    IN_3 : REAL;\n    DEFAULT : REAL;\n    IN_MIN : REAL;\n    IN_MAX : REAL;\n    MODE : BYTE;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT BUILDING multi-sensor input selector. The selection logic depends on the mode and is not reproduced here, so the result is 0.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "d0650aeb07b2c11e372faee2922b47e01bb28fc12c61cc96ca4de2c7e9b735e7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "NW_BUF_LONG",
+   "kind": "TYPE",
+   "category": "unknown",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE NW_BUF_LONG : ARRAY[0..2047] OF BYTE; END_TYPE\n",
+   "note": "OSCAT long raw byte buffer.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "d0650aeb07b2c11e372faee2922b47e01bb28fc12c61cc96ca4de2c7e9b735e7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "NW_BUF_SHORT",
+   "kind": "TYPE",
+   "category": "unknown",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE NW_BUF_SHORT : ARRAY[0..255] OF BYTE; END_TYPE\n",
+   "note": "OSCAT short raw byte buffer.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "d0650aeb07b2c11e372faee2922b47e01bb28fc12c61cc96ca4de2c7e9b735e7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "RAD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION RAD : REAL\nVAR_INPUT\n    DEG : REAL;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT converts degrees to radians (modulo 2*pi). Body left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 95,
+     "sha256": "c6686c8a90c240687bb50417f3f16effdfc032ba674453e4a5565cfaafb45dce"
+    },
+    {
+     "file": "rusty_compatibility/02_CODESYS23/库说明书/01_OSCAT Basic 文档.html.txt",
+     "line": 405,
+     "sha256": "3ceb42e4f8fe580419ee4e4f17d388bd3873d083a0e3b57d852bab1b500e753f"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "d0650aeb07b2c11e372faee2922b47e01bb28fc12c61cc96ca4de2c7e9b735e7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "REAL_TO_DW",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION REAL_TO_DW : DWORD\nVAR_INPUT\n    X : REAL;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Returns the bit pattern of a REAL. Body left empty because it needs pointer reinterpretation.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 415,
+     "sha256": "4211267847845dfca91e473d337ac39fb81312f3956d72a3188fafd1f106e5f0"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 415,
+     "sha256": "4211267847845dfca91e473d337ac39fb81312f3956d72a3188fafd1f106e5f0"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "d0650aeb07b2c11e372faee2922b47e01bb28fc12c61cc96ca4de2c7e9b735e7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "REAL_TO_STRF",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 2,
+   "declaration": "FUNCTION REAL_TO_STRF : STRING[20]\nVAR_INPUT\n    IN : REAL;\n    N : INT;\n    D : STRING[1];\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT basic: converts REAL to string with N decimals and decimal char D. Body left empty. Previous error was caused by DLOG_REAL_ARRAY_DATA.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 334,
+     "sha256": "0076994158698f40bbea5425c43bcecdff0e762fc9bda8316ed7fafd7d6d382f"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 334,
+     "sha256": "6ec1c7ce3a7f6d27b2e30146273f2596074a965bac228107e5a786a4efdde0ea"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "d0650aeb07b2c11e372faee2922b47e01bb28fc12c61cc96ca4de2c7e9b735e7"
+    },
+    {
+     "round": 2,
+     "llm_key": "d3e12c776e36a835d3fcf805865d7710772c0da7fe7f32fceeb7a0580c783b6c"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "REAL_TO_TIME",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION REAL_TO_TIME : TIME\nVAR_INPUT\n    IN : REAL;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Conversion operator; the unit (ms) is platform-dependent, so the body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_real_to.html.txt",
+     "line": 125,
+     "sha256": "eb227d3ce39a87af94b477048f749a15696d7be552da5ca4be48dc77b1112a53"
+    },
+    {
+     "file": "rusty_compatibility/21_Panasonic_FPWIN/该厂商st规范/ST规范/retry_0.validation.txt",
+     "line": 475,
+     "sha256": "7f786202140cc906908726edc7c6984d4aa06f114252632b8a4ec6ec26d27e07"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "d0650aeb07b2c11e372faee2922b47e01bb28fc12c61cc96ca4de2c7e9b735e7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "RMP_B",
+   "kind": "FUNCTION_BLOCK",
+   "category": "unknown",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK RMP_B\nVAR_INPUT\n    SET : BOOL;\n    PT : TIME;\n    E : BOOL := TRUE;\n    UP : BOOL := TRUE;\n    RST : BOOL;\nEND_VAR\nVAR_OUTPUT\n    OUT : BYTE;\n    BUSY : BOOL;\n    HIGH : BOOL;\n    LOW : BOOL;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "OSCAT byte ramp generator; it is time-based. OUT is declared as an output because it is read as a member.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 456,
+     "sha256": "9863ee67e24bd153e3007f3da8e79513ff72a66eac272481dfc76fcd8713db18"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 456,
+     "sha256": "0a7b8a57c4af3f6f674a8dd7c7f0f0744ea2b0a69dfbb67548bd62bc36fb3313"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "d0650aeb07b2c11e372faee2922b47e01bb28fc12c61cc96ca4de2c7e9b735e7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "SEQUENCE_8",
+   "kind": "FUNCTION_BLOCK",
+   "category": "unknown",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK SEQUENCE_8\nVAR_INPUT\n    IN0 : BOOL := TRUE;\n    IN1 : BOOL := TRUE;\n    IN2 : BOOL := TRUE;\n    IN3 : BOOL := TRUE;\n    IN4 : BOOL := TRUE;\n    IN5 : BOOL := TRUE;\n    IN6 : BOOL := TRUE;\n    IN7 : BOOL := TRUE;\n    START : BOOL;\n    RST : BOOL;\n    WAIT0 : TIME;\n    DELAY0 : TIME;\n    WAIT1 : TIME;\n    DELAY1 : TIME;\n    WAIT2 : TIME;\n    DELAY2 : TIME;\n    WAIT3 : TIME;\n    DELAY3 : TIME;\n    WAIT4 : TIME;\n    DELAY4 : TIME;\n    WAIT5 : TIME;\n    DELAY5 : TIME;\n    WAIT6 : TIME;\n    DELAY6 : TIME;\n    WAIT7 : TIME;\n    DELAY7 : TIME;\n    STOP_ON_ERROR : BOOL;\nEND_VAR\nVAR_OUTPUT\n    Q0 : BOOL;\n    Q1 : BOOL;\n    Q2 : BOOL;\n    Q3 : BOOL;\n    Q4 : BOOL;\n    Q5 : BOOL;\n    Q6 : BOOL;\n    Q7 : BOOL;\n    QX : BOOL;\n    RUN : BOOL;\n    STEP : INT;\n    STATUS : BYTE;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "OSCAT 8-step timed sequencer.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 371,
+     "sha256": "0b1c1e35bbe282d5adca767c109d28524d2d0e7a7d9d92e65198ad1168c06ca2"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 371,
+     "sha256": "0b1c1e35bbe282d5adca767c109d28524d2d0e7a7d9d92e65198ad1168c06ca2"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "d0650aeb07b2c11e372faee2922b47e01bb28fc12c61cc96ca4de2c7e9b735e7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "SET_DATE",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION SET_DATE : DATE\nVAR_INPUT\n    YEAR : INT;\n    MONTH : INT;\n    DAY : INT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Builds a DATE from year, month and day. Body left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 256,
+     "sha256": "bdca7d44fc8fe023fd3f1750a7025b7af431f764f2bb0449e437246e6152ab82"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 256,
+     "sha256": "1818ab5bf6c92539c95c2ce21be69cd9094199aa85456422d303c3d318ed8688"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "d0650aeb07b2c11e372faee2922b47e01bb28fc12c61cc96ca4de2c7e9b735e7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "SOCKET_AF_INET",
+   "kind": "VAR_GLOBAL",
+   "category": "constant",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL CONSTANT\n    SOCKET_AF_INET : INT := 2;\nEND_VAR\n",
+   "note": "Internet address family.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "d0650aeb07b2c11e372faee2922b47e01bb28fc12c61cc96ca4de2c7e9b735e7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "SOCKET_DGRAM",
+   "kind": "VAR_GLOBAL",
+   "category": "constant",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL CONSTANT\n    SOCKET_DGRAM : DINT := 2;\nEND_VAR\n",
+   "note": "UDP datagram socket type.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "d0650aeb07b2c11e372faee2922b47e01bb28fc12c61cc96ca4de2c7e9b735e7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "SOCKET_FD_SET",
+   "kind": "TYPE",
+   "category": "unknown",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE SOCKET_FD_SET :\nSTRUCT\n    fd_count : DINT;\n    fd_array : ARRAY[0..63] OF DINT;\nEND_STRUCT\nEND_TYPE\n",
+   "note": "Socket descriptor set used by select.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "d0650aeb07b2c11e372faee2922b47e01bb28fc12c61cc96ca4de2c7e9b735e7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "SOCKET_FIONBIO",
+   "kind": "VAR_GLOBAL",
+   "category": "constant",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL CONSTANT\n    SOCKET_FIONBIO : DINT := 1;\nEND_VAR\n",
+   "note": "ioctl code that puts a socket in non-blocking mode; value as in SysLibSockets.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "d0650aeb07b2c11e372faee2922b47e01bb28fc12c61cc96ca4de2c7e9b735e7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "SOCKET_INVALID",
+   "kind": "VAR_GLOBAL",
+   "category": "constant",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL CONSTANT\n    SOCKET_INVALID : DINT := -1;\nEND_VAR\n",
+   "note": "Invalid socket handle. Declared as DINT because it initialises and is compared with DINT handles.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "d0650aeb07b2c11e372faee2922b47e01bb28fc12c61cc96ca4de2c7e9b735e7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "SOCKET_IPPROTO_IP",
+   "kind": "VAR_GLOBAL",
+   "category": "constant",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL CONSTANT\n    SOCKET_IPPROTO_IP : DINT := 0;\nEND_VAR\n",
+   "note": "Default IP protocol.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "d0650aeb07b2c11e372faee2922b47e01bb28fc12c61cc96ca4de2c7e9b735e7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "SOCKET_SOL",
+   "kind": "VAR_GLOBAL",
+   "category": "constant",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL CONSTANT\n    SOCKET_SOL : DINT := 16#FFFF;\nEND_VAR\n",
+   "note": "Socket level SOL_SOCKET from the CODESYS SysLibSockets library (0xFFFF).",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "1b32bc691c57a73e915d3634e3aa4d449ec87aaf5074e8f26daef901390fe9a7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "SOCKET_SO_BROADCAST",
+   "kind": "VAR_GLOBAL",
+   "category": "constant",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL CONSTANT\n    SOCKET_SO_BROADCAST : DINT := 16#0020;\nEND_VAR\n",
+   "note": "SO_BROADCAST option value from SysLibSockets (0x0020).",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "1b32bc691c57a73e915d3634e3aa4d449ec87aaf5074e8f26daef901390fe9a7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "SOCKET_TIMEVAL",
+   "kind": "TYPE",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE SOCKET_TIMEVAL :\nSTRUCT\n    tv_sec : DINT;\n    tv_usec : DINT;\nEND_STRUCT\nEND_TYPE\n",
+   "note": "Timeout structure from SysLibSockets: seconds and microseconds.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "1b32bc691c57a73e915d3634e3aa4d449ec87aaf5074e8f26daef901390fe9a7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "STRING_LENGTH",
+   "kind": "VAR_GLOBAL",
+   "category": "constant",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL CONSTANT\n    STRING_LENGTH : INT := 254;\nEND_VAR\n",
+   "note": "OSCAT global constant for the default string length (254). Used as a string size, so it must be an integer constant, not the BOOL that was inferred.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 542,
+     "sha256": "a6871b9ce14c2e738d1088c8da792441197ba52bed00c780ea86a8d5493bb9ff"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 542,
+     "sha256": "6c26b46a6f09664c60052609955f554173187997d575df80782892805275425b"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "1b32bc691c57a73e915d3634e3aa4d449ec87aaf5074e8f26daef901390fe9a7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "STRING_TO_DWORD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION STRING_TO_DWORD : DWORD\nVAR_INPUT\n    IN : STRING[255];\nEND_VAR\nEND_FUNCTION\n",
+   "note": "IEC conversion operator. The result is DWORD because it is ORed with SHL of a DWORD. The parsing body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_string_to.html.txt",
+     "line": 81,
+     "sha256": "4321c218b795aaf92f632777d5c0b58a43ddf25f4ab3fb9a33443e215b84f025"
+    },
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_vartypes_var_in_out.html.txt",
+     "line": 123,
+     "sha256": "8b31cc4ebe6aecd409d564c1c97b4518062773af5f71292df8b02a8886817879"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "1b32bc691c57a73e915d3634e3aa4d449ec87aaf5074e8f26daef901390fe9a7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "STRING_TO_INT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION STRING_TO_INT : INT\nVAR_INPUT\n    IN : STRING[255];\nEND_VAR\nEND_FUNCTION\n",
+   "note": "IEC conversion operator that parses leading digits (for example '123abc' gives 123). The parsing body is left empty. The input is STRING[255] so STRING_LENGTH-sized arguments also fit.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_string_to.html.txt",
+     "line": 84,
+     "sha256": "b77ac2025ee7448b3e50dee5527bf3f204e2a1280a770c5b0e18e1598155b624"
+    },
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 719,
+     "sha256": "e9d6e02301c9f4fb2f6cfec6648e529f236c8366e645d26988b0f927d5b01a79"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "1b32bc691c57a73e915d3634e3aa4d449ec87aaf5074e8f26daef901390fe9a7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "STRING_TO_TIME",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION STRING_TO_TIME : TIME\nVAR_INPUT\n    IN : STRING[255];\nEND_VAR\nEND_FUNCTION\n",
+   "note": "IEC conversion of a 'T#...' literal string to TIME. The body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_string_to.html.txt",
+     "line": 140,
+     "sha256": "9c5e7bcf572fe3a475237859ca07cbeb6b3100053b19ea31252e8cabca847625"
+    },
+    {
+     "file": "rusty_compatibility/09_Schneider_Machine_Expert/该厂商st规范/spec/MachineExpert_V2.2_ST_Programming_Reference.html",
+     "line": 7250,
+     "sha256": "8ff6108503fbc2a5a1b03708d6354e18312ae15bd9817f84ea5956d1de95e62d"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "1b32bc691c57a73e915d3634e3aa4d449ec87aaf5074e8f26daef901390fe9a7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "STRING_TO_TOD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION STRING_TO_TOD : TOD\nVAR_INPUT\n    IN : STRING[255];\nEND_VAR\nEND_FUNCTION\n",
+   "note": "IEC conversion of a 'TOD#...' string to TIME_OF_DAY. The body is left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_string_to.html.txt",
+     "line": 146,
+     "sha256": "9bd36c4a7de3c9aa98127ddcc4e07cb0ad3c144c331f1b2a31017d8b491d3b34"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "1b32bc691c57a73e915d3634e3aa4d449ec87aaf5074e8f26daef901390fe9a7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "sx",
+   "kind": "VAR_GLOBAL",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "VAR_GLOBAL\n    sx : ARRAY[0..15, 0..2] OF BYTE;\nEND_VAR\n",
+   "note": "Byte table indexed as sx[x,0..2]. The shape is copied from the declaration at the call site.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/09_Schneider_Machine_Expert/该厂商st规范/spec/MachineExpert_V2.2_ST_Programming_Reference.html",
+     "line": 1165,
+     "sha256": "eb680a6bb1c5d5bf58a0c7dbd4e389546656e7ea57a8278b3feade3287d15468"
+    },
+    {
+     "file": "rusty_compatibility/19_Mitsubishi_GXWorks/该厂商st规范/ST规范/spec_02.validation.txt",
+     "line": 747,
+     "sha256": "4d61bf8ca9c8eafb785426bc194914b76bbe45f6b21238707f7986d1e77c073a"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "1b32bc691c57a73e915d3634e3aa4d449ec87aaf5074e8f26daef901390fe9a7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "SysFileClose",
+   "kind": "FUNCTION",
+   "category": "sink",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION SysFileClose : BOOL\nVAR_INPUT\n    File : DWORD;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "From SysLibFile: closes a file handle and returns TRUE on success.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "1b32bc691c57a73e915d3634e3aa4d449ec87aaf5074e8f26daef901390fe9a7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "SysFileDelete",
+   "kind": "FUNCTION",
+   "category": "sink",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION SysFileDelete : BOOL\nVAR_INPUT\n    FileName : STRING[255];\nEND_VAR\nEND_FUNCTION\n",
+   "note": "From SysLibFile: deletes a file by name.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "1b32bc691c57a73e915d3634e3aa4d449ec87aaf5074e8f26daef901390fe9a7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "SysFileGetPos",
+   "kind": "FUNCTION",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION SysFileGetPos : DINT\nVAR_INPUT\n    File : DWORD;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "From SysLibFile: returns the current file position.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "1b32bc691c57a73e915d3634e3aa4d449ec87aaf5074e8f26daef901390fe9a7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "SysFileGetSize",
+   "kind": "FUNCTION",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION SysFileGetSize : DINT\nVAR_INPUT\n    FileName : STRING[255];\nEND_VAR\nEND_FUNCTION\n",
+   "note": "From SysLibFile: returns the file size in bytes.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "1b32bc691c57a73e915d3634e3aa4d449ec87aaf5074e8f26daef901390fe9a7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "SysFileOpen",
+   "kind": "FUNCTION",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION SysFileOpen : DWORD\nVAR_INPUT\n    FileName : STRING[255];\n    Mode : STRING[3];\nEND_VAR\nEND_FUNCTION\n",
+   "note": "From SysLibFile: opens a file with a mode such as 'r', 'w' or 'a' and returns a handle (0 means failure).",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "1b32bc691c57a73e915d3634e3aa4d449ec87aaf5074e8f26daef901390fe9a7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "SysFileRead",
+   "kind": "FUNCTION",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION SysFileRead : UDINT\nVAR_INPUT\n    File : DWORD;\n    Buffer : POINTER TO BYTE;\n    Size : UDINT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "From SysLibFile: reads Size bytes into Buffer and returns the number of bytes read.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "1b32bc691c57a73e915d3634e3aa4d449ec87aaf5074e8f26daef901390fe9a7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "SysFileSetPos",
+   "kind": "FUNCTION",
+   "category": "unknown",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION SysFileSetPos : BOOL\nVAR_INPUT\n    File : DWORD;\n    Pos : UDINT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "From SysLibFile: seeks to an absolute position and returns TRUE on success.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "1b32bc691c57a73e915d3634e3aa4d449ec87aaf5074e8f26daef901390fe9a7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "SysFileWrite",
+   "kind": "FUNCTION",
+   "category": "sink",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION SysFileWrite : UDINT\nVAR_INPUT\n    File : DWORD;\n    Buffer : POINTER TO BYTE;\n    Size : UDINT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "From SysLibFile: writes Size bytes from Buffer and returns the number of bytes written.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "1b32bc691c57a73e915d3634e3aa4d449ec87aaf5074e8f26daef901390fe9a7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "SysSockCreate",
+   "kind": "FUNCTION",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION SysSockCreate : DINT\nVAR_INPUT\n    diAddressFamily : DINT;\n    diType : DINT;\n    diProtocol : DINT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "From SysLibSockets: creates a socket and returns its handle (negative means error).",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "1b32bc691c57a73e915d3634e3aa4d449ec87aaf5074e8f26daef901390fe9a7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "SysSockIoctl",
+   "kind": "FUNCTION",
+   "category": "sink",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION SysSockIoctl : DINT\nVAR_INPUT\n    diSocket : DINT;\n    diCommand : DINT;\n    piParameter : POINTER TO DINT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "From SysLibSockets: socket ioctl, for example FIONBIO for non-blocking mode.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "1b32bc691c57a73e915d3634e3aa4d449ec87aaf5074e8f26daef901390fe9a7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "SysSockSetOption",
+   "kind": "FUNCTION",
+   "category": "sink",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION SysSockSetOption : BOOL\nVAR_INPUT\n    diSocket : DINT;\n    diLevel : DINT;\n    diOption : DINT;\n    pbyOptionValue : POINTER TO BYTE;\n    diOptionLength : DINT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "From SysLibSockets: sets a socket option (setsockopt).",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "1b32bc691c57a73e915d3634e3aa4d449ec87aaf5074e8f26daef901390fe9a7"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "TIMECHECK",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TIMECHECK : BOOL\nVAR_INPUT\n    TD : TOD;\n    START : TOD;\n    STOP : TOD;\nEND_VAR\nIF STOP < START THEN\n    TIMECHECK := (START <= TD) OR (TD < STOP);\nELSE\n    TIMECHECK := (START <= TD) AND (TD < STOP);\nEND_IF;\nEND_FUNCTION\n",
+   "note": "OSCAT TIMECHECK: TRUE when TD is in [START, STOP), handling ranges that wrap past midnight.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/02_CODESYS23/库说明书/01_OSCAT Basic 文档.html.txt",
+     "line": 662,
+     "sha256": "361ed6519c88b1024bb5cc6e8c75df54b4a9b09849de1bf59cbcbb0540d7738d"
+    },
+    {
+     "file": "rusty_compatibility/04_TwinCAT2/库说明书/01_OSCAT Basic 文档及历史手册入口.html.txt",
+     "line": 662,
+     "sha256": "361ed6519c88b1024bb5cc6e8c75df54b4a9b09849de1bf59cbcbb0540d7738d"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5c8477e5b648cafa3fc022dc2949b8f5f34c6ffa5b995e002455fde46e36c1eb"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "TIMER_EVENT",
+   "kind": "TYPE",
+   "category": "constant",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE TIMER_EVENT :\nSTRUCT\n    TYP : BYTE;\n    CHANNEL : BYTE;\n    DAY : BYTE;\n    START : TOD;\n    DURATION : TIME;\n    LAND : BYTE;\n    LOR : BYTE;\n    LAST : BOOL;\nEND_STRUCT\nEND_TYPE\n",
+   "note": "OSCAT basic TIMER_EVENT structure (section 3.13).",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 33,
+     "sha256": "bb9c5c0ad8be3d0a42b30e817231d041ea3952e129b4754f31464d33e624f7b4"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 33,
+     "sha256": "8c07feeb4d0cfc1b6b829413d1971e836f6acbf3ba482d74a34b620ae7061715"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5c8477e5b648cafa3fc022dc2949b8f5f34c6ffa5b995e002455fde46e36c1eb"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "TIME_TO_DINT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TIME_TO_DINT : DINT\nVAR_INPUT\n    IN : TIME;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Standard conversion (ms). Body left empty because RuSTy's internal TIME representation differs.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_time_to.html.txt",
+     "line": 58,
+     "sha256": "50c9691a5b3b0d5ab8151b431ae1edc44845e51874d3fa9eda05ab639f996e72"
+    },
+    {
+     "file": "rusty_compatibility/21_Panasonic_FPWIN/该厂商st规范/ST规范/retry_0.validation.txt",
+     "line": 446,
+     "sha256": "c0657cec97f5c240e45f3f30346c0a637b7e9fe93a6b934e44e55ab2aba1cb50"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5c8477e5b648cafa3fc022dc2949b8f5f34c6ffa5b995e002455fde46e36c1eb"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "TIME_TO_DWORD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TIME_TO_DWORD : DWORD\nVAR_INPUT\n    IN : TIME;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Standard conversion, milliseconds. Body left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/09_Schneider_Machine_Expert/该厂商st规范/spec/MachineExpert_V2.2_ST_Programming_Reference.html",
+     "line": 7124,
+     "sha256": "e3b10c64ddaf44b7b12645f8af7b4c31202971b586555ec469bdf67d8e424185"
+    },
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_time_to.html.txt",
+     "line": 67,
+     "sha256": "d9dbadb8b3aa9610f29965451d82dfc83ffc965203d0c9c357bf3d2a2c7462c8"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5c8477e5b648cafa3fc022dc2949b8f5f34c6ffa5b995e002455fde46e36c1eb"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 3
+  },
+  {
+   "name": "TIME_TO_INT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TIME_TO_INT : INT\nVAR_INPUT\n    IN : TIME;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Standard conversion. Body left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 720,
+     "sha256": "e76e2f1b9266082f118410efb1973434bfa3b262554828a8b6de88ae0ea1008f"
+    },
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_time_to.html.txt",
+     "line": 70,
+     "sha256": "16589e1c4125059b4b100a910f71d8fc2f586bc1c86ec623f7928446a16d8a80"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5c8477e5b648cafa3fc022dc2949b8f5f34c6ffa5b995e002455fde46e36c1eb"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "TIME_TO_REAL",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TIME_TO_REAL : REAL\nVAR_INPUT\n    IN : TIME;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Standard conversion, milliseconds. Body left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_time_to.html.txt",
+     "line": 102,
+     "sha256": "70e4f3284a41d14954dfb18f6d1185932d91ccabe24adbcb69915ee9de494e87"
+    },
+    {
+     "file": "rusty_compatibility/21_Panasonic_FPWIN/该厂商st规范/ST规范/retry_0.validation.txt",
+     "line": 464,
+     "sha256": "e2f456f3b03066f94b17bb29aaa1e4aed671edb2b517243e32b4389918246c2b"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5c8477e5b648cafa3fc022dc2949b8f5f34c6ffa5b995e002455fde46e36c1eb"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "TIME_TO_TOD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TIME_TO_TOD : TOD\nVAR_INPUT\n    IN : TIME;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Standard conversion. Body left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_time_to.html.txt",
+     "line": 123,
+     "sha256": "42d261b06eca0ef1d287dd8d6ad6c2826b6ec4177267399007ff3fd7fcfe45f7"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5c8477e5b648cafa3fc022dc2949b8f5f34c6ffa5b995e002455fde46e36c1eb"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "TIME_TO_UDINT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TIME_TO_UDINT : UDINT\nVAR_INPUT\n    IN : TIME;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Returns UDINT (the result is passed to UDINT_TO_REAL). The inferred BOOL was wrong. Body left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_time_to.html.txt",
+     "line": 130,
+     "sha256": "69fac926a27c3a0d9734e34abc5dc47807a29b879483cb2cb37e83fcd1129aa6"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5c8477e5b648cafa3fc022dc2949b8f5f34c6ffa5b995e002455fde46e36c1eb"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "TOD_TO_DINT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TOD_TO_DINT : DINT\nVAR_INPUT\n    IN : TOD;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Standard conversion, ms since midnight. Body left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_date_to.html.txt",
+     "line": 76,
+     "sha256": "ca85c7336fd4213f472fb34dfc55ab9e2e5d0b723e4a59339a8a5c8bd71071a6"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5c8477e5b648cafa3fc022dc2949b8f5f34c6ffa5b995e002455fde46e36c1eb"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "TOD_TO_DWORD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TOD_TO_DWORD : DWORD\nVAR_INPUT\n    IN : TOD;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Standard conversion. Body left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_date_to.html.txt",
+     "line": 100,
+     "sha256": "119541b7c4a710203a403ed37e95ebf4ab6321654a1b4ea5149d9ad38abeb7d8"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5c8477e5b648cafa3fc022dc2949b8f5f34c6ffa5b995e002455fde46e36c1eb"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "TOD_TO_TIME",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TOD_TO_TIME : TIME\nVAR_INPUT\n    IN : TOD;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Standard conversion. Body left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_time_to.html.txt",
+     "line": 245,
+     "sha256": "0da048f2090f5a812e5c91fa3c83c2904157c3366c728dda586cd7ef5b10dcd1"
+    },
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_date_to.html.txt",
+     "line": 154,
+     "sha256": "6e1c48fd0376959f09d6d99fa59cf9fc6600d9dbfa01a7b3df30ba3e818448ed"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5c8477e5b648cafa3fc022dc2949b8f5f34c6ffa5b995e002455fde46e36c1eb"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "TOD_TO_UDINT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION TOD_TO_UDINT : UDINT\nVAR_INPUT\n    IN : TOD;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Standard conversion, ms since midnight. Body left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_date_to.html.txt",
+     "line": 162,
+     "sha256": "665fedb789c3f4298fe3232f1f040597502362b41716508c91dbb57ef85be2e5"
+    },
+    {
+     "file": "rusty_compatibility/21_Panasonic_FPWIN/该厂商st规范/ST规范/retry_0.validation.txt",
+     "line": 458,
+     "sha256": "cd5630e74dfc9a852ae96269295e03d7b4ea08a308a6a87d433d9613ed980fde"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5c8477e5b648cafa3fc022dc2949b8f5f34c6ffa5b995e002455fde46e36c1eb"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "TONOF",
+   "kind": "FUNCTION_BLOCK",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK TONOF\nVAR_INPUT\n    IN : BOOL;\n    T_ON : TIME;\n    T_OFF : TIME;\nEND_VAR\nVAR_OUTPUT\n    Q : BOOL;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "OSCAT on/off delay timer. It depends on the system time, so the body is empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 375,
+     "sha256": "441bc6bc88420347a5a81fdada5d1f0b651b0bd55382937ab9c49c677c2aa478"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 375,
+     "sha256": "441bc6bc88420347a5a81fdada5d1f0b651b0bd55382937ab9c49c677c2aa478"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5c8477e5b648cafa3fc022dc2949b8f5f34c6ffa5b995e002455fde46e36c1eb"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "T_PLC_MS",
+   "kind": "FUNCTION",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION T_PLC_MS : DWORD\nEND_FUNCTION\n",
+   "note": "OSCAT: reads the PLC millisecond timer.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 549,
+     "sha256": "ea6081eb2b3e5c94e97b00c51df0d4a2f4533788c004427ac3e72a0856533e81"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 549,
+     "sha256": "2349d67a0f13c8109fc723b4b0ebc7e68f7ed1bffa3c8b5027db170364ebc3a6"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5c8477e5b648cafa3fc022dc2949b8f5f34c6ffa5b995e002455fde46e36c1eb"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 2
+  },
+  {
+   "name": "UDINT_TO_DATE",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION UDINT_TO_DATE : DATE\nVAR_INPUT\n    IN : UDINT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Standard conversion (seconds since 1970). Body left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 153,
+     "sha256": "e4fea279294b9d73c3c2e2993edab372be69e4549005d3b13fb791707346fd5f"
+    },
+    {
+     "file": "rusty_compatibility/21_Panasonic_FPWIN/该厂商st规范/ST规范/retry_0.validation.txt",
+     "line": 480,
+     "sha256": "6d27656c19c26ccd670609a727ce72a7b8d0a9abe09ee0230a32c3815f5743e2"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5c8477e5b648cafa3fc022dc2949b8f5f34c6ffa5b995e002455fde46e36c1eb"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "UDINT_TO_DT",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION UDINT_TO_DT : DATE_AND_TIME\nVAR_INPUT\n    IN : UDINT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Standard conversion (seconds since 1970). Body left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 187,
+     "sha256": "1fae8ee8ed03c86c02895aba6d40d7fba7fabd2ea057f3c109fc526affbc21c5"
+    },
+    {
+     "file": "rusty_compatibility/21_Panasonic_FPWIN/该厂商st规范/ST规范/retry_0.validation.txt",
+     "line": 477,
+     "sha256": "5a3a4d42f9ea75e8b666e99804c069bf1e4f7f9df4e98e03682325675299666f"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5c8477e5b648cafa3fc022dc2949b8f5f34c6ffa5b995e002455fde46e36c1eb"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "UDINT_TO_TIME",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION UDINT_TO_TIME : TIME\nVAR_INPUT\n    IN : UDINT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Standard conversion, milliseconds. Body left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 408,
+     "sha256": "599065a4e0cc47bdffa7f34325342754bbd0d2deec363becb1f9ff5730253457"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5c8477e5b648cafa3fc022dc2949b8f5f34c6ffa5b995e002455fde46e36c1eb"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "UDINT_TO_TOD",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION UDINT_TO_TOD : TOD\nVAR_INPUT\n    IN : UDINT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "Standard conversion, ms since midnight. Body left empty.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 425,
+     "sha256": "b5833956b2de05a7bbd20c42abd5ff4e5066d36158b0135d21d726b8de23d196"
+    },
+    {
+     "file": "rusty_compatibility/21_Panasonic_FPWIN/该厂商st规范/ST规范/retry_0.validation.txt",
+     "line": 483,
+     "sha256": "d1e43c817de106b97531d77bd05029ea974bfbd6b1b6a405fe345ee4cc7e461e"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5c8477e5b648cafa3fc022dc2949b8f5f34c6ffa5b995e002455fde46e36c1eb"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "UNI_CIRCULAR_BUF",
+   "kind": "TYPE",
+   "category": "unknown",
+   "evidence": "call_sites",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "TYPE UNI_CIRCULAR_BUF :\nSTRUCT\n    D_MODE : INT;\n    D_HEAD : WORD;\n    D_STRING : STRING[254];\n    D_REAL : REAL;\n    D_DWORD : DWORD;\n    BUF_SIZE : UINT;\n    BUF_COUNT : UINT;\n    PI : UINT;\n    PO : UINT;\n    BUF : ARRAY[0..2047] OF BYTE;\nEND_STRUCT\nEND_TYPE\n",
+   "note": "No documentation and no members used at the call sites. Placeholder fields based on my memory of OSCAT.",
+   "passages": [],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5c8477e5b648cafa3fc022dc2949b8f5f34c6ffa5b995e002455fde46e36c1eb"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "WORD_OF_BYTE",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION WORD_OF_BYTE : WORD\nVAR_INPUT\n\tB1 : BYTE;\n\tB0 : BYTE;\nEND_VAR\nWORD_OF_BYTE := SHL(BYTE_TO_WORD(B1), 8) OR BYTE_TO_WORD(B0);\nEND_FUNCTION\n",
+   "note": "OSCAT BASIC: makes a WORD from two bytes. B1 is the high byte and B0 the low byte. All calls pass two positional arguments.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 422,
+     "sha256": "23edeaa28c3ed8b2999df49569680d908a79971b6d0ff319c17da2c25ad0c1be"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 422,
+     "sha256": "23edeaa28c3ed8b2999df49569680d908a79971b6d0ff319c17da2c25ad0c1be"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5f7472c61082b92c38593c93526f710ec1c3863d2e5473d33db36d9a06602082"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "WORD_TO_REAL",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION WORD_TO_REAL : REAL\nVAR_INPUT\n\tIN : WORD;\nEND_VAR\nWORD_TO_REAL := UDINT_TO_REAL(WORD_TO_UDINT(IN));\nEND_FUNCTION\n",
+   "note": "Standard IEC conversion from an unsigned 16-bit value to REAL.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 361,
+     "sha256": "67d48c7f681dec5c9a647fca4202c440ed5d9215865a9eff2b7f11b86b81eb4a"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5f7472c61082b92c38593c93526f710ec1c3863d2e5473d33db36d9a06602082"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "WORD_TO_STRING",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "documentation",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION WORD_TO_STRING : STRING\nVAR_INPUT\n\tIN : WORD;\nEND_VAR\nVAR\n\tv : UDINT;\n\td : UDINT;\n\ts : STRING;\nEND_VAR\nv := WORD_TO_UDINT(IN);\ns := '';\nREPEAT\n\td := v MOD 10;\n\tCASE UDINT_TO_INT(d) OF\n\t\t0: s := CONCAT('0', s);\n\t\t1: s := CONCAT('1', s);\n\t\t2: s := CONCAT('2', s);\n\t\t3: s := CONCAT('3', s);\n\t\t4: s := CONCAT('4', s);\n\t\t5: s := CONCAT('5', s);\n\t\t6: s := CONCAT('6', s);\n\t\t7: s := CONCAT('7', s);\n\t\t8: s := CONCAT('8', s);\n\t\t9: s := CONCAT('9', s);\n\tEND_CASE;\n\tv := v / 10;\nUNTIL v = 0\nEND_REPEAT;\nWORD_TO_STRING := s;\nEND_FUNCTION\n",
+   "note": "Standard IEC conversion: returns the unsigned decimal text of the WORD, for example 8080 becomes '8080'.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/01_CODESYS3/该厂商st规范/ST规范/CODESYS3_Programming_Reference/_cds_operator_convert_integer.html.txt",
+     "line": 395,
+     "sha256": "26062c245fc392a8f780177eba0d37dcc9607a36b6001c2a5c09801be4e04777"
+    },
+    {
+     "file": "rusty_compatibility/21_Panasonic_FPWIN/该厂商st规范/ST规范/retry_0.validation.txt",
+     "line": 486,
+     "sha256": "3ea6284bdfb643d62c81f3ab0b351fbd9b67948d45d1509cee3a1e4918449865"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5f7472c61082b92c38593c93526f710ec1c3863d2e5473d33db36d9a06602082"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "_RMP_B",
+   "kind": "FUNCTION_BLOCK",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK _RMP_B\nVAR_INPUT\n\tDIR : BOOL;\n\tE : BOOL := TRUE;\n\tTR : TIME;\nEND_VAR\nVAR_IN_OUT\n\tRMP : BYTE;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "OSCAT BASIC: ramps the byte passed through RMP from 0 to 255 over the time TR, upward or downward according to DIR. The real block reads the system time, so this stub has no body and leaves RMP unchanged.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 442,
+     "sha256": "8ec69edefabc14bf7e31e7402dd2f06e75aab267dbf3c62410e261d3eca214b1"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 442,
+     "sha256": "c5e40288e00ded18ec8cb05a4ee3359217ae036f74f8be9058616b1e67500587"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5f7472c61082b92c38593c93526f710ec1c3863d2e5473d33db36d9a06602082"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "_RMP_NEXT",
+   "kind": "FUNCTION_BLOCK",
+   "category": "source",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION_BLOCK _RMP_NEXT\nVAR_INPUT\n\tE : BOOL := TRUE;\n\tIN : BYTE;\n\tTR : TIME;\n\tTF : TIME;\n\tTL : TIME;\nEND_VAR\nVAR_OUTPUT\n\tDIR : BOOL;\n\tUP : BOOL;\n\tDN : BOOL;\nEND_VAR\nVAR_IN_OUT\n\tOUT : BYTE;\nEND_VAR\nEND_FUNCTION_BLOCK\n",
+   "note": "OSCAT BASIC: ramps OUT toward IN, with TR as the rise time, TF as the fall time and TL as the lock-out time, and reports the direction in UP and DN. The real block reads the system time, so this stub has no body. Some calls pass a DINT to IN, which is declared BYTE as in OSCAT.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 443,
+     "sha256": "44e16b338fc52f30c9f15a53cbaf593f697e9e3c704569e5257326c3a431283a"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 443,
+     "sha256": "d69eaa091b1fae21db368a894cbede464742932aeb8f68ded0d0f9979b0cc097"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5f7472c61082b92c38593c93526f710ec1c3863d2e5473d33db36d9a06602082"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  },
+  {
+   "name": "_STRING_TO_BUFFER",
+   "kind": "FUNCTION",
+   "category": "pure",
+   "evidence": "knowledge",
+   "source": "llm",
+   "rounds": 1,
+   "declaration": "FUNCTION _STRING_TO_BUFFER : INT\nVAR_INPUT\n\tSTR : STRING[STRING_LENGTH];\n\tPOS : INT;\n\tPT : POINTER TO ARRAY[0..32767] OF BYTE;\n\tSIZE : UINT;\nEND_VAR\nEND_FUNCTION\n",
+   "note": "OSCAT BASIC: copies STR into the buffer at PT starting at POS, limited by SIZE, and returns the position after the last byte written. The calls ignore the result. The copy works through a pointer and the exact end-position rules are not documented here, so the body is empty. STRING_LENGTH is a constant that the library defines.",
+   "passages": [
+    {
+     "file": "rusty_compatibility/08_BR_Automation_Studio/库说明书/docs/oscat_basic333_en.sample.txt",
+     "line": 633,
+     "sha256": "e0d5abd56c7a581540e1db2ad72196b956548b528401672475b681dea230ecc7"
+    },
+    {
+     "file": "rusty_compatibility/06_Siemens_Classic_SCL/库说明书/docs/oscat_basic332_en.sample.txt",
+     "line": 633,
+     "sha256": "0532eb858bf929b02d889bf0cf511dd23841649dd12f2a359cc6990c3d612f88"
+    }
+   ],
+   "llm": [
+    {
+     "round": 1,
+     "llm_key": "5f7472c61082b92c38593c93526f710ec1c3863d2e5473d33db36d9a06602082"
+    }
+   ],
+   "verified": "compile",
+   "libraries": 1
+  }
+ ]
+}

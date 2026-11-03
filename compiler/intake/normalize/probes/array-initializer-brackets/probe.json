@@ -1,0 +1,1 @@
+{"rule": "array-initializer-brackets", "dialect": "codesys", "reject_codes": ["E043"], "expected_output": "28 30 7 2\n"}

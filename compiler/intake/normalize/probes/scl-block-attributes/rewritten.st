@@ -1,0 +1,15 @@
+FUNCTION MUL3 : INT
+(* VERSION : '1.0' *)
+(* AUTHOR  : hugo *)
+(* NAME    : MUL3 *)
+(* FAMILY  : MATH *)
+VAR_INPUT
+    X : INT;
+END_VAR
+MUL3 := X * 3;
+END_FUNCTION
+
+FUNCTION main : DINT
+printf('%d$N', MUL3(2));
+main := 0;
+END_FUNCTION

@@ -1,0 +1,10 @@
+(* printf as declared by the pinned RuSTy's lit tests (tests/lit/util/printf.pli). *)
+{external}
+FUNCTION printf: DINT
+VAR_INPUT {ref}
+	str : STRING;
+END_VAR
+VAR_INPUT
+	args: ...;
+END_VAR
+END_FUNCTION

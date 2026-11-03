@@ -1,0 +1,1 @@
+{"rule": "elseif-keyword", "dialect": "iec", "reject_codes": ["E007"], "expected_output": "10 20 30\n"}

@@ -1,0 +1,20 @@
+FUNCTION ADD_ONE : INT
+VAR_INPUT
+    X : INT;
+END_VAR
+ADD_ONE := X + 1;
+END_FUNCTION
+
+(* LIBRARY
+Standard.lib 22.11.04 11:21:12
+( * @LIBRARYSYMFILEINFO := '0' * )
+NumOfPOUs: 1
+CONCAT: 2048
+NumOfGVLs: 1
+'Global Variables 0': 0
+END_LIBRARY *)
+
+FUNCTION main : DINT
+printf('%d$N', ADD_ONE(41));
+main := 0;
+END_FUNCTION

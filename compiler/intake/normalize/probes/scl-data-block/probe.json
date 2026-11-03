@@ -1,0 +1,1 @@
+{"rule": "scl-data-block", "dialect": "siemens-scl", "reject_codes": ["E007"], "expected_output": "22\n"}

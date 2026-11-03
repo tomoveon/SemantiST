@@ -1,0 +1,196 @@
+diff --git a/libs/stdlib/Cargo.toml b/libs/stdlib/Cargo.toml
+index 15745c6fe81..5d49f6d63dc 100644
+--- a/libs/stdlib/Cargo.toml
++++ b/libs/stdlib/Cargo.toml
+@@ -41,6 +41,7 @@ cc = "1"
+ [features]
+ default = []
+ mock_time = []
++semantist_vclock = []
+ debug = []
+ 
+ [lib]
+diff --git a/libs/stdlib/src/extra_functions.rs b/libs/stdlib/src/extra_functions.rs
+index d7a5cd1a510..bed9ce6222f 100644
+--- a/libs/stdlib/src/extra_functions.rs
++++ b/libs/stdlib/src/extra_functions.rs
+@@ -161,8 +161,18 @@ pub unsafe extern "C-unwind" fn STRING_TO_REAL(src: *const u8) -> f32 {
+ #[allow(non_snake_case)]
+ #[no_mangle]
+ pub extern "C" fn TIME() -> i64 {
+-    let dt = Local::now();
+-    dt.num_seconds_from_midnight() as i64 * 1e9 as i64 + dt.nanosecond() as i64
++    #[cfg(feature = "semantist_vclock")]
++    {
++        extern "C" {
++            fn __semantist_vclock_ns() -> u64;
++        }
++        return unsafe { __semantist_vclock_ns() as i64 };
++    }
++    #[cfg(not(feature = "semantist_vclock"))]
++    {
++        let dt = Local::now();
++        dt.num_seconds_from_midnight() as i64 * 1e9 as i64 + dt.nanosecond() as i64
++    }
+ }
+ 
+ /// # Safety
+diff --git a/libs/stdlib/src/timers.rs b/libs/stdlib/src/timers.rs
+index 541aa6ec3cb..2a2e7028865 100644
+--- a/libs/stdlib/src/timers.rs
++++ b/libs/stdlib/src/timers.rs
+@@ -1,10 +1,44 @@
+ use std::time::Duration;
+-#[cfg(not(feature = "mock_time"))]
++#[cfg(not(any(feature = "mock_time", feature = "semantist_vclock")))]
+ use std::time::Instant;
+ 
+ #[cfg(feature = "mock_time")]
+ use test_time_helpers::Instant;
+ 
++#[cfg(feature = "semantist_vclock")]
++mod semantist_vclock {
++    use std::time::Duration;
++
++    extern "C" {
++        fn __semantist_vclock_ns() -> u64;
++        static __semantist_timer_semantics: u8;
++    }
++
++    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
++    pub struct Instant {
++        ns: u64,
++    }
++
++    impl Instant {
++        pub fn now() -> Self {
++            Self { ns: unsafe { __semantist_vclock_ns() } }
++        }
++
++        pub fn elapsed(&self) -> Duration {
++            let now = unsafe { __semantist_vclock_ns() };
++            Duration::from_nanos(now.saturating_sub(self.ns))
++        }
++    }
++
++    /// 0 = RuSTy original (ET > PT), 1 = CODESYS measured (ET >= PT).
++    pub fn timer_semantics() -> u8 {
++        unsafe { __semantist_timer_semantics }
++    }
++}
++
++#[cfg(feature = "semantist_vclock")]
++use semantist_vclock::{timer_semantics, Instant};
++
+ use crate::utils::Signal;
+ 
+ #[cfg(feature = "mock_time")]
+@@ -60,8 +94,22 @@ impl TimerParams {
+     }
+ 
+     fn is_in_preset_range(&self) -> bool {
+-        let duration = Duration::from_nanos(self.preset_time as u64);
+-        self.get_run_time().is_some_and(|it| it <= duration)
++        #[cfg(feature = "semantist_vclock")]
++        {
++            let duration = Duration::from_nanos(self.preset_time.max(0) as u64);
++            return self.get_run_time().is_some_and(|it| {
++                if timer_semantics() == 1 {
++                    it < duration
++                } else {
++                    it <= duration
++                }
++            });
++        }
++        #[cfg(not(feature = "semantist_vclock"))]
++        {
++            let duration = Duration::from_nanos(self.preset_time as u64);
++            self.get_run_time().is_some_and(|it| it <= duration)
++        }
+     }
+ 
+     fn get_run_time(&self) -> Option<Duration> {
+@@ -119,6 +167,16 @@ pub extern "C" fn TON(timer: &mut TimerParams) {
+             //Timer stopped, but the input is new
+         } else if timer.input_rising_edge() {
+             timer.start();
++            #[cfg(feature = "semantist_vclock")]
++            {
++                // IEC 61131-3 TON with PT = 0 is TRUE in the rising-edge scan.
++                if timer_semantics() == 1 && timer.preset_time == 0 {
++                    true
++                } else {
++                    false
++                }
++            }
++            #[cfg(not(feature = "semantist_vclock"))]
+             false
+             //Timer stopped, input didn't change (still true from last time)
+         } else {
+@@ -189,3 +247,66 @@ pub extern "C" fn TOF_TIME(timer: &mut TimerParams) {
+ pub extern "C" fn TOF_LTIME(timer: &mut TimerParams) {
+     TOF(timer)
+ }
++
++
++#[cfg(all(test, feature = "semantist_vclock"))]
++mod semantist_vclock_tests {
++    use super::*;
++
++    #[no_mangle]
++    static mut __semantist_timer_semantics: u8 = 1;
++
++    static mut VCLOCK: u64 = 0;
++
++    #[no_mangle]
++    extern "C" fn __semantist_vclock_ns() -> u64 {
++        unsafe { VCLOCK }
++    }
++
++    fn advance(ns: u64) {
++        unsafe { VCLOCK += ns }
++    }
++
++    fn ton() -> TimerParams {
++        TimerParams { preset_time: 500_000_000, ..TimerParams::default() }
++    }
++
++    #[test]
++    fn deterministic_replay_and_iec_ge_boundary() {
++        unsafe { VCLOCK = 0 };
++        let mut first = ton();
++        first.input = true;
++        TON(&mut first);
++        assert!(!first.output);
++        advance(10_000_000);
++        TON(&mut first);
++        assert_eq!(first.elapsed_time, 10_000_000);
++        for _ in 0..49 {
++            advance(10_000_000);
++            TON(&mut first);
++        }
++        assert!(first.output, "Q at ET == PT under iec_ge");
++        assert_eq!(first.elapsed_time, 500_000_000);
++
++        unsafe { VCLOCK = 0 };
++        let mut second = ton();
++        second.input = true;
++        TON(&mut second);
++        for _ in 0..50 {
++            advance(10_000_000);
++            TON(&mut second);
++        }
++        assert_eq!(second.output, first.output);
++        assert_eq!(second.elapsed_time, first.elapsed_time);
++    }
++
++    #[test]
++    fn ton_zero_preset_is_true_in_the_rising_edge_scan() {
++        unsafe { VCLOCK = 0 };
++        let mut timer = TimerParams { preset_time: 0, ..TimerParams::default() };
++        timer.input = true;
++        timer.input_edge.set(false);
++        TON(&mut timer);
++        assert!(timer.output);
++    }
++}

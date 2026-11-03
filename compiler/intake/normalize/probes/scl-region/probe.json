@@ -1,0 +1,1 @@
+{"rule": "scl-region", "dialect": "siemens-scl", "reject_codes": ["E006", "E007"], "expected_output": "23\n"}

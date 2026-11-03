@@ -1,0 +1,36 @@
+FUNCTION ALGORITHM_BRANCH : DINT
+VAR_INPUT
+    X : DINT;
+    Y : DINT;
+END_VAR
+ALGORITHM_BRANCH := 0;
+IF X > 10 AND Y < 20 THEN
+    ALGORITHM_BRANCH := 1;
+END_IF;
+IF X = 42 THEN
+    ALGORITHM_BRANCH := 2;
+END_IF;
+END_FUNCTION
+
+FUNCTION_BLOCK ALGORITHM_STATEFUL
+VAR_INPUT
+    enable : BOOL;
+    reset : BOOL;
+END_VAR
+VAR_OUTPUT
+    reached : BOOL;
+END_VAR
+VAR
+    counter : DINT;
+END_VAR
+IF reset THEN
+    counter := 0;
+ELSIF enable AND counter < 100 THEN
+    counter := counter + 1;
+END_IF;
+IF counter >= 100 THEN
+    reached := TRUE;
+ELSE
+    reached := FALSE;
+END_IF;
+END_FUNCTION_BLOCK

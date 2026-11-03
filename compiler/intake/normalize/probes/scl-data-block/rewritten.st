@@ -1,0 +1,18 @@
+VAR_GLOBAL
+SETTINGS :
+{ S7_Optimized_Access := 'FALSE' }
+(* VERSION : 0.1 *)
+(* NON_RETAIN *)
+   STRUCT
+      LIMIT_HI : INT := 20;
+      COUNT : INT;
+   END_STRUCT;
+END_VAR
+   (* LIMIT_HI := 20; *)
+(* END_DATA_BLOCK *)
+
+FUNCTION main : DINT
+SETTINGS.COUNT := 2;
+printf('%d$N', SETTINGS.LIMIT_HI + SETTINGS.COUNT);
+main := 0;
+END_FUNCTION

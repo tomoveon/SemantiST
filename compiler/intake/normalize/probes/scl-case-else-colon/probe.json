@@ -1,0 +1,1 @@
+{"rule": "scl-case-else-colon", "dialect": "siemens-scl", "reject_codes": ["E007"], "expected_output": "29 28 30 31\n"}

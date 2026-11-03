@@ -1,0 +1,11 @@
+{
+  "id": "oscat-network-codesys23",
+  "version": 1,
+  "match": ["native_codesys_network_*.st", "native_oscat_network_1*.st", "native_oscat_building_100.st"],
+  "description": "OSCAT Network and Building libraries for CODESYS 2.3",
+  "dependencies": [
+    {"vendor": "02_CODESYS23", "library": "native_oscat_basic_335.st",
+     "reason": "OSCAT Network and Building call OSCAT Basic functions; 3.35 is the newest Basic release of the CODESYS 2.3 archive"}
+  ],
+  "assumption": "built against OSCAT Basic 3.35; the Basic release each Network/Building version was originally released with is not documented in the corpus"
+}

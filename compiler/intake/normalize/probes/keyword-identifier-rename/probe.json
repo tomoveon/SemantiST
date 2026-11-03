@@ -1,0 +1,1 @@
+{"rule": "keyword-identifier-rename", "dialect": "codesys", "reject_codes": ["E007"], "expected_output": "-5\n"}

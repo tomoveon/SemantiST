@@ -1,0 +1,12 @@
+PROGRAM CYCLE
+VAR
+    N : INT;
+END_VAR
+N := N + 1;
+END_PROGRAM
+
+FUNCTION main : DINT
+CYCLE(); CYCLE();
+printf('%d$N', CYCLE.N);
+main := 0;
+END_FUNCTION

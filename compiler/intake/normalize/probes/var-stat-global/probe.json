@@ -1,0 +1,1 @@
+{"rule": "var-stat-global", "dialect": "codesys", "reject_codes": ["E007"], "expected_output": "3 2 13\n"}

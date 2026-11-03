@@ -1,0 +1,1 @@
+{"rule": "ax-var-section-reorder", "dialect": "simatic-ax", "reject_codes": ["E007"], "expected_output": "5 5\n"}

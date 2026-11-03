@@ -1,0 +1,266 @@
+{
+ "schema_version": "semantist.legacy-rules/1.0.0",
+ "description": "Disposition of the numbered rules of the earlier regex converter (compiler/parser/st-to-rusty-converter/scripts/dialect_rules.py on main) and of constructs it did not cover. Each entry carries a check that the pinned RuSTy must confirm: 'accepted' means the original form already compiles, so no rule is needed; 'rejected' lists the expected error codes; 'handled_by' names the rule (with its own probe) or the unsupported construct that takes over. Corpus counts are occurrences in code (not comments) of artifacts/intake/extract/outputs.",
+ "entries": [
+  {
+   "id": "1",
+   "name": "SET -> SET0",
+   "disposition": "removed",
+   "reason": "SET is not a RuSTy keyword; the identifier compiles unchanged",
+   "expect": "accepted",
+   "source": "FUNCTION f : INT\nVAR SET : BOOL; END_VAR\nSET := TRUE; f := 1;\nEND_FUNCTION\n"
+  },
+  {
+   "id": "2",
+   "name": "OVERRIDE -> _OVERRIDE",
+   "disposition": "replaced",
+   "handled_by": "keyword-identifier-rename",
+   "reason": "OVERRIDE is a RuSTy keyword but not a CODESYS one; the rule renames it consistently with a collision-free suffix, only where E007 reports it",
+   "expect": "rejected",
+   "codes": [
+    "E007"
+   ],
+   "source": "FUNCTION f : INT\nVAR OVERRIDE : BOOL; END_VAR\nOVERRIDE := TRUE; f := 1;\nEND_FUNCTION\n"
+  },
+  {
+   "id": "3",
+   "name": "POINTER TO -> REF_TO",
+   "disposition": "removed",
+   "reason": "RuSTy accepts POINTER TO; keeping it also keeps byte arithmetic under --byte-pointer-arithmetic (patch 0003), which REF_TO would lose",
+   "expect": "accepted",
+   "source": "FUNCTION f : INT\nVAR p : POINTER TO INT; x : INT; END_VAR\np := ADR(x); f := p^;\nEND_FUNCTION\n"
+  },
+  {
+   "id": "4",
+   "name": "ADR() -> REF()",
+   "disposition": "removed",
+   "reason": "changes meaning: arithmetic on REF() is scaled by the element size, CODESYS ADR() arithmetic counts bytes (principle 3); RuSTy accepts ADR()",
+   "expect": "accepted",
+   "source": "FUNCTION f : INT\nVAR p : POINTER TO INT; x : INT; END_VAR\np := ADR(x); f := p^;\nEND_FUNCTION\n"
+  },
+  {
+   "id": "5",
+   "name": "Remove VAR_INPUT CONSTANT",
+   "disposition": "replaced",
+   "handled_by": "var-block-constant",
+   "reason": "still rejected; the rule keeps CONSTANT as a comment instead of deleting it",
+   "expect": "rejected",
+   "codes": [
+    "E034"
+   ],
+   "source": "FUNCTION f : INT\nVAR_INPUT CONSTANT a : INT; END_VAR\nf := a;\nEND_FUNCTION\n"
+  },
+  {
+   "id": "6",
+   "name": "Array size UINT -> ULINT",
+   "disposition": "removed",
+   "reason": "changes a parameter type (principle 3) and was OSCAT specific; the pinned RuSTy accepts SIZEOF() passed to a UINT parameter, and the OSCAT intake needs no library-level replacement",
+   "expect": "accepted",
+   "source": "FUNCTION g : INT\nVAR_INPUT size : UINT; END_VAR\ng := UINT_TO_INT(size);\nEND_FUNCTION\nFUNCTION f : INT\nVAR a : ARRAY[0..3] OF INT; END_VAR\nf := g(size := SIZEOF(a));\nEND_FUNCTION\n"
+  },
+  {
+   "id": "7",
+   "name": "Array init with []",
+   "disposition": "replaced",
+   "handled_by": "array-initializer-brackets",
+   "reason": "still rejected; the rule works on the token stream instead of a regex over the line",
+   "expect": "rejected",
+   "codes": [
+    "E043"
+   ],
+   "source": "FUNCTION f : INT\nVAR a : ARRAY[0..2] OF INT := 1, 2, 3; END_VAR\nf := a[1];\nEND_FUNCTION\n"
+  },
+  {
+   "id": "8",
+   "name": "STRING() -> STRING[]",
+   "disposition": "removed",
+   "reason": "RuSTy accepts STRING(n) and WSTRING(n)",
+   "expect": "accepted",
+   "source": "FUNCTION f : INT\nVAR s : STRING(20); w : WSTRING(10); END_VAR\ns := 'ab'; f := LEN(s);\nEND_FUNCTION\n"
+  },
+  {
+   "id": "9",
+   "name": "FUNCTIONBLOCK -> FUNCTION_BLOCK",
+   "disposition": "removed",
+   "reason": "the pinned RuSTy accepts the FUNCTIONBLOCK header (warning E013: the words should be separated by '_'); only its END_FUNCTIONBLOCK terminator is rejected, which end-functionblock-keyword handles",
+   "corpus_occurrences": 0,
+   "expect": "accepted",
+   "source": "FUNCTIONBLOCK fb\nVAR x : INT; END_VAR\nx := 1;\nEND_FUNCTION_BLOCK\n"
+  },
+  {
+   "id": "END_FUNCTIONBLOCK",
+   "name": "END_FUNCTIONBLOCK terminator",
+   "disposition": "replaced",
+   "reason": "rejected (RuSTy reports the following units); FUNCTIONBLOCK is the CODESYS keyword retired by C0098, END_FUNCTIONBLOCK its terminator; rewritten only where it closes a function block. 0 occurrences in code, so the rule is last in the CODESYS profile",
+   "corpus_occurrences": 0,
+   "expect": "rejected",
+   "codes": [
+    "E007"
+   ],
+   "source": "FUNCTION_BLOCK fb\nVAR x : INT; END_VAR\nx := 1;\nEND_FUNCTIONBLOCK\n",
+   "handled_by": "end-functionblock-keyword"
+  },
+  {
+   "id": "10",
+   "name": "TOD HH:MM -> TOD HH:MM:SS",
+   "disposition": "removed",
+   "reason": "RuSTy accepts TOD#hh:mm",
+   "expect": "accepted",
+   "source": "FUNCTION f : TOD\nf := TOD#12:30;\nEND_FUNCTION\n"
+  },
+  {
+   "id": "11",
+   "name": "Function call [] -> ()",
+   "disposition": "not_added",
+   "reason": "still rejected (E059), but no collected vendor manual defines calls with brackets and the corpus has 0 occurrences; reported, not rewritten",
+   "corpus_occurrences": 0,
+   "expect": "rejected",
+   "codes": [
+    "E059"
+   ],
+   "source": "FUNCTION g : INT\nVAR_INPUT a : INT; END_VAR\ng := a;\nEND_FUNCTION\nFUNCTION f : INT\nf := g[a := 1];\nEND_FUNCTION\n"
+  },
+  {
+   "id": "12",
+   "name": "METHOD -> FUNCTION",
+   "disposition": "replaced",
+   "handled_by": "member-reorder",
+   "reason": "RuSTy supports METHOD, INTERFACE and PROPERTY natively; a METHOD is not a free FUNCTION. What remains is reassembling methods, properties and actions that exports place after the FB body",
+   "expect": "accepted",
+   "source": "FUNCTION_BLOCK fb\nVAR x : INT; END_VAR\nMETHOD m : INT\nm := x;\nEND_METHOD\nx := 1;\nEND_FUNCTION_BLOCK\n"
+  },
+  {
+   "id": "13",
+   "name": "Add missing END_*",
+   "disposition": "removed",
+   "reason": "inserting a terminator guesses where the POU ends (principle 4); a truncated POU is reported",
+   "expect": "rejected",
+   "codes": [
+    "E007"
+   ],
+   "source": "FUNCTION f : INT\nf := 1;\n"
+  },
+  {
+   "id": "14",
+   "name": "ENDIF identifier -> ENDIF0",
+   "disposition": "replaced",
+   "handled_by": "keyword-identifier-rename",
+   "reason": "generalized: the dialect profiles list the compact END* spellings that RuSTy reserves (identifier_words); renamed consistently where E007 reports them",
+   "expect": "rejected",
+   "codes": [
+    "E007"
+   ],
+   "source": "FUNCTION f : INT\nVAR ENDIF : INT; END_VAR\nENDIF := 1; f := ENDIF;\nEND_FUNCTION\n"
+  },
+  {
+   "id": "15",
+   "name": "STRING_LENGTH -> 255",
+   "disposition": "removed",
+   "reason": "RuSTy resolves global constants in STRING lengths; inlining 255 changed the value (OSCAT declares its own constant). The OSCAT-specific part, taking the missing global constants from the 2.3 export of the same release, is library-level configuration (normalize/libraries/oscat-basic-335-codesys3.json)",
+   "expect": "accepted",
+   "source": "VAR_GLOBAL CONSTANT STRING_LENGTH : INT := 254; LIST_LENGTH : INT := 254; END_VAR\nFUNCTION f : INT\nVAR s : STRING[STRING_LENGTH]; l : STRING[LIST_LENGTH]; END_VAR\ns := 'ab'; f := LEN(s);\nEND_FUNCTION\n"
+  },
+  {
+   "id": "16",
+   "name": "LIST_LENGTH -> 255",
+   "disposition": "removed",
+   "reason": "as rule 15",
+   "expect": "accepted",
+   "source": "VAR_GLOBAL CONSTANT LIST_LENGTH : INT := 254; END_VAR\nFUNCTION f : INT\nVAR l : STRING[LIST_LENGTH]; END_VAR\nl := 'ab'; f := LEN(l);\nEND_FUNCTION\n"
+  },
+  {
+   "id": "17",
+   "name": "ELSEIF -> ELSIF",
+   "disposition": "replaced",
+   "reason": "rejected; ELSEIF is documented as the else-if clause by Emerson PACSystems ('Either ELSIF or ELSEIF can be used'), LS XGI and the B&R IF statement description. 0 occurrences in code, so the rule is last in each profile",
+   "corpus_occurrences": 0,
+   "expect": "rejected",
+   "codes": [
+    "E007"
+   ],
+   "source": "FUNCTION f : INT\nVAR_INPUT a : INT; END_VAR\nIF a = 1 THEN f := 1; ELSEIF a = 2 THEN f := 2; ELSE f := 3; END_IF;\nEND_FUNCTION\n",
+   "handled_by": "elseif-keyword"
+  },
+  {
+   "id": "18-21",
+   "name": "ENDCASE/ENDFOR/ENDWHILE/ENDREPEAT -> END_*",
+   "disposition": "removed",
+   "reason": "RuSTy accepts the compact terminators",
+   "expect": "accepted",
+   "source": "FUNCTION f : INT\nVAR_INPUT a : INT; END_VAR\nVAR i : INT; END_VAR\nCASE a OF 1: f := 1; ENDCASE;\nFOR i := 1 TO 2 DO f := f + 1; ENDFOR;\nWHILE f < 9 DO f := f + 1; ENDWHILE;\nREPEAT f := f + 1; UNTIL f > 10 ENDREPEAT;\nEND_FUNCTION\n"
+  },
+  {
+   "id": "22-23",
+   "name": "ENDTYPE/ENDSTRUCT -> END_*",
+   "disposition": "removed",
+   "reason": "RuSTy accepts the compact terminators",
+   "expect": "accepted",
+   "source": "TYPE s : STRUCT a : INT; ENDSTRUCT ENDTYPE\nFUNCTION f : INT\nVAR v : s; END_VAR\nf := v.a;\nEND_FUNCTION\n"
+  },
+  {
+   "id": "24-25",
+   "name": "T# -> TIME#, D# -> DATE#",
+   "disposition": "removed",
+   "reason": "RuSTy accepts the short prefixes",
+   "expect": "accepted",
+   "source": "FUNCTION f : DATE\nVAR t : TIME := T#1s; END_VAR\nf := D#2020-01-01;\nEND_FUNCTION\n"
+  },
+  {
+   "id": "26",
+   "name": "Namespace call dot -> underscore",
+   "disposition": "replaced",
+   "handled_by": "library-qualifier",
+   "reason": "X.Y -> X_Y can bind to a different symbol of the library (principle 3). CODESYS library qualifiers are dropped only when the library is compiled in the same project and defines the name (library-qualifier); SIMATIC AX namespaces are flattened to the collision-free NS__Name (ax-namespace-flatten); other qualifiers stay unresolved and block intake",
+   "expect": "rejected",
+   "codes": [
+    "E048"
+   ],
+   "source": "FUNCTION f : INT\nf := Tc2_Standard.LEN('ab');\nEND_FUNCTION\n"
+  },
+  {
+   "id": "27",
+   "name": "ADR() arithmetic -> byte-pointer arithmetic",
+   "disposition": "removed",
+   "reason": "p := ADR(x) + n made the unpatched compiler panic; patch 0002 (with lit test pointer/adr_integer_arithmetic.st) makes ADR() arithmetic integer (byte) arithmetic, so the source compiles unchanged and advances n bytes",
+   "expect": "accepted",
+   "source": "FUNCTION f : INT\nVAR p : POINTER TO BYTE; x : ARRAY[0..3] OF BYTE := [10, 20, 30, 40]; END_VAR\np := ADR(x) + 1; f := BYTE_TO_INT(p^);\nEND_FUNCTION\nFUNCTION main : DINT\nprintf('%d$N', f());\nmain := 0;\nEND_FUNCTION\n",
+   "expected_output": "20\n"
+  },
+  {
+   "id": "VAR_STAT",
+   "name": "VAR_STAT static variables",
+   "disposition": "replaced",
+   "handled_by": "var-stat-global",
+   "reason": "rejected; moved to VAR_GLOBAL under fresh names with the references of the declaring POU or method renamed (same single, once-initialized storage). VAR_STAT RETAIN/PERSISTENT stays unsupported. 2 libraries (TcUnit, TcoCore)",
+   "expect": "rejected",
+   "codes": [
+    "E007"
+   ],
+   "source": "FUNCTION_BLOCK fb\nVAR_STAT n : INT; END_VAR\nn := n + 1;\nEND_FUNCTION_BLOCK\n"
+  },
+  {
+   "id": "VAR_INST",
+   "name": "VAR_INST method instance variables",
+   "disposition": "replaced",
+   "handled_by": "var-inst-member",
+   "reason": "rejected; moved to a VAR block of the owning function block under fresh names with the method's references renamed (per-instance storage, not reinitialized per call). 17 files of TwinCAT 3 libraries",
+   "expect": "rejected",
+   "codes": [
+    "E007"
+   ],
+   "source": "FUNCTION_BLOCK fb\nMETHOD m : INT\nVAR_INST n : INT; END_VAR\nn := n + 1; m := n;\nEND_METHOD\nEND_FUNCTION_BLOCK\n"
+  },
+  {
+   "id": "VAR_STAT RETAIN",
+   "name": "VAR_STAT RETAIN / PERSISTENT",
+   "disposition": "unsupported",
+   "handled_by": "unsupported:VAR_STAT",
+   "reason": "retentive static variables survive a restart; the execution model has none, and var-stat-global does not apply, so the construct is reported unsupported",
+   "expect": "rejected",
+   "codes": [
+    "E007"
+   ],
+   "source": "FUNCTION f : INT\nVAR_STAT RETAIN n : INT; END_VAR\nn := n + 1; f := n;\nEND_FUNCTION\n"
+  }
+ ]
+}

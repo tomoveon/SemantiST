@@ -1,0 +1,24 @@
+[package]
+name = "semantist-stg"
+version.workspace = true
+edition.workspace = true
+license = "MIT"
+
+[dependencies]
+anyhow = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+hex = "0.4"
+inkwell = { version = "0.8", features = ["llvm21-1"] }
+llvm-sys = "211"
+plc = { package = "plc-compiler", git = "https://github.com/PLC-lang/rusty.git", rev = "be1de6f175ec1bed7928904dfb694208a24043fb" }
+plc_ast = { git = "https://github.com/PLC-lang/rusty.git", rev = "be1de6f175ec1bed7928904dfb694208a24043fb" }
+plc_diagnostics = { git = "https://github.com/PLC-lang/rusty.git", rev = "be1de6f175ec1bed7928904dfb694208a24043fb" }
+plc_driver = { git = "https://github.com/PLC-lang/rusty.git", rev = "be1de6f175ec1bed7928904dfb694208a24043fb" }
+plc_index = { git = "https://github.com/PLC-lang/rusty.git", rev = "be1de6f175ec1bed7928904dfb694208a24043fb" }
+plc_source = { git = "https://github.com/PLC-lang/rusty.git", rev = "be1de6f175ec1bed7928904dfb694208a24043fb" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+tempfile = "3.10"

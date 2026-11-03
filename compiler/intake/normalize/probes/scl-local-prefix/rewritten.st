@@ -1,0 +1,11 @@
+FUNCTION SQUARE : INT
+VAR_INPUT
+    X : INT;
+END_VAR
+SQUARE := X * X;
+END_FUNCTION
+
+FUNCTION main : DINT
+printf('%d$N', SQUARE(3));
+main := 0;
+END_FUNCTION

@@ -1,0 +1,1 @@
+{"rule": "chained-assignment", "dialect": "codesys", "reject_stage": "codegen", "reject_codes": ["CODEGEN"], "expected_output": "1 1 1 300 44\n0 0 0 -5 -5\n"}

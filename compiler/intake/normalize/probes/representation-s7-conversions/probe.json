@@ -1,0 +1,1 @@
+{"rule": "representation-conversion-rebind", "dialect": "siemens-scl", "profiles": ["s7-conversions"], "original_output": "1\n", "expected_output": "0\n"}

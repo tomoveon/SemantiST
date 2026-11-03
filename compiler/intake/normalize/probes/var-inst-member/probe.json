@@ -1,0 +1,1 @@
+{"rule": "var-inst-member", "dialect": "codesys", "reject_codes": ["E007"], "expected_output": "0 0 5 9\n"}

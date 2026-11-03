@@ -1,0 +1,38 @@
+VAR_GLOBAL
+COUNTER_calls__STAT : INT;
+END_VAR
+FUNCTION_BLOCK COUNTER
+(* VAR_STAT
+    calls : INT;
+END_VAR *)
+VAR_OUTPUT
+    seen : INT;
+END_VAR
+COUNTER_calls__STAT := COUNTER_calls__STAT + 1;
+seen := COUNTER_calls__STAT;
+END_FUNCTION_BLOCK
+
+VAR_GLOBAL CONSTANT
+CRC_OF_TABLE__STAT : ARRAY[0..2] OF INT := [7, 11, 13];
+END_VAR
+FUNCTION CRC_OF : INT
+VAR_INPUT
+    i : INT;
+END_VAR
+(* VAR_STAT CONSTANT
+    TABLE : ARRAY[0..2] OF INT := [7, 11, 13];
+END_VAR *)
+CRC_OF := CRC_OF_TABLE__STAT[i];
+END_FUNCTION
+
+FUNCTION main : DINT
+VAR
+    a : COUNTER;
+    b : COUNTER;
+END_VAR
+a();
+b();
+a();
+printf('%d %d %d$N', a.seen, b.seen, CRC_OF(2));
+main := 0;
+END_FUNCTION

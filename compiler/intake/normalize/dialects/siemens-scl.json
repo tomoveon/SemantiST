@@ -1,0 +1,70 @@
+{
+  "schema_version": "semantist.dialect-profile/1.0.0",
+  "id": "siemens-scl",
+  "version": 4,
+  "family": "siemens-scl",
+  "description": "Siemens SCL (TIA Portal and STEP 7 Classic)",
+  "rules": [
+    "scl-block-attributes",
+    "scl-quoted-identifier",
+    "scl-type-colon",
+    "scl-data-block",
+    "scl-begin",
+    "s7-bool-array-view",
+    "scl-local-prefix",
+    "scl-organization-block",
+    "scl-const-inline",
+    "standard-formal-arguments",
+    "scl-typed-literal-prefix",
+    "scl-region",
+    "time-literal-underscore",
+    "scl-case-else-colon",
+    "scl-shift-literal-dword",
+    "standard-name-collision-rename",
+    "keyword-identifier-rename",
+    "array-initializer-brackets"
+  ],
+  "identifier_words": [
+    "OVERRIDE",
+    "ENDIF",
+    "ENDFOR",
+    "ENDWHILE",
+    "ENDREPEAT",
+    "ENDCASE",
+    "ENDVAR",
+    "ENDTYPE",
+    "ENDSTRUCT",
+    "ENDFUNCTION",
+    "ENDFUNCTIONBLOCK",
+    "ENDPROGRAM",
+    "ENDACTION",
+    "ENDACTIONS",
+    "ENDMETHOD",
+    "ENDCLASS",
+    "ENDINTERFACE",
+    "ENDPROPERTY",
+    "VARINPUT",
+    "VAROUTPUT",
+    "VARINOUT",
+    "VARGLOBAL",
+    "VARTEMP",
+    "NONRETAIN",
+    "REFTO",
+    "PROPERTYGET",
+    "PROPERTYSET"
+  ],
+  "compiler_args": [],
+  "compatibility_profiles": [
+    "s7-conversions"
+  ],
+  "rule_order_evidence": "artifacts/intake/stats/raw/summary.json (siemens-scl): block attributes (VERSION/AUTHOR/FAMILY/TITLE, 18 libraries), DATA_BLOCK (18), TYPE without colon (18), quoted symbols (6), # locals (TIA); BOOL array views AT an integer (E037, 18 files, 2975 constant-index uses) after BEGIN; REGION/END_REGION (TIA, 3 files, 174 lines) and duration literals with underscores between units (5 sites) after the 2026-10-26 run, each in fewer libraries than the rules before them; untyped DWORD literals as IN of SHL/SHR (E064, the most frequent unhandled SCL diagnostic of the 2026-10-27 run: 17 sites in OSCAT S7 releases) after CASE ... ELSE: (E007, 16 sites)",
+  "string": {
+    "encoding": "single-byte",
+    "evidence": "S7 STRING is a sequence of single-byte characters with a maximum and an actual length byte"
+  },
+  "time": {
+    "representation": "RuSTy 64-bit signed nanoseconds",
+    "vendor_representation": "TIME and TOD: 32-bit milliseconds (TIME signed); DATE: 16-bit days since 1990-01-01; S5TIME: 16-bit BCD (unsupported)",
+    "wraparound": "not simulated"
+  }
+}
