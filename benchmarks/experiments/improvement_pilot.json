@@ -1,0 +1,31 @@
+{
+  "schema_version": "semantist.improvement-pilot/1",
+  "source_run": "semantist-experiment-main-20261106-154017",
+  "source_result": "per-target.json (overall/full, 300 seconds, five seeds)",
+  "selection_rule": "Development regression set selected from prior outcomes: 10 completed FUNCTION misses, 5 completed FUNCTION_BLOCK misses, 1 engine failure, 1 partial gap, and 3 multicycle sentinels. Not a representative paper sample.",
+  "online_seconds": 100,
+  "seed": 0,
+  "tools": ["semantist", "aflpp", "icsquartz"],
+  "targets": [
+    {"id": "oscat_basic_clean", "kind": "FUNCTION", "group": "baseline_gap_function", "prior_confirmed_runs": {"semantist": 0, "aflpp": 5, "icsquartz": 5}},
+    {"id": "oscat_basic_del_chars", "kind": "FUNCTION", "group": "baseline_gap_function", "prior_confirmed_runs": {"semantist": 0, "aflpp": 5, "icsquartz": 5}},
+    {"id": "oscat_basic_find_char", "kind": "FUNCTION", "group": "baseline_gap_function", "prior_confirmed_runs": {"semantist": 0, "aflpp": 5, "icsquartz": 5}},
+    {"id": "oscat_basic_find_ctrl", "kind": "FUNCTION", "group": "baseline_gap_function", "prior_confirmed_runs": {"semantist": 0, "aflpp": 5, "icsquartz": 5}},
+    {"id": "oscat_basic_findb_num", "kind": "FUNCTION", "group": "baseline_gap_function", "prior_confirmed_runs": {"semantist": 0, "aflpp": 5, "icsquartz": 5}},
+    {"id": "oscat_basic_findp", "kind": "FUNCTION", "group": "baseline_gap_function", "prior_confirmed_runs": {"semantist": 0, "aflpp": 5, "icsquartz": 5}},
+    {"id": "oscat_basic_replace_all", "kind": "FUNCTION", "group": "baseline_gap_function", "prior_confirmed_runs": {"semantist": 0, "aflpp": 5, "icsquartz": 5}},
+    {"id": "oscat_basic_replace_chars", "kind": "FUNCTION", "group": "baseline_gap_function", "prior_confirmed_runs": {"semantist": 0, "aflpp": 5, "icsquartz": 5}},
+    {"id": "oscat_basic_trim", "kind": "FUNCTION", "group": "baseline_gap_function", "prior_confirmed_runs": {"semantist": 0, "aflpp": 5, "icsquartz": 5}},
+    {"id": "oscat_basic_uppercase", "kind": "FUNCTION", "group": "baseline_gap_function", "prior_confirmed_runs": {"semantist": 0, "aflpp": 5, "icsquartz": 5}},
+    {"id": "oscat_basic_parset", "kind": "FUNCTION_BLOCK", "group": "baseline_gap_fb", "prior_confirmed_runs": {"semantist": 0, "aflpp": 5, "icsquartz": 5}},
+    {"id": "oscat_network_irtrans_decode", "kind": "FUNCTION_BLOCK", "group": "baseline_gap_fb", "prior_confirmed_runs": {"semantist": 0, "aflpp": 5, "icsquartz": 5}},
+    {"id": "oscat_network_net_var_buffer", "kind": "FUNCTION_BLOCK", "group": "baseline_gap_fb", "prior_confirmed_runs": {"semantist": 0, "aflpp": 4, "icsquartz": 5}},
+    {"id": "oscat_network_smtp_client", "kind": "FUNCTION_BLOCK", "group": "baseline_gap_fb", "prior_confirmed_runs": {"semantist": 0, "aflpp": 5, "icsquartz": 5}},
+    {"id": "oscat_network_xml_reader", "kind": "FUNCTION_BLOCK", "group": "baseline_gap_fb", "prior_confirmed_runs": {"semantist": 0, "aflpp": 5, "icsquartz": 5}},
+    {"id": "oscat_basic_buffer_search", "kind": "FUNCTION", "group": "engine_failure", "prior_confirmed_runs": {"semantist": 0, "aflpp": 5, "icsquartz": 5}, "note": "SemantiST engine exited with status 139 in all five trials; not a completed search miss."},
+    {"id": "oscat_basic_crc_gen", "kind": "FUNCTION", "group": "partial_gap", "prior_confirmed_runs": {"semantist": 4, "aflpp": 5, "icsquartz": 5}, "note": "SemantiST median first candidate was 94.916 seconds in 300-second trials."},
+    {"id": "oscat_basic_gen_pulse", "kind": "FUNCTION_BLOCK", "group": "multicycle_regression", "prior_confirmed_runs": {"semantist": 5, "aflpp": 0, "icsquartz": 0}},
+    {"id": "oscat_basic_list_next", "kind": "FUNCTION_BLOCK", "group": "multicycle_regression", "prior_confirmed_runs": {"semantist": 5, "aflpp": 0, "icsquartz": 0}, "note": "ICSQuartz emitted raw crash files; zero here refers to the old confirmed-result field."},
+    {"id": "oscat_basic_sequence_64", "kind": "FUNCTION_BLOCK", "group": "multicycle_regression", "prior_confirmed_runs": {"semantist": 5, "aflpp": 0, "icsquartz": 0}, "note": "ICSQuartz emitted raw crash files; zero here refers to the old confirmed-result field."}
+  ]
+}

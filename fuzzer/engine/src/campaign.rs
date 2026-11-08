@@ -338,8 +338,8 @@ macro_rules! semantist_campaign {
             "Strategy mix: semantic scheduling {:.0}% / queue {:.0}%, semantic mutation {:.0}% / structured havoc {:.0}%",
             SEMANTIC_SCHEDULING_PROBABILITY * 100.0,
             (1.0 - SEMANTIC_SCHEDULING_PROBABILITY) * 100.0,
-            SEMANTIC_MUTATION_PROBABILITY * 100.0,
-            (1.0 - SEMANTIC_MUTATION_PROBABILITY) * 100.0,
+            semantic_mutation_ratio() * 100.0,
+            (1.0 - semantic_mutation_ratio()) * 100.0,
         );
         println!("Ablation profile: {}", config.ablation.as_str());
         let mutator = StructuredStMutator::new(config.ablation);

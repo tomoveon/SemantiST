@@ -102,8 +102,8 @@ def loop_headers(blocks: list[Block]) -> set[str]:
     return headers
 
 
-def instrument(source: str) -> tuple[str, int]:
-    if f"@{TICK}" in source:
+def instrument(source: str, tick: str = TICK) -> tuple[str, int]:
+    if f"@{tick}" in source:
         return source, 0
     lines = source.splitlines()
     output: list[str] = []
@@ -129,7 +129,7 @@ def instrument(source: str) -> tuple[str, int]:
             if depth == 0 and "}" in current:
                 break
         if not declaration_added:
-            output.append(f"declare void @{TICK}()")
+            output.append(f"declare void @{tick}()")
             declaration_added = True
         prefix, blocks = _parse_function(body)
         output.extend(prefix)
@@ -143,12 +143,12 @@ def instrument(source: str) -> tuple[str, int]:
             inserted = False
             for line in block.lines[1:]:
                 if block.label in headers and not inserted and not line.strip().startswith("phi "):
-                    output.append(f"  call void @{TICK}()")
+                    output.append(f"  call void @{tick}()")
                     count += 1
                     inserted = True
                 output.append(line)
             if block.label in headers and not inserted:
-                output.append(f"  call void @{TICK}()")
+                output.append(f"  call void @{tick}()")
                 count += 1
     return "\n".join(output) + ("\n" if source.endswith("\n") else ""), count
 
@@ -157,9 +157,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input_ll", type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--symbol", default=TICK,
+                        help="loop tick symbol (the default is the SemantiST ABI)")
     args = parser.parse_args(argv)
     source = args.input_ll.read_text(encoding="utf-8", errors="replace")
-    text, count = instrument(source)
+    text, count = instrument(source, args.symbol)
     args.output.write_text(text, encoding="utf-8", newline="\n")
     print(f"[loop_budget] inserted {count} loop ticks in {args.output}")
     return 0

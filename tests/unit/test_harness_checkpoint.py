@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from compiler.harness.abi import Param, TargetAbi, scalar_spec  # noqa: E402
+from compiler.harness.abi import Param, TargetAbi, TypeSpec, scalar_spec  # noqa: E402
 from compiler.harness.generator import generate_harness  # noqa: E402
 from compiler.harness.v3gen import generate_function_block_harness  # noqa: E402
 
@@ -110,9 +110,9 @@ int main(void) {
         (uint32_t)semantist_state_region_count(), storage_offset,
     };
     if (semantist_import_state(blob, &relocation, 1) != 0) return 4;
-    if (semantist_harness_state.inst.f0 != &semantist_harness_state.f0_storage) return 5;
+    if (semantist_harness_state.inst.f0 != &semantist_f0_storage) return 5;
     if (semantist_step(&frame, 10000000ULL) != 0) return 6;
-    return semantist_harness_state.f0_storage == 1 ? 0 : 7;
+    return semantist_f0_storage == 1 ? 0 : 7;
 }
 """
         source_text = generate_function_block_harness(abi) + "\n" + target
@@ -144,7 +144,7 @@ int main(int argc, char **argv) {
 #ifdef EXPORTER
     uint8_t blob[1024];
     if (semantist_init("") != 0) return 11;
-    semantist_harness_state.f0_storage = 41;
+    semantist_f0_storage = 41;
     size_t size = semantist_state_size();
     if (size > sizeof(blob)) return 12;
     semantist_checkpoint(blob);
@@ -171,7 +171,7 @@ int main(int argc, char **argv) {
     semantist_frame_t frame;
     memset(&frame, 0, sizeof(frame));
     if (semantist_step(&frame, 10000000ULL) != 0) return 24;
-    return semantist_harness_state.f0_storage == 42 ? 0 : 25;
+    return semantist_f0_storage == 42 ? 0 : 25;
 #endif
 }
 '''
@@ -193,6 +193,119 @@ int main(int argc, char **argv) {
             self.assertEqual(exported.returncode, 0, exported.stderr)
             imported = subprocess.run([str(importer), str(checkpoint)], capture_output=True, text=True)
             self.assertEqual(imported.returncode, 0, imported.stderr)
+
+    @unittest.skipUnless(shutil.which("cc"), "requires a C compiler")
+    def test_raw_frame_bytes_reach_bool_and_string_storage(self):
+        flag = Param("FLAG", scalar_spec("BOOL"), "VAR_INPUT", offset=8, index=1)
+        text = Param("TEXT", TypeSpec("string", "STRING", c_type="char", size=1, length=3),
+                     "VAR_INPUT", offset=9, index=2)
+        abi = TargetAbi("FUNCTION_BLOCK", "RAW", [flag, text], state_fields=[flag, text],
+                        instance_size=16, instance_align=1)
+        target = r'''
+static int observed;
+void RAW__ctor(semantist_fb_state_t *inst) { inst->f0 = 0; memset(inst->f1, 0, sizeof(inst->f1)); }
+void RAW(semantist_fb_state_t *inst) {
+    if (inst->f0 == 3 && (unsigned char)inst->f1[0] == 0x80 && inst->f1[1] == 0) observed = 1;
+}
+int main(void) {
+    semantist_frame_t frame;
+    uint8_t flag = 0x03;
+    uint8_t text[] = {0x80};
+    memset(&frame, 0, sizeof(frame));
+    if (semantist_init("") != 0) return 1;
+    if (semantist_apply_raw_field("FLAG", &flag, sizeof(flag), &frame) != 0) return 2;
+    if (semantist_apply_raw_field("TEXT", text, sizeof(text), &frame) != 0) return 3;
+    if (semantist_step(&frame, 10000000ULL) != 0) return 4;
+    return observed ? 0 : 5;
+}
+'''
+        source_text = generate_function_block_harness(abi) + "\n" + target
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "raw.c"
+            source.write_text(source_text, encoding="utf-8")
+            binary = Path(directory) / "raw"
+            build = subprocess.run(
+                ["cc", "-DSEMANTIST_IN_PROCESS", "-O1", str(source), "-o", str(binary)],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(build.returncode, 0, build.stderr[:2000])
+            run = subprocess.run([str(binary)], capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+
+    @unittest.skipUnless(shutil.which("cc"), "requires a C compiler")
+    def test_canonical_scalar_bytes_reach_abi_object(self):
+        flag = Param("FLAG", scalar_spec("BOOL"), "VAR_INPUT", offset=8, index=1)
+        value = Param("VALUE", scalar_spec("INT"), "VAR_INPUT", offset=10, index=2)
+        abi = TargetAbi("FUNCTION_BLOCK", "RAW_SCALAR", [flag, value],
+                        state_fields=[flag, value], instance_size=16, instance_align=2)
+        target = r'''
+static int observed;
+void RAW_SCALAR__ctor(semantist_fb_state_t *inst) { inst->f0 = 0; inst->f1 = 0; }
+void RAW_SCALAR(semantist_fb_state_t *inst) {
+    if (inst->f0 == 0x03 && inst->f1 == 7) observed = 1;
+}
+int main(void) {
+    semantist_frame_t frame;
+    memset(&frame, 0, sizeof(frame));
+    if (semantist_init("") != 0) return 1;
+    if (semantist_parse_frame("0.FLAG,BOOL,0x03\n0.VALUE,INT,0x0700\n", &frame, NULL) != 0) return 2;
+    if (semantist_step(&frame, 10000000ULL) != 0) return 3;
+    return observed ? 0 : 4;
+}
+'''
+        source_text = generate_function_block_harness(abi) + "\n" + target
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "raw-scalar.c"
+            source.write_text(source_text, encoding="ascii")
+            binary = Path(directory) / "raw-scalar"
+            build = subprocess.run(
+                ["cc", "-DSEMANTIST_IN_PROCESS", "-O1", str(source), "-o", str(binary)],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(build.returncode, 0, build.stderr[:2000])
+            run = subprocess.run([str(binary)], capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+
+    @unittest.skipUnless(shutil.which("cc"), "requires a C compiler")
+    def test_raw_shared_array_is_applied_to_external_storage(self):
+        array = TypeSpec(
+            "array", "BYTE_ARRAY", c_type="uint8_t", size=1,
+            count=4, element=scalar_spec("BYTE"),
+        )
+        buffer_param = Param("BUF", array, "VAR_IN_OUT", offset=8, index=1)
+        abi = TargetAbi("FUNCTION_BLOCK", "RAW_ARRAY", [buffer_param],
+                        state_fields=[buffer_param], instance_size=16, instance_align=8)
+        target = r'''
+static int observed;
+void RAW_ARRAY__ctor(semantist_fb_state_t *inst) {
+    memset(inst->f0, 0, 4);
+}
+void RAW_ARRAY(semantist_fb_state_t *inst) {
+    const uint8_t *buffer = (const uint8_t *)inst->f0;
+    if (buffer[0] == 0x80 && buffer[3] == 0xff) observed = 1;
+}
+int main(void) {
+    semantist_frame_t frame;
+    uint8_t bytes[] = {0x80, 0x01, 0x02, 0xff};
+    memset(&frame, 0, sizeof(frame));
+    if (semantist_init("") != 0) return 1;
+    if (semantist_apply_raw_shared_field("BUF", bytes, sizeof(bytes)) != 0) return 2;
+    if (semantist_step(&frame, 10000000ULL) != 0) return 3;
+    return observed ? 0 : 4;
+}
+'''
+        source_text = generate_function_block_harness(abi) + "\n" + target
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "raw-array.c"
+            source.write_text(source_text, encoding="utf-8")
+            binary = Path(directory) / "raw-array"
+            build = subprocess.run(
+                ["cc", "-DSEMANTIST_IN_PROCESS", "-O1", str(source), "-o", str(binary)],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(build.returncode, 0, build.stderr[:2000])
+            run = subprocess.run([str(binary)], capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
 
 
 if __name__ == "__main__":

@@ -17,14 +17,22 @@ from typing import Any
 
 from fuzzer.corpus.frames import Frame, TestCase, parse_testcase
 from fuzzer.pipeline.metrics import Metrics
-from fuzzer.pipeline.probe import Observation, classify, probe
+from fuzzer.pipeline.probe import Observation, classify, is_finding_candidate, probe
 from fuzzer.pipeline.model import TargetModel
 from fuzzer.pipeline import minimize as minimize_module
+from fuzzer.llm.plan import _field_map
 
 
 def _normalize_ablations(config: dict[str, Any]) -> dict[str, Any]:
-    """Normalize legacy v3 switch names before any campaign phase reads them."""
+    """Normalize switches and keep the single native executor hot path lean."""
     ablations = dict(config.get("ablations") or {})
+    for name in (
+        "no_symbolic", "symbolic_initial_only", "no_online_reinjection",
+        "no_minimization", "no_traced_replay", "no_snapshot",
+        "no_goal_prefix", "no_distance", "no_state_copy",
+        "no_adaptive_reset", "no_tail_guidance", "no_transition_guidance",
+    ):
+        ablations.setdefault(name, True)
     aliases = {
         "v3_no_symbolic": "no_symbolic",
         "v3_symbolic_initial_only": "symbolic_initial_only",
@@ -61,7 +69,8 @@ def solver_prefix_skip_reason(record: dict[str, Any], task: dict[str, Any], *,
     if record.get("task_id") != task.get("task_id"):
         return "unrelated_task"
     if (record.get("queue") != "klee_suffix"
-            or record.get("trigger") not in {"task_distance_improved", "native_hazard_reach"}
+            or record.get("trigger") not in {"task_distance_improved", "native_hazard_reach",
+                                              "state_frontier", "task_stagnation"}
             or record.get("task_unresolved") is not True
             or not isinstance(record.get("native_execution"), int)):
         return "missing_native_task_progress"
@@ -75,7 +84,9 @@ def solver_prefix_priority(record: dict[str, Any]) -> tuple[int, int, int]:
     at_goal_frontier = (isinstance(distance, (int, float)) and not isinstance(distance, bool)
                         and math.isfinite(distance) and distance <= 0)
     stagnation = record.get("consecutive_no_progress")
-    return (int(record.get("trigger") == "native_hazard_reach"),
+    trigger_rank = {"native_hazard_reach": 3, "state_frontier": 2,
+                    "task_distance_improved": 1, "task_stagnation": 0}
+    return (trigger_rank.get(record.get("trigger"), 0),
             int(at_goal_frontier), max(0, stagnation) if type(stagnation) is int else 0)
 
 
@@ -115,6 +126,7 @@ class Campaign:
         self.seed = seed
         self.max_evaluations = max_evaluations
         self.started = time.monotonic()
+        self.started_epoch_ns = time.time_ns()
         self.deadline = self.started + max(0.0, time_budget_s)
         planning_budget = min(120.0, max(0.0, time_budget_s) * 0.2)
         self.startup_deadline = self.started + planning_budget
@@ -289,6 +301,8 @@ class Campaign:
             # One cold probe establishes a replayable candidate. The finding
             # layer may promote it to confirmed only after repeat probes.
             status = "candidate"
+        elif observation.scan_budget:
+            status = "INSTRUMENTATION_ABORT"
         elif model_goal_reached:
             status = "model_goal_reached"
         else:
@@ -355,6 +369,10 @@ class Campaign:
                            query_id: str, task_id: str | None) -> bool:
         """Publish a cold replay with new runtime coverage or valid state."""
         stop_event = getattr(self, "_engine_stop_event", None)
+        if stop_event is not None and self.config.get("ablations", {}).get("no_online_reinjection"):
+            self.metrics.event("solver_seed_rejected", query_id=query_id,
+                               reason="experiment_no_online_reinjection")
+            return False
         if stop_event is not None and stop_event.is_set():
             self.metrics.event("solver_seed_rejected", query_id=query_id,
                                reason="engine_finished_no_feedback_this_round")
@@ -594,10 +612,11 @@ class Campaign:
         )
 
     def _observe_again(self, testcase: bytes) -> Observation:
-        return self._probe_with_deadline(testcase, timeout_s=5.0)
+        return self._probe_with_deadline(testcase, timeout_s=5.0, trace=False)
 
     def _probe_with_deadline(self, testcase: bytes, *, timeout_s: float = 5.0,
-                             deadline: float | None = None) -> Observation:
+                             deadline: float | None = None,
+                             trace: bool = True) -> Observation:
         """Run a native probe without exceeding the campaign phase deadline."""
         limit = self.deadline if deadline is None else min(self.deadline, deadline)
         remaining = limit - time.monotonic()
@@ -608,6 +627,7 @@ class Campaign:
             testcase,
             work_dir=self.run_dir / "probe",
             timeout_s=min(float(timeout_s), max(0.001, remaining)),
+            trace=trace,
         )
 
     def _source_excerpt(self, task: dict[str, Any]) -> dict[str, Any]:
@@ -633,30 +653,26 @@ class Campaign:
                 "truncated": truncated}
 
     def _llm_controllable_fields(self, abi: dict[str, Any], allowed: set[str] | None = None) -> list[dict[str, Any]]:
-        entries = list(abi.get("frame_fields", []))
-        seen = {entry.get("name") for entry in entries}
-        entries.extend(entry for entry in abi.get("shared_fields", [])
-                       if entry.get("block_kind") == "VAR_IN_OUT" and entry.get("name") not in seen)
         result = []
-        for entry in entries:
-            if allowed is not None and entry.get("name") not in allowed:
+        for name, entry in _field_map(abi).items():
+            if allowed is not None and name not in allowed and entry.get("_parent") not in allowed:
                 continue
             spec = entry.get("spec") or {}
             domain: Any = None
             if spec.get("kind") == "scalar":
-                name = str(spec.get("name"))
-                if name == "BOOL":
+                type_name = str(spec.get("name"))
+                if type_name == "BOOL":
                     domain = [0, 1]
-                elif name not in ("REAL", "LREAL"):
+                elif type_name not in ("REAL", "LREAL"):
                     bits = int(spec.get("size") or 1) * 8
-                    unsigned = str(spec.get("c_type") or "").startswith("u") or name in {
+                    unsigned = str(spec.get("c_type") or "").startswith("u") or type_name in {
                         "USINT", "BYTE", "UINT", "WORD", "UDINT", "DWORD", "ULINT", "LWORD",
                     }
                     domain = {"min": 0 if unsigned else -(2 ** (bits - 1)),
                               "max": (2 ** bits - 1) if unsigned else 2 ** (bits - 1) - 1}
             elif spec.get("kind") == "string":
                 domain = {"max_length": spec.get("length") or spec.get("capacity")}
-            result.append({"name": entry.get("name"), "type": spec.get("name") or spec.get("kind"),
+            result.append({"name": name, "type": spec.get("name") or spec.get("kind"),
                            "domain": domain})
         return result
 
@@ -674,12 +690,24 @@ class Campaign:
             entry for entry in abi.get("shared_fields", [])
             if entry.get("block_kind") == "VAR_IN_OUT" and entry.get("name") not in seen
         )
-        from fuzzer.corpus.frames import default_for_spec
-        return {
-            entry["name"]: default_for_spec(entry.get("spec") or {})
-            for entry in entries
-            if entry.get("name")
-        }
+        from fuzzer.corpus.frames import default_for_spec, structured_default_for_spec
+        values: dict[str, str] = {}
+        for entry in entries:
+            name = entry.get("name")
+            if not name:
+                continue
+            spec = entry.get("spec") or {}
+            # XML_READER's buffer is a byte array, but an all-zero cold value
+            # leaves its state machine in an unbounded search loop. A minimal
+            # empty element is a valid structural seed; later byte operators
+            # still own arbitrary payload exploration.
+            if name.upper() == "BUF" and spec.get("kind") in {"array", "opaque"}:
+                values[name] = "0x3c612f3e"
+            elif spec.get("kind") in {"opaque", "array"} and spec.get("members"):
+                values[name] = structured_default_for_spec(name, spec)
+            else:
+                values[name] = default_for_spec(spec)
+        return values
 
     @staticmethod
     def _shared_records_for_frames(abi: dict[str, Any], frames: list[dict[str, str]]) -> str:
@@ -719,6 +747,7 @@ class Campaign:
         depth: int = 1,
         query_id: str | None = None,
         solver_scope: dict[str, Any] | None = None,
+        created_s: float | None = None,
     ) -> Candidate:
         signature = (
             candidate_info.get("oracle"),
@@ -763,7 +792,8 @@ class Campaign:
                            "solver_scope": solver_scope,
                            "solver_model": "approximate" if solver_scope and solver_scope.get("imprecise")
                            else "faithful" if solver_scope else None},
-            "created_s": round(time.monotonic() - self.started, 3),
+            "created_s": round(created_s if created_s is not None
+                               else time.monotonic() - self.started, 3),
         }
         (directory / f"{finding_id}.json").write_text(
             json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
@@ -817,7 +847,8 @@ class Campaign:
                 observations = list(pool.map(lambda _index: self._observe_again(candidate.testcase), range(3)))
         matches = 0
         for observation in observations:
-            if self._same_candidate(candidate.candidate, classify(observation, self.model.runtime_index)):
+            if self._same_candidate(candidate.candidate,
+                                     classify(observation, self.model.runtime_index)):
                 matches += 1
         if matches < 3:
             return None
@@ -1046,44 +1077,19 @@ class Campaign:
         if confirmation_results is None:
             confirmation_results = self.candidate_confirmation_results = []
         shortenings: dict[str, dict[str, Any]] = {}
-        for candidate in candidates:
-            shortening: dict[str, Any] = {"status": "skipped"}
-            try:
-                depth = len(parse_testcase(candidate.testcase, self._abi_like()).frames)
-                if depth > 1 and time.monotonic() + 2.5 < self.deadline:
-                    deadline = min(self.deadline - 1.0, time.monotonic() + 2.0)
-
-                    def bounded_probe(_target_binary, testcase, *, work_dir, timeout_s):
-                        return self._probe_with_deadline(testcase, timeout_s=timeout_s,
-                                                         deadline=deadline)
-
-                    result = minimize_module.minimize(
-                        candidate.testcase, abi_like=self._abi_like(),
-                        runtime_index=self.model.runtime_index,
-                        target_binary=self.target_binary, work_dir=self.run_dir / "probe",
-                        probe_fn=bounded_probe,
-                        signature=(candidate.candidate.get("oracle"),
-                                   candidate.candidate.get("runtime_id"),
-                                   str(candidate.candidate.get("source"))),
-                        max_rounds=1, deadline=deadline,
-                    )
-                    if result.frames < depth:
-                        candidate.testcase = result.testcase
-                        (self.run_dir / "findings" / "candidates" /
-                         f"{candidate.finding_id}.shortened.txt").write_bytes(result.testcase)
-                    shortening = {"status": "completed", "original_frames": depth,
-                                  "shortened_frames": result.frames,
-                                  "removed_frames": result.removed,
-                                  "simplified_values": result.simplified}
-            except (OSError, ValueError, TimeoutError) as error:
-                shortening = {"status": "TIMEOUT" if isinstance(error, TimeoutError) else "FAILED",
-                              "reason": str(error)}
-            shortenings[candidate.finding_id] = shortening
         workers = max(1, int(getattr(self, "jobs", 1)))
+
+        def fast_probe_round(testcase: bytes) -> list[Observation]:
+            with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="semantist-confirm") as pool:
+                return list(pool.map(lambda _index: self._observe_again(testcase), range(3)))
+
+        # Establish native evidence for the exact candidate before any
+        # minimization or semantic tracing can alter the input or consume the
+        # instrumentation scan budget.
         observations: list[list[Observation]] = [[] for _ in candidates]
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="semantist-confirm") as pool:
             futures = [
-                (candidate_index, pool.submit(self._observe_again, candidate.testcase))
+                    (candidate_index, pool.submit(self._observe_again, candidate.testcase))
                 for candidate_index, candidate in enumerate(candidates)
                 for _attempt in range(3)
             ]
@@ -1092,15 +1098,71 @@ class Campaign:
         self.metrics.event("confirmation_probes", candidates=len(candidates),
                            probes=len(candidates) * 3, workers=workers)
         for candidate, candidate_observations in zip(candidates, observations):
+            initial_fast_match = any(
+                self._same_candidate(candidate.candidate,
+                                     classify(observation, self.model.runtime_index))
+                for observation in candidate_observations
+            )
+            shortening: dict[str, Any] = {"status": "skipped",
+                                          "reason": "native_mismatch" if not initial_fast_match
+                                          else "not_needed"}
+            ablations = getattr(self, "config", {}).get("ablations", {})
+            if initial_fast_match and not ablations.get("no_minimization"):
+                try:
+                    depth = len(parse_testcase(candidate.testcase, self._abi_like()).frames)
+                    if depth > 1 and time.monotonic() + 2.5 < self.deadline:
+                        deadline = min(self.deadline - 1.0, time.monotonic() + 2.0)
+
+                        def bounded_probe(_target_binary, testcase, *, work_dir, timeout_s):
+                            return self._probe_with_deadline(testcase, timeout_s=timeout_s,
+                                                             deadline=deadline, trace=False)
+
+                        result = minimize_module.minimize(
+                            candidate.testcase, abi_like=self._abi_like(),
+                            runtime_index=self.model.runtime_index,
+                            target_binary=self.target_binary, work_dir=self.run_dir / "probe",
+                            probe_fn=bounded_probe,
+                            signature=(candidate.candidate.get("oracle"),
+                                       candidate.candidate.get("runtime_id"),
+                                       str(candidate.candidate.get("source"))),
+                            max_rounds=1, deadline=deadline,
+                        )
+                        if result.frames < depth:
+                            candidate.testcase = result.testcase
+                            (self.run_dir / "findings" / "candidates" /
+                             f"{candidate.finding_id}.shortened.txt").write_bytes(result.testcase)
+                            candidate_observations = fast_probe_round(candidate.testcase)
+                            self.metrics.event("confirmation_probes", candidates=1,
+                                               probes=3, workers=workers, phase="post_minimize")
+                        shortening = {"status": "completed", "original_frames": depth,
+                                      "shortened_frames": result.frames,
+                                      "removed_frames": result.removed,
+                                      "simplified_values": result.simplified}
+                except (OSError, ValueError, TimeoutError) as error:
+                    shortening = {"status": "TIMEOUT" if isinstance(error, TimeoutError) else "FAILED",
+                                  "reason": str(error)}
+            shortenings[candidate.finding_id] = shortening
             finding = self.confirm(candidate, observations=candidate_observations)
             rounds = [candidate_observations]
-            if finding is None and time.monotonic() + 1.0 < self.deadline:
+            # Native confirmation is authoritative. Only a candidate that
+            # matched in the fast pass may pay for semantic tracing; a
+            # scan-budget abort or native mismatch must not be promoted by a
+            # slower traced replay.
+            fast_match = any(
+                self._same_candidate(candidate.candidate,
+                                     classify(observation, self.model.runtime_index))
+                for observation in candidate_observations
+            )
+            if (finding is None and fast_match
+                    and not ablations.get("no_traced_replay")
+                    and time.monotonic() + 1.0 < self.deadline):
                 retry_timeout = 10.0 if any(item.timed_out for item in candidate_observations) else 5.0
                 with ThreadPoolExecutor(max_workers=min(3, workers),
                                         thread_name_prefix="semantist-confirm-retry") as pool:
                     retry = list(pool.map(
                         lambda _index: self._probe_with_deadline(candidate.testcase,
-                                                                  timeout_s=retry_timeout),
+                                                                  timeout_s=retry_timeout,
+                                                                  trace=True),
                         range(3),
                     ))
                 rounds.append(retry)
@@ -1111,9 +1173,11 @@ class Campaign:
                     actual = classify(observation, self.model.runtime_index)
                     attempts.append({
                         "round": round_index,
-                        "status": "TIMEOUT" if observation.timed_out else
-                                  "MATCH" if self._same_candidate(candidate.candidate, actual)
-                                  else "REPLAY_MISMATCH",
+                        "status": ("TIMEOUT" if observation.timed_out else
+                                    "INSTRUMENTATION_ABORT" if actual is not None
+                                    and actual.get("kind") == "scan_budget" else
+                                    "MATCH" if self._same_candidate(candidate.candidate, actual)
+                                    else "REPLAY_MISMATCH"),
                         "returncode": observation.returncode,
                         "wall_s": observation.wall_s,
                         "risk_probe_hits": [int(runtime_id) for runtime_id in observation.hits],
@@ -1122,6 +1186,8 @@ class Campaign:
                     })
             status = "confirmed" if finding is not None else (
                 "TIMEOUT" if any(item["status"] == "TIMEOUT" for item in attempts)
+                else "INSTRUMENTATION_ABORT" if any(
+                    item["status"] == "INSTRUMENTATION_ABORT" for item in attempts)
                 else "REPLAY_MISMATCH")
             evidence = {
                 "finding_id": candidate.finding_id,
@@ -1273,9 +1339,9 @@ class Campaign:
             "probe_audit": {key: value for key, value in probe_audit.items() if key != "risks"},
             "verification_status": "incomplete" if probe_audit["status"] != "COMPLETE"
             or symbolic_status in {"FAILED", "UNSUPPORTED", "TIMEOUT", "REPLAY_MISMATCH", "NOT_RUN", "INCOMPLETE"}
-            or any(item.get("status") in {"FAILED", "TIMEOUT", "REPLAY_MISMATCH"}
+            or any(item.get("status") in {"FAILED", "TIMEOUT", "REPLAY_MISMATCH", "INSTRUMENTATION_ABORT"}
                    for item in getattr(self, "native_replay_results", []))
-            or any(item.get("status") in {"FAILED", "TIMEOUT", "REPLAY_MISMATCH"}
+            or any(item.get("status") in {"FAILED", "TIMEOUT", "REPLAY_MISMATCH", "INSTRUMENTATION_ABORT"}
                    for item in getattr(self, "candidate_confirmation_results", [])) else "executed",
             "candidate_confirmation_results": getattr(self, "candidate_confirmation_results", []),
             "findings": self.confirmed,
@@ -1293,6 +1359,7 @@ class Campaign:
             "cycle_effects": getattr(self, "cycle_effects", {}),
             "llm_planning": getattr(self, "llm_planning_summary", {"status": "not_run"}),
             "phase_times_s": getattr(self, "phase_times_s", {}),
+            "online_start_offset_s": getattr(self, "online_start_offset_s", None),
             "total_budget_s": getattr(self, "time_budget_s", None),
             "task_progress": list(progress_by_task.values()),
             "native_replay_results": getattr(self, "native_replay_results", []),
@@ -1397,11 +1464,14 @@ class Campaign:
                 attempted += 1
                 query_id = f"q-start-{attempted}-{runtime_id}"
                 query_frame = dict(base_frame)
-                symbolic_fields = None
+                suggested = suggestions.get(str(task.get("task_id"))) or []
+                symbolic_fields = [entry["name"] for entry in abi.get("frame_fields", [])
+                                   if entry["name"] in suggested] or None
                 if variant == "typed_float_anchor" and anchor is not None:
                     query_frame[anchor[0]] = anchor[1]
                     symbolic_fields = [entry["name"] for entry in abi.get("frame_fields", [])
-                                       if entry["name"] != anchor[0]]
+                                       if entry["name"] != anchor[0]
+                                       and (not suggested or entry["name"] in suggested)]
                     self.metrics.event("solver_trigger", query_id=query_id, task_id=task.get("task_id"),
                                        reason="typed_float_conversion_boundary",
                                        fixed_field=anchor[0], fixed_value=anchor[1])
@@ -1442,12 +1512,12 @@ class Campaign:
                 replay_status = self._record_klee_native_replay(
                     prefix_id="cold", query_id=query_id, task_id=task.get("task_id"),
                     observation=observation,
-                    matched=candidate_info is not None and int(runtime_id) in observation.hits,
+                    matched=is_finding_candidate(candidate_info) and int(runtime_id) in observation.hits,
                     model_goal_reached=bool(result.get("native_goal_reached"))
                     and int(runtime_id) in observation.hits,
                 )
                 self._mark_native_replay_status(query_id, replay_status)
-                if candidate_info is not None and int(runtime_id) in observation.hits:
+                if is_finding_candidate(candidate_info) and int(runtime_id) in observation.hits:
                     self._register_candidate(
                         solver_testcase, observation, candidate_info,
                         provenance_source="solver",
@@ -1490,7 +1560,11 @@ class Campaign:
         frame_fields = [entry["name"] for entry in abi.get("frame_fields", [])]
         frame_fields.extend(entry["name"] for entry in abi.get("shared_fields", [])
                             if entry.get("block_kind") == "VAR_IN_OUT")
+        suggestions = getattr(self, "llm_symbolic_suggestions", {})
+        hints = getattr(self, "llm_solver_hints", {})
         task_queries: dict[str, int] = {}
+        task_failures: dict[str, int] = {}
+        next_execution: dict[str, int] = {}
         solver_deadline = getattr(self, "solver_deadline", self.engine_deadline)
         recent_costs_s: list[float] = []
         minimum_margin_s = max(1.0, float(self.config.get("solver_feedback_margin_s", 15.0)))
@@ -1520,7 +1594,9 @@ class Campaign:
                     # The Rust append may be observed between writes. Retry
                     # the line on the next poll instead of dropping it.
                     continue
-            for record in sorted(records, key=solver_prefix_priority, reverse=True):
+            for record in sorted(records, key=lambda item: (
+                    int((hints.get(item.get("task_id")) or {}).get("priority", 50) <= 25),
+                    solver_prefix_priority(item)), reverse=True):
                 if stop_event.is_set() or time.monotonic() >= solver_deadline:
                     break
                 prefix_id = record.get("prefix_id")
@@ -1575,6 +1651,10 @@ class Campaign:
                     continue
                 for task in ordered_tasks:
                     reason = solver_prefix_skip_reason(record, task)
+                    task_id = str(task.get("task_id"))
+                    allowed_triggers = (hints.get(task_id) or {}).get("triggers") or []
+                    if not reason and allowed_triggers and record.get("trigger") not in allowed_triggers:
+                        reason = "outside_plan_solver_triggers"
                     if reason:
                         self.metrics.event("solver_trigger", prefix_id=prefix_id,
                                            task_id=task.get("task_id"), status="skipped", reason=reason)
@@ -1582,7 +1662,11 @@ class Campaign:
                     self._record_solver_distance_baseline(str(task.get("task_id")), case, prefix_id)
                     if stop_event.is_set() or time.monotonic() >= solver_deadline:
                         break
-                    task_id = str(task.get("task_id"))
+                    native_execution = record.get("native_execution", 0)
+                    if native_execution < next_execution.get(task_id, 0):
+                        self.metrics.event("solver_trigger", prefix_id=prefix_id, task_id=task_id,
+                                           status="skipped", reason="task_failure_backoff")
+                        continue
                     if self._native_task_reached(task_id):
                         self.metrics.event("solver_trigger", prefix_id=prefix_id, task_id=task_id,
                                            status="skipped", reason="task_already_reached")
@@ -1593,6 +1677,17 @@ class Campaign:
                         self.metrics.event("solver_trigger", prefix_id=prefix_id, task_id=task_id,
                                            status="skipped", reason="task_query_budget_exhausted")
                         continue
+                    remaining_s = solver_deadline - time.monotonic()
+                    minimum_query_s = max(4.0, max(recent_costs_s[-5:], default=0.0))
+                    if remaining_s < minimum_query_s:
+                        self.metrics.event("solver_trigger", prefix_id=prefix_id, task_id=task_id,
+                                           status="skipped", reason="insufficient_compile_link_solve_time",
+                                           remaining_s=round(remaining_s, 3))
+                        continue
+                    requested = suggestions.get(task_id) or frame_fields
+                    symbolic_fields = [name for name in requested if name in frame_fields]
+                    if not symbolic_fields:
+                        symbolic_fields = frame_fields
                     self.metrics.event("solver_trigger", prefix_id=prefix_id, task_id=task_id,
                                        status="triggered", reason=record["trigger"],
                                        native_execution=record["native_execution"],
@@ -1619,7 +1714,7 @@ class Campaign:
                             query_id=query_id,
                             task_id=task_id,
                             base_frame=frames[-1],
-                            symbolic_fields=frame_fields,
+                            symbolic_fields=symbolic_fields,
                             shared_records=shared_records,
                             prefix_frames=None if single_cycle else frames,
                             prefix_dt_ns=None if single_cycle else prefix_dt_ns,
@@ -1646,12 +1741,22 @@ class Campaign:
                                        online=True, phase="engine_live",
                                        prefix_id=prefix_id)
                     if solver_testcase is None:
+                        if result.get("status") in {"TIMEOUT", "UNSUPPORTED", "FAILED", "REPLAY_MISMATCH"}:
+                            task_failures[task_id] = task_failures.get(task_id, 0) + 1
+                            next_execution[task_id] = native_execution + min(
+                                10000, 100 * (2 ** min(task_failures[task_id], 6)))
                         continue
                     observation = self._probe_with_deadline(
                         solver_testcase, timeout_s=1.0, deadline=self.engine_deadline
                     )
-                    self._offer_solver_seed(solver_testcase, observation,
-                                            query_id=query_id, task_id=task_id)
+                    gained = self._offer_solver_seed(solver_testcase, observation,
+                                                     query_id=query_id, task_id=task_id)
+                    if gained:
+                        task_failures[task_id] = 0
+                    else:
+                        task_failures[task_id] = task_failures.get(task_id, 0) + 1
+                        next_execution[task_id] = native_execution + min(
+                            10000, 100 * (2 ** min(task_failures[task_id], 6)))
                     self._offer_additional_solver_seeds(
                         result, timeout_s=1.0, deadline=self.engine_deadline,
                         query_id=query_id, task_id=task_id)
@@ -1670,12 +1775,12 @@ class Campaign:
                         query_id=query_id,
                         task_id=task_id,
                         observation=observation,
-                        matched=info is not None and runtime_id in observation.hits,
+                        matched=is_finding_candidate(info) and runtime_id in observation.hits,
                         model_goal_reached=bool(result.get("native_goal_reached"))
                         and runtime_id in observation.hits,
                     )
                     self._mark_native_replay_status(query_id, native_replay_status)
-                    if info is not None and runtime_id in observation.hits:
+                    if is_finding_candidate(info) and runtime_id in observation.hits:
                         self._register_candidate(
                             solver_testcase, observation, info,
                             provenance_source="solver",
@@ -1703,8 +1808,26 @@ class Campaign:
 
         self.phase_times_s = getattr(self, "phase_times_s", {})
         phase_started = time.monotonic()
-        run_plan_batches(self)
+        prepared = self.config.get("prepared_llm")
+        if prepared is None:
+            run_plan_batches(self)
+        else:
+            # Planning happened once, outside this campaign's online clock.
+            # Only seeds/suggestions are imported; prep candidates and metrics
+            # remain in their own directory and cannot become time-zero hits.
+            self.llm_planning_summary = dict(prepared.get("summary") or {})
+            self.llm_symbolic_suggestions = dict(prepared.get("symbolic_suggestions") or {})
+            self.llm_solver_hints = dict(prepared.get("solver_hints") or {})
+            self.metrics.event("frozen_planning_import", plan_id=prepared.get("plan_id"))
         self.phase_times_s["llm_planning"] = round(time.monotonic() - phase_started, 3)
+        online_started = time.monotonic()
+        self.online_start_offset_s = online_started - self.started
+        if self.config.get("online_budget_from_start"):
+            self.deadline = online_started + max(0.0, self.time_budget_s)
+            self.engine_deadline = self.deadline
+            self.solver_deadline = self.engine_deadline - max(
+                1.0, float(self.config.get("solver_feedback_margin_s", 15.0)))
+        self.metrics.event("online_search_started")
         self.symbolic_startup_deadline = min(
             self.engine_deadline, time.monotonic() + max(0.0, float(
                 self.config.get("symbolic_startup_budget_s", 30.0))))
@@ -1721,14 +1844,15 @@ class Campaign:
             self.metrics.event("engine_finished", returncode=None, timed_out=True,
                                reason="campaign budget exhausted before engine")
             raise RuntimeError("campaign budget exhausted before the native engine")
-        # The engine must finish its own loop and write its summary before the
-        # campaign deadline. Giving it the exact same budget as communicate()
-        # makes a normal time-budget exit race the outer timeout.
-        exit_headroom_s = min(3.0, max(1.0, engine_budget_s * 0.1))
+        # Allow summary writing after the native online loop reaches its budget.
         full_fuzz_duration = bool(self.config.get("full_fuzz_duration"))
         full_hybrid_duration = bool(self.config.get("full_hybrid_duration"))
-        engine_runtime_s = (self.time_budget_s - 180.0 if full_fuzz_duration
-                            else max(0.001, engine_budget_s - exit_headroom_s))
+        campaign_budget_s = getattr(self, "time_budget_s", engine_budget_s)
+        exit_headroom_s = min(3.0, max(0.25, engine_budget_s * 0.1))
+        engine_runtime_s = (campaign_budget_s - 180.0 if full_fuzz_duration
+                            else min(campaign_budget_s, max(0.001, engine_budget_s
+                                                             - (0.0 if full_hybrid_duration
+                                                                else exit_headroom_s))))
         if full_fuzz_duration and engine_budget_s < engine_runtime_s + 5.0:
             raise RuntimeError("insufficient campaign time for the requested native fuzz duration")
         engine = self.target_binary.parent / "semantist-inprocess"
@@ -1762,6 +1886,31 @@ class Campaign:
                 command.append(flag)
         environment = os.environ.copy()
         environment["SEMANTIST_V3_RUN_DIR"] = str(self.run_dir)
+        environment["SEMANTIST_MUTATION_MODE"] = str(
+            self.config.get("mutation_mode", environment.get("SEMANTIST_MUTATION_MODE", "combined")))
+        semantic_ratio = self.config.get("semantic_ratio", environment.get("SEMANTIST_SEMANTIC_RATIO", 0.30))
+        try:
+            semantic_ratio = float(semantic_ratio)
+        except (TypeError, ValueError):
+            semantic_ratio = 0.30
+        if semantic_ratio > 1.0:
+            semantic_ratio /= 100.0
+        environment["SEMANTIST_SEMANTIC_RATIO"] = str(semantic_ratio)
+        environment.pop("SEMANTIST_EXPERIMENT_NO_STG", None)
+        environment.pop("SEMANTIST_EXPERIMENT_SINGLE_FRAME", None)
+        if ablations.get("no_stg_guidance"):
+            environment["SEMANTIST_EXPERIMENT_NO_STG"] = "1"
+        if ablations.get("single_frame"):
+            environment["SEMANTIST_EXPERIMENT_SINGLE_FRAME"] = "1"
+        for key, env_key in (
+            ("no_online_reinjection", "SEMANTIST_EXPERIMENT_NO_ONLINE_REINJECTION"),
+            ("no_adaptive_reset", "SEMANTIST_EXPERIMENT_NO_ADAPTIVE_RESET"),
+            ("no_tail_guidance", "SEMANTIST_EXPERIMENT_NO_TAIL_GUIDANCE"),
+            ("no_transition_guidance", "SEMANTIST_EXPERIMENT_NO_TRANSITIONS"),
+            ("no_goal_tasks", "SEMANTIST_EXPERIMENT_NO_GOAL_TASKS"),
+        ):
+            if ablations.get(key):
+                environment[env_key] = "1"
         asan_options = environment.get("ASAN_OPTIONS", "")
         environment["ASAN_OPTIONS"] = ":".join(filter(None, (
             asan_options, "halt_on_error=0", "abort_on_error=0",
@@ -1823,8 +1972,17 @@ class Campaign:
             solver_thread.start()
         phase_started = time.monotonic()
         try:
+            launcher_guard_s = max(0.001, self.engine_deadline - time.monotonic())
+            if full_hybrid_duration:
+                # The hybrid engine must never outlive the campaign's current
+                # remainder when planning or startup consumed part of it.
+                launcher_guard_s = max(0.001, engine_runtime_s) + 0.5
             stdout, stderr = process.communicate(
-                timeout=max(0.001, self.engine_deadline - time.monotonic())
+                # Loading the STG/goal bundle and starting the isolated
+                # native worker is outside the online search clock.  Keep a
+                # separate launcher guard so large network targets cannot be
+                # killed before their configured online budget begins.
+                timeout=launcher_guard_s
             )
             completed = subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
         except subprocess.TimeoutExpired as error:
@@ -1844,6 +2002,7 @@ class Campaign:
             self._write_report()
             raise RuntimeError("native engine exceeded its wall-clock guard") from error
         finally:
+            online_finished = time.monotonic()
             self.phase_times_s["engine_and_online_solver"] = round(
                 time.monotonic() - phase_started, 3)
             online_stop.set()
@@ -1858,6 +2017,15 @@ class Campaign:
             returncode=completed.returncode,
             engine=str(engine),
         )
+        elapsed_online = online_finished - online_started
+        self.phase_times_s["online_search"] = round(
+            min(elapsed_online, self.time_budget_s)
+            if self.config.get("online_budget_from_start") else elapsed_online, 3)
+        self.metrics.event("online_search_finished")
+        review_budget_s = self.config.get("review_budget_s")
+        if review_budget_s is not None:
+            self.deadline = time.monotonic() + max(0.0, float(review_budget_s))
+        review_started = time.monotonic()
         if completed.returncode != 0:
             self._invalidate_snapshots(f"engine_exit_{completed.returncode}")
             self.engine_status = "FAILED"
@@ -1866,13 +2034,16 @@ class Campaign:
                     testcase = pending_path.read_bytes()
                     observation = self._probe_with_deadline(testcase, timeout_s=5.0)
                     info = classify(observation, self.model.runtime_index)
-                    if info is not None:
+                    if is_finding_candidate(info):
                         depth = len(parse_testcase(testcase, self._abi_like()).frames)
                         self._register_candidate(testcase, observation, info,
                                                  provenance_source="engine_crash_recovery", depth=depth)
                         self._run_confirmation()
                         self.metrics.event("engine_crash_replay", status="confirmed" if self.confirmed else "REPLAY_MISMATCH",
                                            returncode=completed.returncode)
+                    elif info is not None and info.get("kind") == "scan_budget":
+                        self.metrics.event("engine_crash_replay", status="INSTRUMENTATION_ABORT",
+                                           reason="scan_budget", returncode=completed.returncode)
                     else:
                         self.metrics.event("engine_crash_replay", status="REPLAY_MISMATCH",
                                            returncode=completed.returncode)
@@ -1919,29 +2090,43 @@ class Campaign:
         if candidate_dir.is_dir():
             for path in sorted(candidate_dir.glob("candidate-*.txt")):
                 testcase = path.read_bytes()
-                observation = self._probe_with_deadline(testcase, timeout_s=5.0)
+                # Candidate confirmation must use the target's native path.
+                # Semantic tracing is an attribution aid and can turn parser
+                # stress into a timeout (notably XML_READER's scan budget).
+                observation = self._probe_with_deadline(testcase, timeout_s=5.0, trace=False)
                 info = classify(observation, self.model.runtime_index)
-                replay_status = ("candidate" if info is not None else "TIMEOUT" if observation.timed_out
+                replay_status = ("candidate" if is_finding_candidate(info) else
+                                 "INSTRUMENTATION_ABORT" if info is not None
+                                 and info.get("kind") == "scan_budget" else
+                                 "TIMEOUT" if observation.timed_out
                                  else "FAILED" if observation.returncode not in (0, None)
                                  else "REPLAY_MISMATCH")
                 result = {"testcase_file": str(path.relative_to(self.run_dir)), "status": replay_status}
                 self.native_replay_results.append(result)
                 self.metrics.event("engine_candidate_replay", **result)
-                if info is not None:
+                if is_finding_candidate(info):
                     previous_count = len(self.candidates)
+                    metadata_file = path.with_suffix(".json")
+                    try:
+                        created_epoch_ns = json.loads(metadata_file.read_text(encoding="utf-8")).get("created_epoch_ns")
+                        created_s = ((int(created_epoch_ns) - self.started_epoch_ns) / 1e9
+                                     if created_epoch_ns is not None else None)
+                    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                        created_s = None
                     self._register_candidate(
                         testcase,
                         observation,
                         info,
                         provenance_source="fuzz",
                         depth=len(parse_testcase(testcase, self._abi_like()).frames),
+                        created_s=max(0.0, created_s) if created_s is not None else None,
                     )
                     if len(self.candidates) > previous_count:
                         self._run_confirmation()
         self._run_confirmation()
         self.metrics.event("post_fuzz_symbolic_verification", status="skipped",
-                           reason="online_feedback_only")
-        self._run_confirmation()
+                           reason="native_confirmation_only")
+        self.phase_times_s["result_review"] = round(time.monotonic() - review_started, 3)
         self.metrics.write_summary()
         self._write_report()
         return {

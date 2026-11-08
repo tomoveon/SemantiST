@@ -1,0 +1,17 @@
+{
+  "schema_version": "semantist.mutation-short/1",
+  "selection_rule": "Fixed development smoke set for the semantic/raw operator comparison.",
+  "online_seconds": 10,
+  "seed": 0,
+  "semantic_ratio": 0.3,
+  "tool": "semantist",
+  "modes": ["semantic-only", "byte-only", "combined"],
+  "targets": [
+    "oscat_network_smtp_client",
+    "oscat_network_irtrans_decode",
+    "oscat_network_net_var_buffer",
+    "oscat_network_xml_reader",
+    "oscat_basic_parset",
+    "oscat_basic_sequence_64"
+  ]
+}

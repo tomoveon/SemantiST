@@ -1,0 +1,23 @@
+--- a/src/scan_cycle/mod.rs
++++ b/src/scan_cycle/mod.rs
+@@ -5,4 +5,8 @@
+ #[cfg(feature = "scan_cycle")]
+ pub use feedback::{ScanCycleCountFeedback, ScanCycleMetadata, ScanCycleResetFeedback};
+ #[cfg(feature = "scan_cycle")]
++pub mod native_sequence;
++#[cfg(feature = "scan_cycle")]
++pub use native_sequence::NativeSequenceFeedback;
++#[cfg(feature = "scan_cycle")]
+ pub mod mutators;
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -324,5 +324,9 @@
+             objective,
+             feedback_not!(scan_cycle::ScanCycleCountFeedback::new())
+         );
++        #[cfg(feature = "scan_cycle")]
++        let mut objective = feedback_and_fast!(
++            objective, feedback_not!(scan_cycle::NativeSequenceFeedback::new())
++        );
+ 
+         // Annotate execution time on solutions

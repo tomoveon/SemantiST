@@ -1,7 +1,8 @@
-"""v3 frame-level harness generation.
+"""SemantiST v3 frame-level sequence adapter generation.
 
-The C harness exposes frame initialization, step, and state save/restore APIs
-and keeps every persistent byte in one static ``semantist_harness_state`` object.
+The C harness exposes frame initialization, step, and state save/restore APIs.
+Persistent VAR_IN_OUT and aggregate values live in independent external regions;
+the instance stores pointers and checkpoints relocate those pointers on restore.
 The legacy ``semantist_run_input`` entry point is retained because existing
 callers and tests refer to it; ``semantist_v3_execute`` is the implementation
 used by ``semantist_harness_execute``.
@@ -30,6 +31,18 @@ def _storage_name(param: Param) -> str:
     return f"f{param.index - _FIELD_BASE}_storage"
 
 
+def _external_storage_name(param: Param) -> str:
+    return f"semantist_{_storage_name(param)}"
+
+
+def _uses_external_storage(param: Param) -> bool:
+    return param.block_kind == "VAR_IN_OUT" or param.spec.kind != "scalar"
+
+
+def _external_params(abi: TargetAbi) -> list[Param]:
+    return [param for param in _backing_params(abi) if _uses_external_storage(param)]
+
+
 def _indent(lines: list[str], prefix: str = "    ") -> str:
     return "\n".join(prefix + line if line else line for line in lines)
 
@@ -37,15 +50,18 @@ def _indent(lines: list[str], prefix: str = "    ") -> str:
 def _scalar_assignment(spec, access: str) -> list[str]:
     """Decode one v3 scalar without narrowing or wrapping its wire value."""
     bits = spec.size * 8
+    raw = [
+        f"    if (semantist_raw_scalar(value, &{access}, sizeof({access}))) continue;",
+    ]
     if spec.name in ("REAL", "LREAL"):
-        return [
+        return raw + [
             "    double parsed_value;",
             f"    if (!semantist_parse_float_checked(value, {bits}, &parsed_value)) {{ free(buffer); return 1; }}",
             f"    {access} = ({spec.c_type})parsed_value;",
         ]
     if spec.c_type.startswith("u"):
         max_value = 1 if spec.name == "BOOL" else (1 << bits) - 1
-        return [
+        return raw + [
             "    uint64_t parsed_value;",
             f"    if (!semantist_parse_unsigned_checked(value, {max_value}ULL, &parsed_value)) {{ free(buffer); return 1; }}",
             f"    {access} = ({spec.c_type})parsed_value;",
@@ -53,7 +69,7 @@ def _scalar_assignment(spec, access: str) -> list[str]:
     min_value = -(1 << (bits - 1))
     max_value = (1 << (bits - 1)) - 1
     min_c = "INT64_MIN" if bits == 64 else str(min_value)
-    return [
+    return raw + [
         "    int64_t parsed_value;",
         f"    if (!semantist_parse_signed_checked(value, {min_c}, {max_value}LL, &parsed_value)) {{ free(buffer); return 1; }}",
         f"    {access} = ({spec.c_type})parsed_value;",
@@ -77,6 +93,41 @@ def frame_declarations(abi: TargetAbi) -> list[str]:
 
 def backing_declarations(abi: TargetAbi) -> list[str]:
     lines: list[str] = []
+    for param in _backing_params(abi):
+        name = _storage_name(param)
+        spec = param.spec
+        if spec.kind == "pointer":
+            lines.append(f"uint8_t {name}[{max(POINTER_STORAGE_CAPACITY, spec.pointee_bytes())}];")
+        elif spec.kind == "scalar":
+            lines.append(f"{spec.c_type} {name};")
+        else:
+            g = _generator()
+            lines.append(f"{g.buffer_declaration(spec, name)};")
+    return lines
+
+
+def external_backing_declarations(abi: TargetAbi) -> list[str]:
+    """Declare independent objects used by the target for VAR_IN_OUT data.
+
+    The state struct keeps a mirror for snapshots, while the target receives
+    these separate objects. ASan can therefore observe an over-read/write at
+    the same object boundary as the common native harness.
+    """
+    lines: list[str] = []
+    for param in _external_params(abi):
+        name = _external_storage_name(param)
+        spec = param.spec
+        if spec.kind == "pointer":
+            lines.append(f"static uint8_t {name}[{max(POINTER_STORAGE_CAPACITY, spec.pointee_bytes())}];")
+        elif spec.kind == "scalar":
+            lines.append(f"static {spec.c_type} {name};")
+        else:
+            g = _generator()
+            lines.append(f"static {g.buffer_declaration(spec, name)};")
+    return lines
+
+
+def _backing_params(abi: TargetAbi) -> list[Param]:
     candidates = list(abi.params)
     if abi.kind == "FUNCTION":
         candidates += [slot.param for slot in abi.call_slots if slot.param.block_kind in ("VAR_IN_OUT", "VAR_OUTPUT")]
@@ -84,6 +135,7 @@ def backing_declarations(abi: TargetAbi) -> list[str]:
     else:
         candidates += [param for param in (abi.state_fields or []) if param not in abi.params]
     seen: set[int] = set()
+    result: list[Param] = []
     for param in candidates:
         if param.index is None or param.index in seen:
             continue
@@ -95,16 +147,8 @@ def backing_declarations(abi: TargetAbi) -> list[str]:
         ):
             continue
         seen.add(param.index)
-        name = _storage_name(param)
-        spec = param.spec
-        if spec.kind == "pointer":
-            lines.append(f"uint8_t {name}[{POINTER_STORAGE_CAPACITY}];")
-        elif spec.kind == "scalar":
-            lines.append(f"{spec.c_type} {name};")
-        else:
-            g = _generator()
-            lines.append(f"{g.buffer_declaration(spec, name)};")
-    return lines
+        result.append(param)
+    return result
 
 
 def _result_declaration(abi: TargetAbi) -> list[str]:
@@ -144,8 +188,14 @@ def _frame_case_lines(abi: TargetAbi, target: str) -> list[str]:
         lines.append(f'if (strcmp(name, "{param.name}") == 0) {{')
         if spec.kind == "scalar":
             lines.extend(_scalar_assignment(spec, f"{target}->{name}"))
+        elif spec.kind == "string":
+            helper = "semantist_fill_wstring_checked" if spec.name == "WSTRING" else "semantist_fill_bytes_checked"
+            args = f"{target}->{name}, sizeof({target}->{name}), value"
+            if spec.name != "WSTRING":
+                args += ", 1, 1"
+            lines.append(f"    if (!{helper}({args})) {{ free(buffer); return 1; }}")
         else:
-            lines.append(f"    fill_hex_or_text({target}->{name}, sizeof({target}->{name}), value);")
+            lines.append(f"    if (!semantist_fill_bytes_checked({target}->{name}, sizeof({target}->{name}), value, 1, 0)) {{ free(buffer); return 1; }}")
         lines.append("    continue;")
         lines.append("}")
     return lines
@@ -155,17 +205,25 @@ def _shared_case_lines(abi: TargetAbi, target: str) -> list[str]:
     lines: list[str] = []
     for param in shared_params(abi):
         spec = param.spec
-        if param.block_kind == "VAR_IN_OUT" or spec.kind == "pointer":
-            access = f"{target}.{_storage_name(param)}"
+        if param.block_kind == "VAR_IN_OUT" and _uses_external_storage(param):
+            access = _external_storage_name(param)
+        elif spec.kind == "pointer" or (abi.kind == "FUNCTION" and _uses_external_storage(param)):
+            access = _external_storage_name(param)
         elif abi.kind == "FUNCTION":
+            access = f"{target}.{_storage_name(param)}"
+        elif param.block_kind == "VAR_IN_OUT":
             access = f"{target}.{_storage_name(param)}"
         else:
             access = f"{target}.inst.{_field_name(param)}"
         lines.append(f'if (strcmp(name, "{param.name}") == 0) {{')
         if spec.kind == "scalar":
             lines.extend(_scalar_assignment(spec, access))
+        elif spec.kind == "string":
+            helper = "semantist_fill_wstring_checked" if spec.name == "WSTRING" else "semantist_fill_bytes_checked"
+            args = f"{access}, sizeof({access}), value" + ("" if spec.name == "WSTRING" else ", 1, 1")
+            lines.append(f"    if (!{helper}({args})) {{ free(buffer); return 1; }}")
         else:
-            lines.append(f"    fill_hex_or_text({access}, sizeof({access}), value);")
+            lines.append(f"    if (!semantist_fill_bytes_checked({access}, sizeof({access}), value, 1, 0)) {{ free(buffer); return 1; }}")
         lines.append("    continue;")
         lines.append("}")
     return lines
@@ -183,12 +241,16 @@ def _inout_frame_cases(abi: TargetAbi) -> list[str]:
         if param.block_kind != "VAR_IN_OUT":
             continue
         spec = param.spec
-        access = f"{STATE_VAR}.{_storage_name(param)}"
+        access = _external_storage_name(param) if _uses_external_storage(param) else f"{STATE_VAR}.{_storage_name(param)}"
         lines.append(f'if (strcmp(name, "{param.name}") == 0) {{')
         if spec.kind == "scalar":
             lines.extend(_scalar_assignment(spec, access))
+        elif spec.kind == "string":
+            helper = "semantist_fill_wstring_checked" if spec.name == "WSTRING" else "semantist_fill_bytes_checked"
+            args = f"{access}, sizeof({access}), value" + ("" if spec.name == "WSTRING" else ", 1, 1")
+            lines.append(f"    if (!{helper}({args})) {{ free(buffer); return 1; }}")
         else:
-            lines.append(f"    fill_hex_or_text({access}, sizeof({access}), value);")
+            lines.append(f"    if (!semantist_fill_bytes_checked({access}, sizeof({access}), value, 1, 0)) {{ free(buffer); return 1; }}")
         lines.append("    continue;")
         lines.append("}")
     return lines
@@ -203,12 +265,12 @@ def _apply_frame_lines(abi: TargetAbi) -> list[str]:
         if spec.kind == "scalar":
             lines.append(f"{STATE_VAR}.inst.{name} = frame->{name};")
         elif spec.kind == "pointer":
-            storage = _storage_name(param)
-            lines.append(f"memset({STATE_VAR}.{storage}, 0, sizeof({STATE_VAR}.{storage}));")
+            storage = _external_storage_name(param)
+            lines.append(f"memset({storage}, 0, sizeof({storage}));")
             lines.append(
-                f"memcpy({STATE_VAR}.{storage}, frame->{name}, sizeof({STATE_VAR}.{storage}) < sizeof(frame->{name}) ? sizeof({STATE_VAR}.{storage}) : sizeof(frame->{name}));"
+                f"memcpy({storage}, frame->{name}, sizeof({storage}) < sizeof(frame->{name}) ? sizeof({storage}) : sizeof(frame->{name}));"
             )
-            lines.append(f"{STATE_VAR}.inst.{name} = {STATE_VAR}.{storage};")
+            lines.append(f"{STATE_VAR}.inst.{name} = {storage};")
         else:
             lines.append(f"memcpy(&{STATE_VAR}.inst.{name}, frame->{name}, sizeof({STATE_VAR}.inst.{name}));")
     return lines
@@ -234,9 +296,11 @@ def _pointer_init_lines(abi: TargetAbi) -> list[str]:
         storage = _storage_name(param)
         if abi.kind == "FUNCTION_BLOCK":
             if param.block_kind == "VAR_IN_OUT" and param.spec.kind != "pointer":
-                lines.append(f"{STATE_VAR}.inst.{name} = &{STATE_VAR}.{storage};")
+                storage = _external_storage_name(param) if _uses_external_storage(param) else f"{STATE_VAR}.{_storage_name(param)}"
+                lines.append(f"{STATE_VAR}.inst.{name} = &{storage};")
             else:
-                lines.append(f"{STATE_VAR}.inst.{name} = {STATE_VAR}.{storage};")
+                storage = _external_storage_name(param) if _uses_external_storage(param) else f"{STATE_VAR}.{_storage_name(param)}"
+                lines.append(f"{STATE_VAR}.inst.{name} = {storage};")
         else:
             lines.append(f"/* function argument {param.name} uses {storage} */")
     return lines
@@ -249,10 +313,7 @@ def _state_dump_lines(abi: TargetAbi) -> list[str]:
         name = _field_name(param)
         spec = param.spec
         if param.block_kind == "VAR_IN_OUT" or spec.kind == "pointer":
-            if spec.kind == "scalar":
-                access = f"{STATE_VAR}.{_storage_name(param)}"
-            else:
-                access = f"{STATE_VAR}.{_storage_name(param)}"
+            access = _external_storage_name(param) if _uses_external_storage(param) else f"{STATE_VAR}.{_storage_name(param)}"
         else:
             access = f"{STATE_VAR}.inst.{name}"
         if first:
@@ -276,8 +337,71 @@ def _state_dump_lines(abi: TargetAbi) -> list[str]:
     return lines
 
 
-def _accessor_declarations() -> str:
-    return r"""
+def _storage_sync_code(abi: TargetAbi) -> tuple[str, str, str]:
+    to_state: list[str] = []
+    from_state: list[str] = []
+    rebind = _pointer_init_lines(abi)
+    for param in _external_params(abi):
+        external = _external_storage_name(param)
+        mirror = f"{STATE_VAR}.{_storage_name(param)}"
+        external_address = f"&{external}" if param.spec.kind == "scalar" else external
+        to_state.append(f"    memcpy(&{mirror}, {external_address}, sizeof({mirror}));")
+        from_state.append(f"    memcpy({external_address}, &{mirror}, sizeof({mirror}));")
+    return "\n".join(to_state), "\n".join(from_state), "\n".join(rebind)
+
+
+def _storage_reset_code(abi: TargetAbi) -> str:
+    lines = [
+        f"    memset({('&' if param.spec.kind == 'scalar' else '')}{_external_storage_name(param)}, 0, sizeof({_external_storage_name(param)}));"
+        for param in _external_params(abi)
+    ]
+    return "\n".join(lines) or "    (void)0;"
+
+
+def _accessor_declarations(abi: TargetAbi) -> str:
+    sync_to_state, sync_from_state, rebind = _storage_sync_code(abi)
+    external_params = _external_params(abi)
+    external_count = len(external_params)
+    external_bases = "\n".join(
+        f"    if (index == {index}) return (void *){('&' if param.spec.kind == 'scalar' else '')}{_external_storage_name(param)};"
+        for index, param in enumerate(external_params)
+    ) or "    (void)index;"
+    external_sizes = "\n".join(
+        f"    if (index == {index}) return sizeof({_external_storage_name(param)});"
+        for index, param in enumerate(external_params)
+    ) or "    (void)index;"
+    helpers = f"""
+SEMANTIST_DRIVER static void semantist_sync_storage_to_state(void) {{
+{sync_to_state or "    (void)0;"}
+}}
+
+SEMANTIST_DRIVER static void semantist_sync_storage_from_state(void) {{
+{sync_from_state or "    (void)0;"}
+}}
+
+SEMANTIST_DRIVER static void semantist_rebind_storage(void) {{
+{rebind or "    (void)0;"}
+}}
+
+SEMANTIST_DRIVER static size_t semantist_target_region_count(void) {{
+    return &__semantist_state_region_count != NULL ? (size_t)__semantist_state_region_count : 0;
+}}
+
+SEMANTIST_DRIVER static size_t semantist_external_region_count(void) {{
+    return {external_count};
+}}
+
+SEMANTIST_DRIVER static void *semantist_external_region_base(size_t index) {{
+{external_bases}
+    return NULL;
+}}
+
+SEMANTIST_DRIVER static uint64_t semantist_external_region_size(size_t index) {{
+{external_sizes}
+    return 0;
+}}
+"""
+    return helpers + r"""
 struct semantist_reloc {
     uint32_t region;
     uint64_t offset;
@@ -286,21 +410,23 @@ struct semantist_reloc {
 };
 
 SEMANTIST_DRIVER size_t semantist_state_region_count(void) {
-    return &__semantist_state_region_count != NULL ? (size_t)__semantist_state_region_count : 0;
+    return semantist_target_region_count() + semantist_external_region_count();
 }
 
 SEMANTIST_DRIVER void *semantist_state_region_base(size_t index) {
-    if (!&__semantist_state_region_count || index >= (size_t)__semantist_state_region_count) {
-        return NULL;
+    size_t target_count = semantist_target_region_count();
+    if (index < target_count) {
+        return __semantist_state_regions[index].address;
     }
-    return __semantist_state_regions[index].address;
+    return semantist_external_region_base(index - target_count);
 }
 
 SEMANTIST_DRIVER uint64_t semantist_state_region_size(size_t index) {
-    if (!&__semantist_state_region_count || index >= (size_t)__semantist_state_region_count) {
-        return 0;
+    size_t target_count = semantist_target_region_count();
+    if (index < target_count) {
+        return __semantist_state_regions[index].size;
     }
-    return __semantist_state_regions[index].size;
+    return semantist_external_region_size(index - target_count);
 }
 
 SEMANTIST_DRIVER void *semantist_harness_state_base(void) {
@@ -309,38 +435,37 @@ SEMANTIST_DRIVER void *semantist_harness_state_base(void) {
 
 SEMANTIST_DRIVER size_t semantist_state_size(void) {
     size_t total = sizeof(semantist_harness_state_t);
-    if (&__semantist_state_region_count != NULL) {
-        for (uint64_t i = 0; i < __semantist_state_region_count; i++) {
-            total += (size_t)__semantist_state_regions[i].size;
-        }
+    for (size_t i = 0; i < semantist_state_region_count(); i++) {
+        total += (size_t)semantist_state_region_size(i);
     }
     return total;
 }
 
 SEMANTIST_DRIVER static size_t semantist_region_count(void) {
-    return &__semantist_state_region_count != NULL ? (size_t)__semantist_state_region_count : 0;
+    return semantist_state_region_count();
 }
 
 SEMANTIST_DRIVER void semantist_checkpoint(uint8_t *out) {
+    semantist_sync_storage_to_state();
     uint8_t *cursor = out;
-    if (&__semantist_state_region_count != NULL) {
-        for (uint64_t i = 0; i < __semantist_state_region_count; i++) {
-            memcpy(cursor, __semantist_state_regions[i].address, (size_t)__semantist_state_regions[i].size);
-            cursor += __semantist_state_regions[i].size;
-        }
+    for (size_t i = 0; i < semantist_state_region_count(); i++) {
+        size_t size = (size_t)semantist_state_region_size(i);
+        memcpy(cursor, semantist_state_region_base(i), size);
+        cursor += size;
     }
     memcpy(cursor, &semantist_harness_state, sizeof(semantist_harness_state));
 }
 
 SEMANTIST_DRIVER void semantist_restore(const uint8_t *in) {
     const uint8_t *cursor = in;
-    if (&__semantist_state_region_count != NULL) {
-        for (uint64_t i = 0; i < __semantist_state_region_count; i++) {
-            memcpy(__semantist_state_regions[i].address, cursor, (size_t)__semantist_state_regions[i].size);
-            cursor += __semantist_state_regions[i].size;
-        }
+    for (size_t i = 0; i < semantist_state_region_count(); i++) {
+        size_t size = (size_t)semantist_state_region_size(i);
+        memcpy(semantist_state_region_base(i), cursor, size);
+        cursor += size;
     }
     memcpy(&semantist_harness_state, cursor, sizeof(semantist_harness_state));
+    semantist_sync_storage_from_state();
+    semantist_rebind_storage();
 }
 
 SEMANTIST_DRIVER int semantist_import_state(const uint8_t *blob, const struct semantist_reloc *relocs, size_t n) {
@@ -355,22 +480,23 @@ SEMANTIST_DRIVER int semantist_import_state(const uint8_t *blob, const struct se
     size_t count = semantist_region_count();
     for (size_t i = 0; i < n; i++) {
         size_t source_limit = relocs[i].region == count ? sizeof(semantist_harness_state)
-                                                        : (relocs[i].region < count ? (size_t)__semantist_state_regions[relocs[i].region].size : 0);
+                                                        : (relocs[i].region < count ? (size_t)semantist_state_region_size(relocs[i].region) : 0);
         size_t target_limit = relocs[i].target_region == count ? sizeof(semantist_harness_state)
-                                                               : (relocs[i].target_region < count ? (size_t)__semantist_state_regions[relocs[i].target_region].size : 0);
+                                                               : (relocs[i].target_region < count ? (size_t)semantist_state_region_size(relocs[i].target_region) : 0);
         if (!source_limit || !target_limit || relocs[i].offset > source_limit - sizeof(void *)
             || relocs[i].target_offset >= target_limit) {
             return 2;
         }
         uint8_t *source = relocs[i].region == count
             ? (uint8_t *)&semantist_harness_state
-            : (uint8_t *)__semantist_state_regions[relocs[i].region].address;
+            : (uint8_t *)semantist_state_region_base(relocs[i].region);
         uint8_t *target = relocs[i].target_region == count
             ? (uint8_t *)&semantist_harness_state
-            : (uint8_t *)__semantist_state_regions[relocs[i].target_region].address;
+            : (uint8_t *)semantist_state_region_base(relocs[i].target_region);
         void *address = target + relocs[i].target_offset;
         memcpy(source + relocs[i].offset, &address, sizeof(address));
     }
+    semantist_rebind_storage();
     return 0;
 }
 
@@ -423,7 +549,7 @@ def _inout_accessor(abi: TargetAbi) -> str:
     for param in shared_params(abi):
         if param.block_kind != "VAR_IN_OUT":
             continue
-        storage = f"{STATE_VAR}.{_storage_name(param)}"
+        storage = _external_storage_name(param) if _uses_external_storage(param) else f"{STATE_VAR}.{_storage_name(param)}"
         cases.append(
             f'    if (strcmp(name, "{param.name}") == 0) {{ '
             f'*address = &{storage}; *size = sizeof({storage}); return 0; }}'
@@ -639,6 +765,12 @@ static int semantist_numeric_end(const char *end) {{
     return *end == 0;
 }}
 
+static int semantist_raw_scalar(const char *value, void *dst, size_t size) {{
+    if (!value || value[0] != '0' || (value[1] != 'x' && value[1] != 'X')
+        || strlen(value + 2) != 2 * size) return 0;
+    return semantist_fill_bytes_checked(dst, size, value, 1, 0);
+}}
+
 static int semantist_parse_unsigned_checked(const char *value, uint64_t maximum, uint64_t *out) {{
     const char *start = skip_spaces(value);
     if (*start == '-' || !*start) return 0;
@@ -688,6 +820,8 @@ typedef struct {{
 int semantist_init(const char *shared_records);
 int semantist_step(const semantist_frame_t *frame, uint64_t dt_ns);
 int semantist_parse_frame(const char *frame_records, semantist_frame_t *out, uint64_t *dt_ns);
+int semantist_apply_raw_field(const char *name, const uint8_t *bytes, size_t byte_len,
+                              semantist_frame_t *out);
 static semantist_harness_state_t semantist_harness_state;
 {_dump_helpers()}
 """
@@ -726,6 +860,88 @@ SEMANTIST_DRIVER int semantist_parse_frame(const char *frame_records, semantist_
     }}
     free(buffer);
     return 0;
+}}
+"""
+
+
+def _raw_copy_lines(spec, access: str) -> list[str]:
+    if spec.kind == "scalar":
+        return [
+            f"    if (byte_len != sizeof({access})) return 1;",
+            f"    memcpy(&({access}), bytes, byte_len);",
+            "    return 0;",
+        ]
+    unit = 2 if spec.kind == "string" and spec.name == "WSTRING" else 1
+    terminate = 1 if spec.kind == "string" else 0
+    return [
+        f"    if (!semantist_copy_raw_bytes(({access}), sizeof({access}), bytes, byte_len, {unit}, {terminate})) return 1;",
+        "    return 0;",
+    ]
+
+
+def _raw_field_function(abi: TargetAbi) -> str:
+    cases: list[str] = []
+    for param in frame_params(abi):
+        access = f"out->{_field_name(param)}"
+        cases.append(f'    if (strcmp(name, "{param.name}") == 0) {{')
+        cases.extend(_raw_copy_lines(param.spec, access))
+        cases.append("    }")
+    for param in shared_params(abi):
+        if param.block_kind != "VAR_IN_OUT":
+            continue
+        access = _external_storage_name(param) if _uses_external_storage(param) else f"{STATE_VAR}.{_storage_name(param)}"
+        cases.append(f'    if (strcmp(name, "{param.name}") == 0) {{')
+        cases.extend(_raw_copy_lines(param.spec, access))
+        cases.append("    }")
+    return f"""
+static int semantist_copy_raw_bytes(void *dst, size_t dst_len, const uint8_t *bytes,
+                                    size_t byte_len, size_t unit, int terminate) {{
+    if (!dst || (!bytes && byte_len) || unit == 0) return 0;
+    size_t limit = dst_len;
+    if (terminate) {{
+        if (dst_len < unit) return 0;
+        limit -= unit;
+    }}
+    if (byte_len > limit || byte_len % unit != 0) return 0;
+    memset(dst, 0, dst_len);
+    if (byte_len) memcpy(dst, bytes, byte_len);
+    return 1;
+}}
+
+SEMANTIST_DRIVER int semantist_apply_raw_field(const char *name, const uint8_t *bytes,
+                                               size_t byte_len, semantist_frame_t *out) {{
+    if (!name || !out || (!bytes && byte_len)) return 1;
+{chr(10).join(cases)}
+    return 1;
+}}
+"""
+
+
+def _raw_shared_function(abi: TargetAbi) -> str:
+    """Expose the same raw path for shared VAR_IN_OUT backing objects."""
+    cases: list[str] = []
+    for param in shared_params(abi):
+        if param.block_kind != "VAR_IN_OUT":
+            continue
+        access = _external_storage_name(param) if _uses_external_storage(param) else f"{STATE_VAR}.{_storage_name(param)}"
+        cases.append(f'    if (strcmp(name, "{param.name}") == 0) {{')
+        if param.spec.kind == "scalar":
+            cases.extend(_raw_copy_lines(param.spec, f"{access}"))
+        else:
+            unit = 2 if param.spec.kind == "string" and param.spec.name == "WSTRING" else 1
+            terminate = 1 if param.spec.kind == "string" else 0
+            cases.extend([
+                f"    if (!semantist_copy_raw_bytes({access}, sizeof({access}), bytes, byte_len, {unit}, {terminate})) return 1;",
+                "    return 0;",
+            ])
+        cases.append("    }")
+    return f"""
+SEMANTIST_DRIVER int semantist_apply_raw_shared_field(const char *name,
+                                                     const uint8_t *bytes,
+                                                     size_t byte_len) {{
+    if (!name || (!bytes && byte_len)) return 1;
+{chr(10).join(cases)}
+    return 1;
 }}
 """
 
@@ -772,9 +988,12 @@ typedef struct {{
 extern void {name}(semantist_fb_state_t *);
 extern void {name}__ctor(semantist_fb_state_t *);
 {_preamble(abi, False)}
-{_accessor_declarations()}
+{chr(10).join(external_backing_declarations(abi))}
+{_accessor_declarations(abi)}
 {_inout_accessor(abi)}
 {_parse_frame_function(abi)}
+{_raw_field_function(abi)}
+{_raw_shared_function(abi)}
 
 static uint64_t semantist_fb_abstract_state(const semantist_fb_state_t *inst) {{
 {abstract_lines}
@@ -815,8 +1034,9 @@ SEMANTIST_DRIVER static int semantist_apply_shared(const char *shared_records) {
 SEMANTIST_DRIVER int semantist_init(const char *shared_records) {{
     semantist_state_reset();
     memset(&{STATE_VAR}, 0, sizeof({STATE_VAR}));
-    {ctor}
+{_storage_reset_code(abi)}
 {pointer_lines}
+    {ctor}
     if (semantist_apply_shared(shared_records) != 0) {{
         return 2;
     }}
@@ -876,9 +1096,12 @@ def generate_function_harness(abi: TargetAbi) -> str:
 {g.INCLUDES}
 {g.COMMON_C}
 {_preamble(abi, False)}
-{_accessor_declarations()}
+{chr(10).join(external_backing_declarations(abi))}
+{_accessor_declarations(abi)}
 {_inout_accessor(abi)}
 {_parse_frame_function(abi)}
+{_raw_field_function(abi)}
+{_raw_shared_function(abi)}
 
 extern {ret_c} {name}({proto_args});
 
@@ -926,6 +1149,7 @@ SEMANTIST_DRIVER static int semantist_apply_shared(const char *shared_records) {
 SEMANTIST_DRIVER int semantist_init(const char *shared_records) {{
     semantist_state_reset();
     memset(&{STATE_VAR}, 0, sizeof({STATE_VAR}));
+{_storage_reset_code(abi)}
     if (semantist_apply_shared(shared_records) != 0) {{
         return 2;
     }}
@@ -977,17 +1201,18 @@ def _function_frame_call(abi: TargetAbi) -> str:
             else:
                 arguments.append(f"{STATE_VAR}.result")
         elif spec.kind == "pointer":
-            arguments.append(f"{STATE_VAR}.{_storage_name(param)}")
+            arguments.append(_external_storage_name(param))
         elif param.block_kind in ("VAR_IN_OUT", "VAR_OUTPUT"):
             if spec.kind == "scalar":
-                arguments.append(f"&{STATE_VAR}.{_storage_name(param)}")
+                storage = _external_storage_name(param) if _uses_external_storage(param) else f"{STATE_VAR}.{_storage_name(param)}"
+                arguments.append(f"&{storage}")
             else:
-                arguments.append(f"{STATE_VAR}.{_storage_name(param)}")
+                arguments.append(_external_storage_name(param))
         elif param.block_kind == "VAR_INPUT" and param.constant:
             if spec.kind == "scalar":
                 arguments.append(f"{STATE_VAR}.{_storage_name(param)}")
             else:
-                arguments.append(f"{STATE_VAR}.{_storage_name(param)}")
+                arguments.append(_external_storage_name(param))
         else:
             arguments.append(f"local->{_field_name(param)}")
     call_args = ", ".join(arguments)
@@ -1002,7 +1227,7 @@ def _function_frame_call(abi: TargetAbi) -> str:
     for slot in abi.call_slots:
         param = slot.param
         if param.block_kind == "VAR_INPUT" and param.spec.kind == "pointer":
-            storage = f"{STATE_VAR}.{_storage_name(param)}"
+            storage = _external_storage_name(param)
             field = f"local->{_field_name(param)}"
             # Pointer frame fields are bounded backing bytes.  Copy them into
             # the persistent storage object before passing the real pointer to
@@ -1024,9 +1249,10 @@ def _function_frame_call(abi: TargetAbi) -> str:
         if param.block_kind == "RETURN":
             escapes.append(f"    escape_bytes(&{STATE_VAR}.result, sizeof({STATE_VAR}.result));")
         elif param.spec.kind == "scalar":
-            escapes.append(f"    escape_bytes(&local->{_field_name(param)}, sizeof(local->{_field_name(param)}));")
-        else:
             escapes.append(f"    escape_bytes(&{STATE_VAR}.{_storage_name(param)}, sizeof({STATE_VAR}.{_storage_name(param)}));")
+        else:
+            storage = _external_storage_name(param)
+            escapes.append(f"    escape_bytes({storage}, sizeof({storage}));")
     traces = []
     for slot in abi.call_slots:
         param = slot.param
@@ -1036,9 +1262,10 @@ def _function_frame_call(abi: TargetAbi) -> str:
             traces.append(f"    semantist_trace_bytes(&{STATE_VAR}.result, sizeof({STATE_VAR}.result));")
         elif param.block_kind in ("VAR_OUTPUT", "VAR_IN_OUT"):
             if param.spec.kind == "scalar":
-                traces.append(f"    semantist_trace_bytes(&local->{_field_name(param)}, sizeof(local->{_field_name(param)}));")
-            else:
                 traces.append(f"    semantist_trace_bytes(&{STATE_VAR}.{_storage_name(param)}, sizeof({STATE_VAR}.{_storage_name(param)}));")
+            else:
+                storage = _external_storage_name(param)
+                traces.append(f"    semantist_trace_bytes({storage}, sizeof({storage}));")
     body = "\n".join(escapes) + "\n" + "\n".join(traces)
     return f"""
 SEMANTIST_DRIVER static void semantist_function_call(semantist_frame_t *local) {{
@@ -1052,10 +1279,7 @@ def _function_state_dump_lines(abi: TargetAbi) -> str:
     lines: list[str] = []
     for param in list(abi.state_fields or []) + list(abi.params):
         if param.block_kind == "VAR_IN_OUT":
-            if param.spec.kind == "scalar":
-                access = f"{STATE_VAR}.{_storage_name(param)}"
-            else:
-                access = f"{STATE_VAR}.{_storage_name(param)}"
+            access = _external_storage_name(param) if _uses_external_storage(param) else f"{STATE_VAR}.{_storage_name(param)}"
             lines.append(f'fprintf(stream, "\\"%s\\":");' % param.name)
             lines.append(f'fprintf(stream, "%lld", (long long){access});')
     if abi.ret is not None:
@@ -1095,6 +1319,9 @@ struct semantist_reloc {{
 void semantist_init(const char *shared_records);
 int semantist_step(const semantist_frame_t *frame, uint64_t dt_ns);
 int semantist_parse_frame(const char *frame_records, semantist_frame_t *out, uint64_t *dt_ns);
+int semantist_apply_raw_field(const char *name, const uint8_t *bytes, size_t byte_len,
+                              semantist_frame_t *out);
+int semantist_apply_raw_shared_field(const char *name, const uint8_t *bytes, size_t byte_len);
 size_t semantist_state_size(void);
 void *semantist_harness_state_base(void);
 void semantist_checkpoint(uint8_t *out);

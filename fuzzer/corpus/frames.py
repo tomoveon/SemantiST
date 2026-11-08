@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Sequence
 
 from compiler.harness.abi import Param, TargetAbi, frame_action_params, shared_params
+from compiler.harness.contract import POINTER_STORAGE_CAPACITY
 
 FNV_OFFSET = 14695981039346656037
 FNV_PRIME = 1099511628211
@@ -42,6 +43,82 @@ def default_for_spec(spec: Mapping[str, Any]) -> str:
     if kind == "string":
         return "A"
     return "0x00"
+
+
+def _put_little_endian(buffer: bytearray, offset: int, size: int, value: int) -> None:
+    if offset < 0 or size <= 0 or offset + size > len(buffer):
+        return
+    raw = int(value).to_bytes(max(size, 16), "little", signed=value < 0)
+    buffer[offset:offset + size] = raw[:size]
+
+
+def structured_default_for_spec(name: str, spec: Mapping[str, Any]) -> str:
+    """Return a legal cold value for an aggregate with recognizable controls.
+
+    This is a structural seed, not a target-specific finding input. It keeps
+    the usual zero seed available while giving opaque protocol records a first
+    execution that reaches their parser or state transition. Later raw-byte
+    mutation is still free to clear or corrupt every byte.
+    """
+    if spec.get("kind") not in {"opaque", "array"} or not spec.get("members"):
+        return default_for_spec(spec)
+    capacity = int(spec.get("byte_size") or spec.get("size") or 0)
+    if capacity <= 0:
+        return default_for_spec(spec)
+    buffer = bytearray(capacity)
+    root_type = str(spec.get("name") or "").lower()
+
+    def visit(parent: str, members: Iterable[Mapping[str, Any]], base: int = 0) -> None:
+        for member in members:
+            member_name = str(member.get("name") or "")
+            child = member.get("spec") or {}
+            offset = base + int(member.get("offset") or 0)
+            size = int(member.get("size") or child.get("byte_size") or child.get("size") or 0)
+            path = f"{parent}.{member_name}" if parent else member_name
+            lower = member_name.lower()
+            if child.get("members"):
+                visit(path, child["members"], offset)
+                continue
+            if child.get("kind") == "array" and lower == "mailbox":
+                # IEC arrays in the network records are indexed from one; the
+                # generated ABI lowers MAILBOX[1] to the first physical byte.
+                if size > 0 and offset < len(buffer):
+                    buffer[offset] = 1
+                continue
+            if child.get("kind") != "scalar":
+                if lower == "buffer" and offset < len(buffer):
+                    if "network_buffer_short" in root_type:
+                        payload = b"A,A\r\n"
+                    elif ".r_buf." in path.lower():
+                        payload = b"\x01\x20\x41"
+                    elif parent.lower().endswith("r_buf"):
+                        payload = b"<a/>"
+                    else:
+                        payload = b"\x00"
+                    buffer[offset:min(offset + len(payload), len(buffer))] = payload[:max(0, len(buffer) - offset)]
+                continue
+            value: int | None = None
+            if lower == "command":
+                value = 0x8001
+            elif lower == "state":
+                # The read side exercises the nested receive buffer. Raw
+                # mutation still covers the write state and arbitrary values.
+                value = 2
+            elif lower == "error_id":
+                value = 0
+            elif lower == "buf_size":
+                value = 128
+            elif lower == "size":
+                value = 5 if "network_buffer_short" in root_type else (65 if "r_buf" in path.lower() else 128)
+            elif lower in {"index", "start_pos"}:
+                value = 0
+            elif lower == "stop_pos":
+                value = 3
+            if value is not None:
+                _put_little_endian(buffer, offset, size, value)
+
+    visit(name, spec.get("members") or [])
+    return "0x" + bytes(buffer).hex()
 
 
 def default_value(param: Param) -> str:
@@ -72,7 +149,7 @@ def _split_record(line: str) -> tuple[str, str, str]:
     name, ty, value = (part.strip() for part in parts)
     if not name:
         raise FrameFormatError(f"invalid record: {line!r}")
-    return name, ty.upper(), value
+    return name, ty.upper(), value.lower() if value.startswith(("0x", "0X")) else value
 
 
 def _check_type_token(token: str, expected: str, name: str) -> None:
@@ -292,6 +369,58 @@ def canonicalize(
     )
 
 
+def _raw_storage(param: Param, value: str) -> bytes:
+    spec = param.spec
+    if value.lower().startswith("0x"):
+        raw = bytes.fromhex(value[2:])
+        if len(raw) > spec.byte_size() and spec.kind != "pointer":
+            raise FrameFormatError(f"field {param.name!r} raw bytes exceed ABI storage")
+        capacity = POINTER_STORAGE_CAPACITY if spec.kind == "pointer" else spec.byte_size()
+        if len(raw) > capacity:
+            raise FrameFormatError(f"field {param.name!r} raw bytes exceed ABI storage")
+        return raw + bytes(capacity - len(raw))
+    if spec.kind == "string":
+        raw = value.encode("utf-16-le" if spec.size == 2 else "utf-8")
+        capacity = spec.byte_size()
+        if len(raw) > capacity - spec.size:
+            raise FrameFormatError(f"field {param.name!r} text exceeds payload capacity")
+        return raw + bytes(capacity - len(raw))
+    if spec.kind == "scalar":
+        if spec.name == "REAL":
+            raw = struct.pack("<f", float(value))
+        elif spec.name == "LREAL":
+            raw = struct.pack("<d", float(value))
+        else:
+            unsigned = str(spec.c_type or "").startswith("uint") or spec.name in {
+                "USINT", "BYTE", "CHAR", "UINT", "WORD", "UDINT", "DWORD",
+                "ULINT", "LWORD", "WCHAR",
+            }
+            number = int(value, 0)
+            raw = number.to_bytes(spec.size, "little", signed=not unsigned)
+        return raw
+    raise FrameFormatError(f"field {param.name!r} requires raw bytes")
+
+
+def canonicalize_raw(data: str | bytes | TestCase, abi: TargetAbi, *, include_dt: bool = False) -> bytes:
+    """Write the new seed format: every field is a canonical ``0x...`` object."""
+    testcase = data if isinstance(data, TestCase) else parse_testcase(data, abi)
+    params = {param.name: param for param in frame_action_params(abi)}
+    shared_defs = {param.name: param for param in shared_params(abi)}
+    lines: list[str] = []
+    for name in testcase.shared_order or testcase.shared:
+        if name in testcase.shared:
+            param = shared_defs[name]
+            lines.append(f"{name},{type_token(param)},0x{_raw_storage(param, testcase.shared[name]).hex()}")
+    for frame in testcase.frames:
+        for name in testcase.field_order or frame.values:
+            if name in frame.values:
+                param = params[name]
+                lines.append(f"{frame.index}.{name},{type_token(param)},0x{_raw_storage(param, frame.values[name]).hex()}")
+        if include_dt and frame.dt_ns is not None:
+            lines.append(f"{frame.index}.{RESERVED_DT},TIME,{frame.dt_ns}")
+    return ("\n".join(lines) + "\n").encode("utf-8")
+
+
 def build_testcase(
     abi: TargetAbi,
     frames: Sequence[Mapping[str, str]],
@@ -342,9 +471,34 @@ def build_testcase(
 
 def _validate_value(param: Param, value: str) -> None:
     spec = param.spec
+    if value.startswith(("0x", "0X")):
+        digits = value[2:]
+        if not re.fullmatch(r"[0-9a-fA-F]*", digits):
+            raise FrameFormatError(f"field {param.name!r} has invalid hex bytes {value!r}")
+        if len(digits) % 2:
+            raise FrameFormatError(f"field {param.name!r} has invalid hex bytes {value!r}")
+        else:
+            byte_count = len(digits) // 2
+            if spec.kind == "string":
+                unit = 2 if spec.name == "WSTRING" else 1
+                # A raw string is the complete ABI object. It may fill the
+                # terminator slot deliberately, including a missing terminator.
+                capacity = ((spec.length + 1) * unit
+                            if spec.length is not None else spec.byte_size())
+                if byte_count % unit or (capacity and byte_count > capacity):
+                    raise FrameFormatError(f"field {param.name!r} string bytes {byte_count} exceed capacity or split a unit")
+                return
+            if spec.kind in {"array", "pointer", "opaque"}:
+                capacity = POINTER_STORAGE_CAPACITY if spec.kind == "pointer" else spec.byte_size()
+                if byte_count > capacity:
+                    raise FrameFormatError(f"field {param.name!r} bytes {byte_count} exceed {capacity}")
+                return
+            if spec.kind == "scalar" and byte_count == spec.size:
+                return
+            if spec.kind == "scalar":
+                raise FrameFormatError(f"field {param.name!r} raw bytes require ABI width {spec.size}")
     if spec.kind == "string":
-        units = len(value.encode("utf-16-le", errors="surrogatepass")) // 2 \
-            if spec.name == "WSTRING" else len(value)
+        units = len(value.encode("utf-16-le")) // 2 if spec.name == "WSTRING" else len(value.encode("utf-8"))
         if spec.length is not None and units > spec.length:
             raise FrameFormatError(
                 f"field {param.name!r} string length {units} exceeds {spec.length}"
@@ -354,6 +508,8 @@ def _validate_value(param: Param, value: str) -> None:
         if value and not value.lower().startswith("0x"):
             raise FrameFormatError(f"field {param.name!r} has invalid pointer value {value!r}")
         return
+    if spec.kind == "opaque":
+        raise FrameFormatError(f"field {param.name!r} requires hex bytes")
     if spec.kind == "array":
         if not value.lower().startswith("0x"):
             raise FrameFormatError(f"field {param.name!r} has invalid array value {value!r}")

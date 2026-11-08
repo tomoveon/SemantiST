@@ -20,3 +20,5 @@ libafl_bolts = "0.15.4"
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+bincode = { version = "2.0.1", features = ["serde"] }
+libc = "0.2"

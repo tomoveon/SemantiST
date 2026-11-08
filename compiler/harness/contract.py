@@ -46,6 +46,16 @@ def spec_json(spec: TypeSpec) -> dict[str, Any]:
     }
     if spec.element is not None:
         value["element"] = spec_json(spec.element)
+    if spec.members:
+        value["members"] = [
+            {
+                "name": member.name,
+                "offset": member.offset,
+                "size": member.size,
+                "spec": spec_json(member.spec),
+            }
+            for member in spec.members
+        ]
     return value
 
 
@@ -164,7 +174,8 @@ def harness_fields(abi: TargetAbi) -> list[FieldLayout]:
         if param.spec.kind == "pointer":
             fields.append(
                 FieldLayout(
-                    f"backing_{param.index}", POINTER_STORAGE_CAPACITY, 8, "backing", param.spec.pointee_bytes()
+                    f"backing_{param.index}", max(POINTER_STORAGE_CAPACITY, param.spec.pointee_bytes()),
+                    8, "backing", param.spec.pointee_bytes()
                 )
             )
         else:
@@ -281,6 +292,42 @@ def target_regions(state_ir: Path) -> list[dict[str, Any]]:
 
 def state_layout_json(abi: TargetAbi, state_ir: Path) -> dict[str, Any]:
     regions = target_regions(state_ir)
+    # Aggregate backing objects are separate C objects so native sanitizers
+    # retain their true boundaries. Include them in the snapshot stream before
+    # the synthetic state mirror so pointer relocations can name their region.
+    backing_params: list[Param] = list(abi.params)
+    if abi.kind == "FUNCTION":
+        backing_params += [slot.param for slot in abi.call_slots
+                           if slot.param.block_kind in ("VAR_IN_OUT", "VAR_OUTPUT")]
+        backing_params += [param for param in abi.params
+                           if param.block_kind == "VAR_INPUT" and param.constant]
+    else:
+        backing_params += [param for param in (abi.state_fields or []) if param not in abi.params]
+    seen: set[int] = set()
+    for param in backing_params:
+        if (param.index is None or param.index in seen
+                or (param.spec.kind == "scalar" and param.block_kind != "VAR_IN_OUT")):
+            continue
+        needs_backing = (
+            param.block_kind == "VAR_IN_OUT"
+            or param.spec.kind == "pointer"
+            or (abi.kind == "FUNCTION" and param.block_kind == "VAR_OUTPUT")
+            or (abi.kind == "FUNCTION" and param.block_kind == "VAR_INPUT" and param.constant)
+        )
+        if not needs_backing:
+            continue
+        seen.add(param.index)
+        size = POINTER_STORAGE_CAPACITY if param.spec.kind == "pointer" else param.spec.byte_size()
+        if param.spec.kind == "pointer":
+            size = max(POINTER_STORAGE_CAPACITY, param.spec.pointee_bytes())
+        regions.append({
+            "index": len(regions),
+            "name": f"semantist_f{param.index - (1 if abi.kind == 'FUNCTION_BLOCK' else 0)}_storage",
+            "source": "harness_storage",
+            "size": size,
+            "llvm_type": None,
+            "pointer_offsets": [],
+        })
     harness = harness_state_layout(abi)
     harness_entry = {
         "index": len(regions),

@@ -538,24 +538,26 @@ def ordered_unique(values: Iterable[str]) -> list[str]:
 
 def value_candidates(record: SeedRecord) -> list[str]:
     ty = record.ty.upper()
+    if not record.value.lower().startswith("0x"):
+        return []
     if ty == "BOOL":
-        return [value for value in ("0", "1") if value != record.value]
+        return [value for value in ("0x00", "0x01") if value != record.value]
     if ty in INTEGER_BOUNDS:
-        return integer_candidates(record.value, INTEGER_BOUNDS[ty])
+        unsigned = {"USINT", "UINT", "UDINT", "ULINT", "BYTE", "WORD", "DWORD", "LWORD", "CHAR"}
+        return integer_candidates(record.value, INTEGER_BOUNDS[ty], signed=ty not in unsigned)
     if ty in FLOAT_TYPES:
-        return float_candidates(record.value)
+        return hex_byte_candidates(record.value)
     if ty in STRING_TYPES:
         return string_candidates(record.value)
-    if ty in BYTE_TYPES and record.value.startswith(("0x", "0X")):
-        return hex_byte_candidates(record.value)
     if ty in BYTE_TYPES:
-        return string_candidates(record.value)
+        return hex_byte_candidates(record.value)
     return []
 
 
-def integer_candidates(value: str, bounds: tuple[int, int]) -> list[str]:
+def integer_candidates(value: str, bounds: tuple[int, int], *, signed: bool) -> list[str]:
     try:
-        original = int(value, 0)
+        raw_bytes = bytes.fromhex(value[2:])
+        original = int.from_bytes(raw_bytes, "little", signed=signed)
     except ValueError:
         return []
     lo, hi = bounds
@@ -573,10 +575,16 @@ def integer_candidates(value: str, bounds: tuple[int, int]) -> list[str]:
         for boundary in (lo, hi, lo + 1, hi - 1)
         if abs(boundary) <= abs(original)
     )
-    return [
-        str(candidate)
-        for candidate in ordered_unique(str(item) for item in raw if lo <= item <= hi and item != original)
-    ]
+    result = []
+    width = len(raw_bytes)
+    for candidate in ordered_unique(str(item) for item in raw if lo <= item <= hi and item != original):
+        number = int(candidate)
+        try:
+            encoded = number.to_bytes(width, "little", signed=signed)
+        except OverflowError:
+            continue
+        result.append("0x" + encoded.hex())
+    return result
 
 
 def float_candidates(value: str) -> list[str]:
@@ -600,16 +608,21 @@ def format_float(value: float) -> str:
 
 
 def string_candidates(value: str) -> list[str]:
-    raw = ["", value[:1]]
-    length = len(value)
+    try:
+        data = bytes.fromhex(value[2:])
+    except ValueError:
+        return []
+    raw = [b"", data[:1]]
+    length = len(data)
     step = length // 2
     while step > 0:
-        raw.append(value[:step])
+        raw.append(data[:step])
         step //= 2
     for length_candidate in (2, 4, 8, 16, 32, 64, 128):
         if length_candidate < length:
-            raw.append(value[:length_candidate])
-    return [candidate for candidate in ordered_unique(raw) if candidate != value]
+            raw.append(data[:length_candidate])
+    encoded = ["0x" + candidate.hex() for candidate in raw]
+    return [candidate for candidate in ordered_unique(encoded) if candidate != value.lower()]
 
 
 def hex_byte_candidates(value: str) -> list[str]:
@@ -639,13 +652,21 @@ def hex_byte_candidates(value: str) -> list[str]:
 
 def default_value(record: SeedRecord) -> str:
     ty = record.ty.upper()
+    if record.value.lower().startswith("0x"):
+        width = len(record.value[2:])
+        if ty in INTEGER_BOUNDS or ty in FLOAT_TYPES:
+            return "0x" + ("0" * width)
+        if ty == "BOOL":
+            return "0x00"
+        if ty in STRING_TYPES or ty in BYTE_TYPES:
+            return "0x"
     if ty in FLOAT_TYPES:
-        return "0.0"
+        return "0x"
     if ty in STRING_TYPES:
-        return ""
+        return "0x"
     if ty in BYTE_TYPES:
         return "0x00"
-    return "0"
+    return "0x00"
 
 
 def minimize_seed(

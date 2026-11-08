@@ -110,7 +110,7 @@ def test_revisions_receive_original_rejection_and_useful_seed_enters_corpus(tmp_
     assert feedback["plan"]["actions"][0]["inputs"]["VALUE"] == 2**40
     assert "type domain" in feedback["reason"]
     seeds = list((tmp_path / "unified-corpus" / "seeds").glob("llm-plan-*.seed"))
-    assert [seed.read_bytes() for seed in seeds] == [b"0.VALUE,DINT,7\n"]
+    assert [seed.read_bytes() for seed in seeds] == [b"0.VALUE,DINT,0x07000000\n"]
     events = [json.loads(line) for line in
               (tmp_path / "metrics" / "events.jsonl").read_text().splitlines()]
     assert any(event["kind"] == "llm_plan_seed" for event in events)
@@ -136,11 +136,11 @@ def test_all_revisions_fail_explicitly_and_strict_mode_raises(tmp_path, monkeypa
               (tmp_path / "metrics" / "events.jsonl").read_text().splitlines()]
     assert any(event["kind"] == "llm_planning_failed" for event in events)
     campaign.config["llm_strict_planning"] = True
-    with pytest.raises(RuntimeError, match="no useful"):
+    with pytest.raises(RuntimeError, match="no native-valid"):
         run_plan_batches(campaign)
 
 
-def test_valid_plan_without_native_gain_is_not_seeded(tmp_path, monkeypatch):
+def test_valid_plan_without_native_gain_still_seeds_search(tmp_path, monkeypatch):
     campaign = _campaign(tmp_path)
     campaign.config["llm_max_calls"] = 1
     campaign._solver_task_distance = lambda task_id, case, observation: 5.0
@@ -157,13 +157,45 @@ def test_valid_plan_without_native_gain_is_not_seeded(tmp_path, monkeypatch):
                         lambda: SimpleNamespace(available=True))
     monkeypatch.setattr("fuzzer.pipeline.plan_batches.LlmClient", FakeClient)
     run_plan_batches(campaign)
-    assert not (tmp_path / "unified-corpus" / "seeds").exists()
+    assert (tmp_path / "unified-corpus" / "seeds" / "llm-plan-0001.seed").exists()
+    assert campaign.llm_planning_summary["native_valid_plans"] == 1
+    assert campaign.llm_planning_summary["useful_plans"] == 0
     assert campaign._solver_seed_best_distance == {"risk-1": 5.0}
     events = [json.loads(line) for line in
               (tmp_path / "metrics" / "events.jsonl").read_text().splitlines()]
     rounds = [event for event in events if event["kind"] == "llm_plan_round"]
     assert rounds[0]["accepted"] == 1
-    assert rounds[0]["feedback"][0]["reason"] == "no_new_probe_state_or_distance"
+    assert rounds[0]["feedback"][0]["reason"] == "native_valid_seed"
+
+
+def test_coverage_only_task_uses_real_plan_and_native_replay(tmp_path, monkeypatch):
+    campaign = _campaign(tmp_path)
+    (campaign.bundle / "goal-tasks.json").write_text(json.dumps({
+        "cycle_effects": {"mode": "single_cycle"},
+        "tasks": [{"task_id": "cycle-1", "goal_class": "cycle", "goal": {}}],
+    }), encoding="utf-8")
+    campaign.config["llm_max_calls"] = 1
+    calls = []
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def complete(self, messages, **kwargs):
+            prompt = json.loads(messages[1]["content"])
+            calls.append(prompt)
+            plan = {**_plan(0), "task_id": "cycle-1", "evidence_refs":
+                    prompt["tasks"][0]["evidence_refs"]}
+            return SimpleNamespace(content=json.dumps({"contract_id": "contract",
+                "plans": [plan]}), usage={"total_tokens": 1}, cached=False)
+
+    monkeypatch.setattr("fuzzer.pipeline.plan_batches.load_config",
+                        lambda: SimpleNamespace(available=True))
+    monkeypatch.setattr("fuzzer.pipeline.plan_batches.LlmClient", FakeClient)
+    run_plan_batches(campaign)
+    assert len(calls) == 1
+    assert campaign.llm_planning_summary["native_valid_plans"] == 1
+    assert (tmp_path / "unified-corpus" / "seeds" / "llm-plan-0001.seed").exists()
 
 
 def test_next_round_receives_native_replay_coverage_details(tmp_path, monkeypatch):

@@ -84,6 +84,14 @@ class AbiError(ValueError):
 
 
 @dataclass
+class StructMember:
+    name: str
+    spec: "TypeSpec"
+    offset: int = 0
+    size: int = 0
+
+
+@dataclass
 class TypeSpec:
     kind: str  # scalar | string | array | pointer | opaque
     name: str
@@ -93,6 +101,7 @@ class TypeSpec:
     element: "TypeSpec | None" = None
     count: int | None = None
     align: int = 1
+    members: list[StructMember] = field(default_factory=list)
 
     def byte_size(self) -> int:
         if self.kind == "scalar" or self.kind == "opaque":
@@ -268,7 +277,21 @@ class _StgTypes:
             if definition is None:
                 return TypeSpec("opaque", ty["name"])
             size, align = size_align(definition, self.definitions)
-            return TypeSpec("opaque", ty["name"], size=size, align=align)
+            members: list[StructMember] = []
+            layout = struct_field_layout(definition.fields, self.definitions)
+            if len(layout) == len(ty.get("fields") or []):
+                for field, (offset, member_size, _ir_type) in zip(ty["fields"], layout):
+                    member_spec = self.spec(field["type_name"], depth + 1)
+                    # Nested opaque types may not have a direct LLVM name in
+                    # the STG model. The IR layout is authoritative for its
+                    # storage size and alignment.
+                    if member_spec.kind == "opaque" and member_spec.size == 0:
+                        member_spec.size = member_size
+                        member_spec.align = size_align(_ir_type, self.definitions)[1]
+                    members.append(StructMember(
+                        field["name"], member_spec, offset=offset, size=member_size,
+                    ))
+            return TypeSpec("opaque", ty["name"], size=size, align=align, members=members)
         raise AbiError(f"unsupported STG type kind {kind} for {type_name}")
 
 

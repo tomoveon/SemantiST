@@ -99,6 +99,7 @@ def probe(
     timeout_s: float = 3.0,
     runtime_ids: Path | None = None,
     extra_env: dict[str, str] | None = None,
+    trace: bool = True,
 ) -> Observation:
     work_dir.mkdir(parents=True, exist_ok=True)
     token = uuid.uuid4().hex
@@ -119,13 +120,14 @@ def probe(
     ):
         env.pop(key, None)
     env.update(SANITIZER_ENV)
-    env.update(
-        {
-            "SEMANTIST_SEMANTIC_TRACE_RUNTIME": "1",
-            "SEMANTIST_SEMANTIC_RUNTIME_TRACE_FILE": str(hits_path),
-            "SEMANTIST_STATE_DUMP_FILE": str(states_path),
-        }
-    )
+    if trace:
+        env.update(
+            {
+                "SEMANTIST_SEMANTIC_TRACE_RUNTIME": "1",
+                "SEMANTIST_SEMANTIC_RUNTIME_TRACE_FILE": str(hits_path),
+                "SEMANTIST_STATE_DUMP_FILE": str(states_path),
+            }
+        )
     if extra_env:
         env.update(extra_env)
     started = time.monotonic()
@@ -274,6 +276,11 @@ def classify(observation: Observation, runtime_index: dict[int, dict[str, Any]])
             "diagnostic": stderr.splitlines()[0] if stderr else observation.signal_name,
         }
     return None
+
+
+def is_finding_candidate(info: dict[str, Any] | None) -> bool:
+    """Return whether classified probe data represents a real finding candidate."""
+    return info is not None and info.get("kind") != "scan_budget"
 
 
 def oracle_for_hazard(hazard: str) -> str:

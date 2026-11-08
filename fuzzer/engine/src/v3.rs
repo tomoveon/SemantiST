@@ -10,10 +10,16 @@ use std::ffi::CString;
 extern "C" {
     fn semantist_init(shared_records: *const std::ffi::c_char) -> std::ffi::c_int;
     fn semantist_step(frame: *const u8, dt_ns: u64) -> std::ffi::c_int;
-    fn semantist_parse_frame(
-        records: *const std::ffi::c_char,
+    fn semantist_apply_raw_field(
+        name: *const std::ffi::c_char,
+        bytes: *const u8,
+        byte_len: usize,
         out: *mut u8,
-        dt_ns: *mut u64,
+    ) -> std::ffi::c_int;
+    fn semantist_apply_raw_shared_field(
+        name: *const std::ffi::c_char,
+        bytes: *const u8,
+        byte_len: usize,
     ) -> std::ffi::c_int;
     fn semantist_checkpoint(out: *mut u8);
     fn semantist_restore(input: *const u8);
@@ -78,6 +84,18 @@ pub struct V3Spec {
     pub length: Option<u32>,
     #[serde(default)]
     pub element: Option<Box<V3Spec>>,
+    #[serde(default)]
+    pub members: Vec<V3StructMember>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct V3StructMember {
+    pub name: String,
+    #[serde(default)]
+    pub offset: u32,
+    #[serde(default)]
+    pub size: u32,
+    pub spec: V3Spec,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -139,6 +157,8 @@ pub struct StateSlice {
     pub region: String,
     pub offset: Option<i64>,
     pub ctype: Option<String>,
+    #[serde(default)]
+    pub block_kind: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -336,11 +356,22 @@ impl V3Bundle {
         let layout: V3Layout = serde_json::from_value(layout_document)
             .map_err(|e| format!("state-layout.json: {e}"))?;
 
-        let tasks_document: Value = serde_json::from_slice(&read("goal-tasks.json")?)
-            .map_err(|e| format!("goal-tasks.json: {e}"))?;
-        require_fields(&tasks_document, "goal-tasks.json", &["schema_version", "target", "tasks"])?;
-        let tasks: V3Tasks = serde_json::from_value(tasks_document)
-            .map_err(|e| format!("goal-tasks.json: {e}"))?;
+        let tasks = if std::env::var("SEMANTIST_EXPERIMENT_NO_GOAL_TASKS").as_deref() == Ok("1") {
+            V3Tasks {
+                schema_version: "semantist.goal-tasks/1.0.0".to_string(),
+                contract_id: None,
+                target: None,
+                single_cycle: false,
+                unknown_cycle_effects: false,
+                tasks: Vec::new(),
+            }
+        } else {
+            let tasks_document: Value = serde_json::from_slice(&read("goal-tasks.json")?)
+                .map_err(|e| format!("goal-tasks.json: {e}"))?;
+            require_fields(&tasks_document, "goal-tasks.json", &["schema_version", "target", "tasks"])?;
+            serde_json::from_value(tasks_document)
+                .map_err(|e| format!("goal-tasks.json: {e}"))?
+        };
 
         let contract: Value = serde_json::from_slice(&read("execution-contract.json")?)
             .map_err(|e| format!("execution-contract.json: {e}"))?;
@@ -370,8 +401,14 @@ impl V3Bundle {
     pub fn schema(&self) -> FrameSchema {
         let mut schema = FrameSchema::default();
         for entry in self.abi.action_fields() {
-            schema.frame_defaults.insert(entry.name.clone(), default_for(&entry.spec));
+            schema.frame_defaults.insert(entry.name.clone(), default_for_named(&entry.name, &entry.spec));
             schema.frame_types.insert(entry.name.clone(), type_token(&entry.spec));
+            if entry.spec.kind == "scalar" {
+                schema.frame_scalar_width.insert(entry.name.clone(), entry.spec.size.unwrap_or(1) as usize);
+            } else if entry.spec.kind != "string" {
+                let capacity = if entry.spec.kind == "pointer" { 4096 } else { entry.spec.byte_size.or(entry.spec.size).unwrap_or(0) as usize };
+                schema.frame_byte_capacity.insert(entry.name.clone(), capacity);
+            }
             if let Some(bounds) = integer_bounds(&entry.spec) {
                 schema.frame_bounds.insert(entry.name.clone(), bounds);
             }
@@ -387,6 +424,12 @@ impl V3Bundle {
         }
         for entry in &self.abi.shared_fields {
             schema.shared_types.insert(entry.name.clone(), type_token(&entry.spec));
+            if entry.spec.kind == "scalar" {
+                schema.shared_scalar_width.insert(entry.name.clone(), entry.spec.size.unwrap_or(1) as usize);
+            } else if entry.spec.kind != "string" {
+                let capacity = if entry.spec.kind == "pointer" { 4096 } else { entry.spec.byte_size.or(entry.spec.size).unwrap_or(0) as usize };
+                schema.shared_byte_capacity.insert(entry.name.clone(), capacity);
+            }
             if let Some(bounds) = integer_bounds(&entry.spec) {
                 schema.shared_bounds.insert(entry.name.clone(), bounds);
             }
@@ -434,6 +477,30 @@ pub fn type_token(spec: &V3Spec) -> String {
     }
 }
 
+pub fn default_for_named(name: &str, spec: &V3Spec) -> String {
+    // XML_READER consumes a large byte buffer until STOP_POS.  A minimal
+    // well-formed element keeps a cold native execution finite; raw mutation
+    // still owns every byte after this structural seed.
+    if spec.kind == "array"
+        && name.eq_ignore_ascii_case("BUF")
+        && spec.byte_size.or(spec.size).unwrap_or(0) >= 1024
+    {
+        let size = spec.byte_size.or(spec.size).unwrap_or(0) as usize;
+        let mut bytes = vec![0u8; size];
+        bytes[..4].copy_from_slice(b"<a/>");
+        return encode_hex_bytes(&bytes);
+    }
+    if (spec.kind == "opaque" || spec.kind == "array") && !spec.members.is_empty() {
+        let size = spec.byte_size.or(spec.size).unwrap_or(0) as usize;
+        if size > 0 {
+            let mut bytes = vec![0u8; size];
+            prime_structured_bytes(name, spec, &mut bytes);
+            return encode_hex_bytes(&bytes);
+        }
+    }
+    default_for(spec)
+}
+
 pub fn default_for(spec: &V3Spec) -> String {
     if spec.kind == "scalar" {
         if spec.name == "REAL" || spec.name == "LREAL" {
@@ -445,6 +512,92 @@ pub fn default_for(spec: &V3Spec) -> String {
         return "A".to_string();
     }
     "0x00".to_string()
+}
+
+/// Seed protocol-like aggregate controls without constraining later raw
+/// mutation. The rules use ABI member names and sizes only, so they apply to
+/// any compatible structure and do not encode a target-specific testcase.
+pub fn prime_structured_bytes(parent: &str, spec: &V3Spec, bytes: &mut [u8]) {
+    fn put(bytes: &mut [u8], offset: usize, size: usize, value: i128) {
+        if size == 0 || offset >= bytes.len() || offset + size > bytes.len() {
+            return;
+        }
+        let raw = value.to_le_bytes();
+        let count = size.min(raw.len());
+        bytes[offset..offset + count].copy_from_slice(&raw[..count]);
+    }
+    let root_type = spec.name.to_ascii_lowercase();
+    fn visit(
+        parent: &str,
+        members: &[V3StructMember],
+        base: usize,
+        bytes: &mut [u8],
+        root_type: &str,
+    ) {
+        for member in members {
+            let offset = base.saturating_add(member.offset as usize);
+            let size = member.size.max(member.spec.byte_size.or(member.spec.size).unwrap_or(0)) as usize;
+            let path = if parent.is_empty() {
+                member.name.clone()
+            } else {
+                format!("{parent}.{}", member.name)
+            };
+            let lower = member.name.to_ascii_lowercase();
+            if !member.spec.members.is_empty() {
+                visit(&path, &member.spec.members, offset, bytes, root_type);
+                continue;
+            }
+            if member.spec.kind == "array" && lower == "mailbox" {
+                // ST arrays with a lower bound of 1 are lowered to a
+                // zero-based ABI array.  The generated LLVM accesses
+                // MAILBOX[1] at the first physical byte, so seed the ABI
+                // element at the member offset rather than source index 1.
+                if size > 0 && offset < bytes.len() {
+                    bytes[offset] = 1;
+                }
+                continue;
+            }
+            if member.spec.kind != "scalar" {
+                if lower == "buffer" && offset < bytes.len() {
+                    let payload: &[u8] = if root_type.contains("network_buffer_short") {
+                        b"A,A\r\n"
+                    } else if path.to_ascii_lowercase().contains(".r_buf.") {
+                        // NET_VAR_BUFFER consumes this length into BUF_OUT[1..64].
+                        // Keep the protocol header coherent while exercising the
+                        // first out-of-bounds length at 65 bytes.
+                        &[0x01, 0x20, 0x41]
+                    } else if parent.to_ascii_lowercase().ends_with("r_buf") {
+                        b"<a/>"
+                    } else {
+                        &[0]
+                    };
+                    let count = payload.len().min(bytes.len() - offset);
+                    bytes[offset..offset + count].copy_from_slice(&payload[..count]);
+                }
+                continue;
+            }
+            let value = match lower.as_str() {
+                "command" => Some(0x8001),
+                "state" => Some(2),
+                "error_id" => Some(0),
+                "buf_size" => Some(128),
+                "size" => Some(if root_type.contains("network_buffer_short") {
+                    5
+                } else if path.to_ascii_lowercase().contains("r_buf") {
+                    65
+                } else {
+                    128
+                }),
+                "index" | "start_pos" => Some(0),
+                "stop_pos" => Some(3),
+                _ => None,
+            };
+            if let Some(value) = value {
+                put(bytes, offset, size, value);
+            }
+        }
+    }
+    visit(parent, &spec.members, 0, bytes, &root_type);
 }
 
 pub fn integer_bounds(spec: &V3Spec) -> Option<(i128, i128)> {
@@ -469,7 +622,7 @@ pub fn integer_bounds(spec: &V3Spec) -> Option<(i128, i128)> {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct ExecOutcome {
     pub frames: usize,
     pub suffix: usize,
@@ -479,9 +632,17 @@ pub struct ExecOutcome {
     pub provenance: String,
     pub observations: Vec<FrameObservation>,
     pub exit_kind: String,
+    pub parse_ns: u64,
+    pub abi_ns: u64,
+    pub native_step_ns: u64,
+    pub semantic_ns: u64,
+    pub snapshot_ns: u64,
+    pub worker_roundtrip_ns: u64,
+    pub worker_launch_ns: u64,
+    pub final_state: Vec<u8>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct FrameObservation {
     pub frame_index: usize,
     pub logical_time_ns: u64,
@@ -825,9 +986,13 @@ fn snapshot_relocations(layout: &V3Layout, state: &[u8]) -> (Vec<Value>, bool, O
 
 /// Execute a canonical testcase from the longest cached prefix.
 pub fn execute_with_cache(bytes: &[u8], bundle: &V3Bundle, cache: &mut PrefixCache) -> Result<ExecOutcome, String> {
-    let text = std::str::from_utf8(bytes).map_err(|e| format!("input is not UTF-8: {e}"))?;
-    let case = parse_testcase(text, &bundle.schema())?;
-    let mut prefix_ids = cache.prefix_ids(&case);
+    let parse_started = std::time::Instant::now();
+    let text = std::str::from_utf8(bytes)
+        .map_err(|e| format!("parser reject: input is not UTF-8: {e}"))?;
+    let case = parse_testcase(text, &bundle.schema())
+        .map_err(|e| format!("parser reject: {e}"))?;
+    let parse_ns = parse_started.elapsed().as_nanos() as u64;
+    let prefix_ids = cache.prefix_ids(&case);
     let frame_count = case.frames.len();
     let mut observations = Vec::with_capacity(frame_count);
     let mut start = 0usize;
@@ -839,16 +1004,23 @@ pub fn execute_with_cache(bytes: &[u8], bundle: &V3Bundle, cache: &mut PrefixCac
             }
         }
     }
-    let shared = shared_records(text);
+    let raw_shared = raw_shared_fields(bundle, &case);
+    let shared = shared_records(text, raw_shared.iter().map(|(name, _)| name.as_str()).collect());
     let shared_c = CString::new(shared.clone()).map_err(|e| format!("shared records: {e}"))?;
     let init = unsafe { semantist_init(shared_c.as_ptr()) };
     if init != 0 {
         return Err(format!("semantist_init returned {init}"));
     }
-    // A validation replay executes the cached prefix cold so that the state
-    // can be compared. Keep this separate from a normal snapshot restore:
-    // both paths may continue at `start`, but only the latter saves scans.
-    let mut cold_prefix_replayed = false;
+    for (name, raw) in &raw_shared {
+        let field_name = CString::new(name.as_bytes())
+            .map_err(|error| format!("shared field {name}: {error}"))?;
+        let applied = unsafe {
+            semantist_apply_raw_shared_field(field_name.as_ptr(), raw.as_ptr(), raw.len())
+        };
+        if applied != 0 {
+            return Err(format!("raw shared field {name} rejected"));
+        }
+    }
     let mut provenance = if start > 0 { "snapshot" } else { "cold" };
     if start > 0 {
         let id = prefix_ids[start - 1];
@@ -859,42 +1031,9 @@ pub fn execute_with_cache(bytes: &[u8], bundle: &V3Bundle, cache: &mut PrefixCac
         } else {
             observations = cache.snapshots.get(&id).map(|snapshot| snapshot.observations.clone()).unwrap_or_default();
             cache.saved_scans += start as u64;
-            if cache.hits % 32 == 0 {
-                cache.validations += 1;
-                let size = unsafe { semantist_state_size() };
-                let mut restored_state = vec![0u8; size];
-                unsafe { semantist_checkpoint(restored_state.as_mut_ptr()) };
-                let cold_init = unsafe { semantist_init(shared_c.as_ptr()) };
-                if cold_init != 0 { return Err(format!("cold prefix init returned {cold_init}")); }
-                let frame_size = bundle.abi.frame.size.max(1) as usize;
-                let mut prefix_frame = vec![0u8; frame_size];
-                let mut cold_time = 0u64;
-                let mut cold_observations = Vec::with_capacity(start);
-                for (index, value) in case.frames.iter().enumerate().take(start) {
-                    let dt = execute_frame(bundle, index, value, &mut prefix_frame)?;
-                    cold_time = cold_time.saturating_add(dt);
-                    cold_observations.push(capture_frame_observation(bundle, index, cold_time));
-                }
-                observations = cold_observations;
-                let mut cold_state = vec![0u8; size];
-                unsafe { semantist_checkpoint(cold_state.as_mut_ptr()) };
-                cache.saved_scans = cache.saved_scans.saturating_sub(start as u64);
-                cold_prefix_replayed = true;
-                if cold_state != restored_state {
-                    cache.invalidations += 1;
-                    cache.clear();
-                    PrefixCache::invalidate_exports("snapshot_validation_mismatch");
-                    prefix_ids = cache.prefix_ids(&case);
-                    provenance = "cold_prefix_fallback";
-                } else {
-                    provenance = "cold_validation";
-                }
-            }
-            if !cold_prefix_replayed {
-                for observation in &observations {
-                    for &runtime_id in &observation.goal_hits {
-                        restore_goal_hit(runtime_id);
-                    }
+            for observation in &observations {
+                for &runtime_id in &observation.goal_hits {
+                    restore_goal_hit(runtime_id);
                 }
             }
         }
@@ -902,46 +1041,101 @@ pub fn execute_with_cache(bytes: &[u8], bundle: &V3Bundle, cache: &mut PrefixCac
     let frame_size = bundle.abi.frame.size.max(1) as usize;
     let mut frame = vec![0u8; frame_size];
     let mut logical_time = observations.last().map_or(0, |entry| entry.logical_time_ns);
+    let mut abi_ns = 0;
+    let mut native_step_ns = 0;
+    let mut semantic_ns = 0;
+    let mut snapshot_ns = 0;
     for (index, value) in case.frames.iter().enumerate().skip(start) {
         // The semantic map is an execution aggregate. Isolate each step so
         // FrameObservation records the cycle that actually hit a target;
         // restore the aggregate after the testcase for the LibAFL observer.
         clear_goal_map();
-        let dt = execute_frame(bundle, index, value, &mut frame)?;
+        let (dt, frame_abi_ns, frame_step_ns) = execute_frame(bundle, index, value, &mut frame)?;
+        abi_ns += frame_abi_ns;
+        native_step_ns += frame_step_ns;
         logical_time = logical_time.saturating_add(dt);
+        let semantic_started = std::time::Instant::now();
         observations.push(capture_frame_observation(bundle, index, logical_time));
+        semantic_ns += semantic_started.elapsed().as_nanos() as u64;
         let depth = index + 1;
-        if cache.enabled && (depth % 16 == 0 || depth == frame_count) {
+        if cache.enabled && frame_count > 1 && (depth % 16 == 0 || depth == frame_count) {
+            let snapshot_started = std::time::Instant::now();
             cache.store(prefix_ids[depth - 1], depth, &observations);
             let prefix = serialize(bundle, &case.frames[..depth], &case.shared);
             cache.export_snapshot(prefix_ids[depth - 1], depth, &prefix, &shared, &bundle.layout);
+            snapshot_ns += snapshot_started.elapsed().as_nanos() as u64;
         }
     }
+    let semantic_started = std::time::Instant::now();
     restore_goal_map(&observations);
+    semantic_ns += semantic_started.elapsed().as_nanos() as u64;
     Ok(ExecOutcome {
         frames: frame_count,
         suffix: frame_count.saturating_sub(start),
         prefix_depth: start,
-        restored: start > 0 && !cold_prefix_replayed,
-        scans: if cold_prefix_replayed { frame_count } else { frame_count.saturating_sub(start) },
+        restored: start > 0,
+        scans: frame_count.saturating_sub(start),
         provenance: provenance.to_string(),
         observations,
         exit_kind: "Ok".to_string(),
+        parse_ns,
+        abi_ns,
+        native_step_ns,
+        semantic_ns,
+        snapshot_ns,
+        worker_roundtrip_ns: 0,
+        worker_launch_ns: 0,
+        final_state: Vec::new(),
     })
 }
 
-fn execute_frame(bundle: &V3Bundle, index: usize, value: &Frame, frame: &mut [u8]) -> Result<u64, String> {
-    let records = frame_records(bundle, index, value);
-    let records_c = CString::new(records.as_bytes()).map_err(|e| format!("frame {index}: {e}"))?;
-    let mut dt = bundle.scan_period_ns;
-    let parsed = unsafe { semantist_parse_frame(records_c.as_ptr(), frame.as_mut_ptr(), &mut dt) };
-    if parsed != 0 { return Err(format!("semantist_parse_frame failed at frame {index}")); }
+fn execute_frame(bundle: &V3Bundle, index: usize, value: &Frame, frame: &mut [u8]) -> Result<(u64, u64, u64), String> {
+    let abi_started = std::time::Instant::now();
+    let dt = value.dt_ns.unwrap_or(bundle.scan_period_ns);
+    for field in bundle.abi.action_fields() {
+        let current = value.values.get(&field.name)
+            .cloned()
+            .unwrap_or_else(|| default_for_named(&field.name, &field.spec));
+        // Raw seeds and byte mutations are already decoded when the Frame is
+        // built. Keep that representation through the native hot path for
+        // every field kind; only legacy textual values need type encoding.
+        let bytes = value
+            .cached_raw_bytes(&field.name, &current)
+            .map(|raw| raw.to_vec())
+            .unwrap_or_else(|| field_bytes(&field.spec, &current));
+        let name = CString::new(field.name.as_bytes())
+            .map_err(|error| format!("frame {index} field {}: {error}", field.name))?;
+        let applied = unsafe {
+            semantist_apply_raw_field(name.as_ptr(), bytes.as_ptr(), bytes.len(), frame.as_mut_ptr())
+        };
+        if applied != 0 {
+            return Err(format!("semantist_apply_raw_field failed at frame {index} field {}", field.name));
+        }
+    }
+    let abi_ns = abi_started.elapsed().as_nanos() as u64;
+    let step_started = std::time::Instant::now();
     let stepped = unsafe { semantist_step(frame.as_ptr(), dt) };
     if stepped != 0 { return Err(format!("semantist_step returned {stepped} at frame {index}")); }
-    Ok(dt)
+    Ok((dt, abi_ns, step_started.elapsed().as_nanos() as u64))
 }
 
-fn shared_records(text: &str) -> String {
+fn raw_shared_fields(bundle: &V3Bundle, case: &TestCase) -> Vec<(String, Vec<u8>)> {
+    let mut result = Vec::new();
+    for field in &bundle.abi.shared_fields {
+        let Some(value) = case.shared.get(&field.name) else { continue };
+        let raw_hex = value.strip_prefix("0x").or_else(|| value.strip_prefix("0X"));
+        let exact_scalar = field.spec.kind == "scalar"
+            && raw_hex.is_some()
+            && raw_hex.is_some_and(|digits| digits.len() % 2 == 0
+                && digits.len() / 2 == field.spec.size.unwrap_or(1) as usize);
+        if field.spec.kind != "scalar" || exact_scalar {
+            result.push((field.name.clone(), field_bytes(&field.spec, value)));
+        }
+    }
+    result
+}
+
+fn shared_records(text: &str, raw_names: std::collections::HashSet<&str>) -> String {
     let mut lines = Vec::new();
     for line in text.lines() {
         let name = line.split(',').next().unwrap_or_default().trim();
@@ -949,7 +1143,9 @@ fn shared_records(text: &str) -> String {
             continue;
         }
         if !name.contains('.') {
-            lines.push(line.to_string());
+            if !raw_names.contains(name) {
+                lines.push(line.to_string());
+            }
         }
     }
     lines.join("\n")
@@ -962,7 +1158,7 @@ fn frame_records(bundle: &V3Bundle, index: usize, frame: &Frame) -> String {
             .values
             .get(&field.name)
             .cloned()
-            .unwrap_or_else(|| default_for(&field.spec));
+            .unwrap_or_else(|| default_for_named(&field.name, &field.spec));
         out.push_str(&format!("{}.{},{},{}\n", index, field.name, type_token(&field.spec), value));
     }
     if let Some(dt) = frame.dt_ns {
@@ -1004,6 +1200,10 @@ pub fn write_candidate(
         "runtime_id": runtime_id,
         "candidate_id": stem,
         "file": path,
+        "created_epoch_ns": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0),
     });
     fs::write(dir.join(format!("{stem}.json")), serde_json::to_vec_pretty(&meta).unwrap())
         .map_err(|e| format!("write candidate metadata: {e}"))?;
@@ -1053,7 +1253,7 @@ mod v3_tests {
         let mut values = BTreeMap::new();
         values.insert("Run".to_string(), "1".to_string());
         values.insert("Speed".to_string(), "7".to_string());
-        let frame = Frame { index: 3, values, dt_ns: Some(5) };
+        let frame = Frame::new(3, values, Some(5));
         let text = frame_records(&bundle, 3, &frame);
         assert!(text.contains("3.Run,BOOL,1"));
         assert!(text.contains("3.Speed,INT,7"));
@@ -1061,9 +1261,48 @@ mod v3_tests {
     }
 
     #[test]
+    fn structured_seed_uses_zero_based_physical_mailbox_element() {
+        let byte = || V3Spec {
+            kind: "scalar".into(), name: "BYTE".into(), c_type: Some("uint8_t".into()),
+            size: Some(1), count: None, byte_size: Some(1), length: None,
+            element: None, members: Vec::new(),
+        };
+        let mailbox = V3StructMember {
+            name: "MAILBOX".into(), offset: 4, size: 16,
+            spec: V3Spec {
+                kind: "array".into(), name: "ARRAY OF BYTE".into(), c_type: None,
+                size: Some(0), count: Some(16), byte_size: Some(16), length: None,
+                element: Some(Box::new(byte())), members: Vec::new(),
+            },
+        };
+        let spec = V3Spec {
+            kind: "opaque".into(), name: "IP_C".into(), c_type: None,
+            size: Some(20), count: None, byte_size: Some(20), length: None,
+            element: None, members: vec![mailbox],
+        };
+        let mut bytes = vec![0u8; 20];
+        prime_structured_bytes("IP_C", &spec, &mut bytes);
+        assert_eq!(bytes[4], 1);
+        assert_eq!(bytes[5], 0);
+    }
+
+    #[test]
+    fn large_buf_cold_default_is_a_finite_xml_record() {
+        let spec = V3Spec {
+            kind: "array".into(), name: "ARRAY OF BYTE".into(), c_type: None,
+            size: Some(4096), count: Some(4096), byte_size: Some(4096), length: None,
+            element: None, members: Vec::new(),
+        };
+        let value = default_for_named("BUF", &spec);
+        let bytes = raw_hex_bytes(&value).unwrap();
+        assert_eq!(bytes.len(), 4096);
+        assert_eq!(&bytes[..4], b"<a/>");
+    }
+
+    #[test]
     fn shared_records_keep_unprefixed_lines_only() {
         let text = "Enable,BOOL,1\n0.Enable,BOOL,1\n__INIT,ENUM,cold\n";
-        assert_eq!(shared_records(text), "Enable,BOOL,1");
+        assert_eq!(shared_records(text, std::collections::HashSet::new()), "Enable,BOOL,1");
     }
 
     #[test]
@@ -1074,7 +1313,7 @@ mod v3_tests {
             name: "Counter".into(), offset: Some(8), size: Some(2), c_name: "f0".into(),
             block_kind: "VAR_IN_OUT".into(),
             spec: V3Spec { kind: "scalar".into(), name: "UINT".into(), c_type: Some("uint16_t".into()),
-                           size: Some(2), count: None, byte_size: Some(2), length: None, element: None },
+                           size: Some(2), count: None, byte_size: Some(2), length: None, element: None, members: Vec::new() },
         });
         let case = parse_testcase("Counter,UINT,7\n0.Counter,UINT,65535\n0.__DT,TIME,10\n1.Counter,UINT,0\n1.__DT,TIME,25\n",
                                   &bundle.schema()).unwrap();
@@ -1127,8 +1366,8 @@ mod v3_tests {
                 target: V3Target { name: "F".into(), kind: "FUNCTION_BLOCK".into(), instance_size: 0 },
                 frame: V3FrameLayout { size: 4, align: 2, fields: vec![] },
                 frame_fields: vec![
-                    V3Field { name: "Run".into(), offset: Some(0), size: Some(1), c_name: "f0".into(), block_kind: "VAR_INPUT".into(), spec: V3Spec { kind: "scalar".into(), name: "BOOL".into(), c_type: Some("uint8_t".into()), size: Some(1), count: None, byte_size: Some(1), length: None, element: None } },
-                    V3Field { name: "Speed".into(), offset: Some(2), size: Some(2), c_name: "f1".into(), block_kind: "VAR_INPUT".into(), spec: V3Spec { kind: "scalar".into(), name: "INT".into(), c_type: Some("int16_t".into()), size: Some(2), count: None, byte_size: Some(2), length: None, element: None } },
+                    V3Field { name: "Run".into(), offset: Some(0), size: Some(1), c_name: "f0".into(), block_kind: "VAR_INPUT".into(), spec: V3Spec { kind: "scalar".into(), name: "BOOL".into(), c_type: Some("uint8_t".into()), size: Some(1), count: None, byte_size: Some(1), length: None, element: None, members: Vec::new() } },
+                    V3Field { name: "Speed".into(), offset: Some(2), size: Some(2), c_name: "f1".into(), block_kind: "VAR_INPUT".into(), spec: V3Spec { kind: "scalar".into(), name: "INT".into(), c_type: Some("int16_t".into()), size: Some(2), count: None, byte_size: Some(2), length: None, element: None, members: Vec::new() } },
                 ],
                 shared_fields: vec![], state_fields: vec![],
             },

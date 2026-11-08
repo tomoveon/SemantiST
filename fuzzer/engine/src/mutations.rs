@@ -13,7 +13,23 @@ enum ParsedSeed {
     Records(Vec<StRecord>),
 }
 
-const SEMANTIC_MUTATION_PROBABILITY: f64 = 0.70;
+/// The first mixed campaign uses a fixed 30/70 semantic/raw split.  Keep the
+/// knob outside the mutator so the same executor and corpus are used by all
+/// three modes.
+pub const DEFAULT_SEMANTIC_MUTATION_RATIO: f64 = 0.30;
+
+pub fn semantic_mutation_ratio() -> f64 {
+    let raw = std::env::var("SEMANTIST_SEMANTIC_RATIO").ok();
+    let Some(raw) = raw.as_deref() else { return DEFAULT_SEMANTIC_MUTATION_RATIO; };
+    let parsed = raw.trim().parse::<f64>().ok();
+    let ratio = parsed.map(|value| if value > 1.0 { value / 100.0 } else { value });
+    ratio.filter(|value| value.is_finite() && (0.0..=1.0).contains(value))
+        .unwrap_or(DEFAULT_SEMANTIC_MUTATION_RATIO)
+}
+
+pub fn semantic_mutation_selected<R: Rand>(rand: &mut R) -> bool {
+    rand.coinflip(semantic_mutation_ratio())
+}
 const DEFAULT_FB_MAX_CYCLES: usize = 256;
 const HARD_FB_MAX_CYCLES: usize = 10_000;
 
@@ -125,9 +141,7 @@ impl StructuredStMutator {
                 }
                 let use_semantic = self.ablation.targeted_mutation()
                     && context.target_id.is_some()
-                    && state
-                        .rand_mut()
-                        .coinflip(SEMANTIC_MUTATION_PROBABILITY);
+                    && semantic_mutation_selected(state.rand_mut());
                 if !use_semantic
                     || !semantic_mutate_cycle_seed(state.rand_mut(), &mut seed, context, self.ablation)
                 {
@@ -147,9 +161,7 @@ impl StructuredStMutator {
 
         let use_semantic = self.ablation.targeted_mutation()
             && context.target_id.is_some()
-            && state
-                .rand_mut()
-                .coinflip(SEMANTIC_MUTATION_PROBABILITY);
+            && semantic_mutation_selected(state.rand_mut());
         if !use_semantic || !semantic_mutate_records(state.rand_mut(), &mut records, context) {
             mutate_records_fallback(state.rand_mut(), &mut records);
         }

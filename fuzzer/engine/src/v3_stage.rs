@@ -31,6 +31,14 @@ pub struct StageStats {
     pub executions: u64,
     pub scans: u64,
     pub suffix_scans: u64,
+    pub physical_scans: u64,
+    pub parse_ns: u64,
+    pub abi_ns: u64,
+    pub native_step_ns: u64,
+    pub semantic_ns: u64,
+    pub snapshot_ns: u64,
+    pub worker_roundtrip_ns: u64,
+    pub worker_launch_ns: u64,
     pub cache_hits: u64,
     pub saved_scans: u64,
     pub snapshot_attempts: u64,
@@ -41,6 +49,18 @@ pub struct StageStats {
     pub hold_actions: u64,
     pub wait_actions: u64,
     pub state_copies: u64,
+    pub native_edge_novelty: u64,
+    pub state_transition_novelty: u64,
+    pub adaptive_restarts: u64,
+    pub raw_cache_hits: u64,
+    pub raw_cache_misses: u64,
+    pub raw_bytes_mutated: u64,
+    pub semantic_mutations: u64,
+    pub raw_mutations: u64,
+    pub raw_executions: u64,
+    pub raw_retained: u64,
+    pub parser_rejects: u64,
+    pub timeouts: u64,
     pub random_prefix_picks: u64,
     pub goal_prefix_picks: u64,
     pub solver_candidates: u64,
@@ -52,8 +72,36 @@ pub struct StageStats {
     pub reached: BTreeSet<String>,
 }
 
+pub struct SharedV3Bundle(std::sync::Arc<V3Bundle>);
+
+impl From<V3Bundle> for SharedV3Bundle {
+    fn from(bundle: V3Bundle) -> Self {
+        Self(std::sync::Arc::new(bundle))
+    }
+}
+
+impl From<std::sync::Arc<V3Bundle>> for SharedV3Bundle {
+    fn from(bundle: std::sync::Arc<V3Bundle>) -> Self {
+        Self(bundle)
+    }
+}
+
+impl std::ops::Deref for SharedV3Bundle {
+    type Target = V3Bundle;
+
+    fn deref(&self) -> &V3Bundle {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for SharedV3Bundle {
+    fn deref_mut(&mut self) -> &mut V3Bundle {
+        std::sync::Arc::make_mut(&mut self.0)
+    }
+}
+
 pub struct V3GoalStage {
-    pub bundle: V3Bundle,
+    pub bundle: SharedV3Bundle,
     pub rng: StdRand,
     pub seeds: Vec<V3Input>,
     next_seed: usize,
@@ -75,11 +123,23 @@ pub struct V3GoalStage {
     pub no_time_guidance: bool,
     pub no_state_copy: bool,
     pub no_snapshot: bool,
+    no_online_reinjection: bool,
+    pub no_stg_guidance: bool,
+    no_transition_guidance: bool,
+    no_adaptive_reset: bool,
+    no_tail_guidance: bool,
+    mutation_mode: u8,
+    current_mutation_raw: bool,
+    mutation_operator_locked: bool,
+    seen_native_edges: HashSet<usize>,
+    current_new_edge: bool,
     pub active_cache: Vec<u8>,
     active_task_id: Option<String>,
     task_cursor: usize,
     task_attempts: HashMap<String, u64>,
     task_stagnation: HashMap<String, u64>,
+    task_progress_count: HashMap<String, u64>,
+    task_stagnation_queued: HashSet<String>,
     task_best_prefix: HashMap<String, String>,
     task_novel_hits: HashMap<String, u64>,
     task_novel_states: HashMap<String, u64>,
@@ -99,12 +159,13 @@ pub struct V3GoalStage {
     seen_semantic_hits: HashSet<u32>,
     seen_task_reaches: HashSet<(String, u32)>,
     seen_states: HashSet<String>,
+    seen_transitions: HashSet<String>,
     pub ended: String,
 }
 
 impl V3GoalStage {
     pub fn new(
-        bundle: V3Bundle,
+        bundle: impl Into<SharedV3Bundle>,
         run_dir: PathBuf,
         seed_dir: &Path,
         literals: Vec<i64>,
@@ -116,17 +177,60 @@ impl V3GoalStage {
         no_state_copy: bool,
         no_snapshot: bool,
     ) -> Self {
+        let mut bundle = bundle.into();
+        let no_stg_guidance = std::env::var("SEMANTIST_EXPERIMENT_NO_STG").as_deref() == Ok("1");
+        let mutation_mode = match std::env::var("SEMANTIST_MUTATION_MODE")
+            .unwrap_or_else(|_| "combined".to_string())
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "semantic-only" | "semantic_only" | "semantic" | "type" => 1,
+            "byte-only" | "byte_only" | "byte" | "raw" => 2,
+            "combined" | "" => 0,
+            other => {
+                eprintln!("[v3] unknown SEMANTIST_MUTATION_MODE={other:?}; using combined");
+                0
+            }
+        };
+        let pure_function = bundle.abi.target.kind == "FUNCTION"
+            && bundle.abi.target.instance_size == 0
+            && bundle.abi.shared_fields.is_empty();
+        if pure_function && std::env::var("SEMANTIST_EXPERIMENT_NO_FUNCTION_FAST").as_deref() != Ok("1") {
+            bundle.tasks.single_cycle = true;
+        }
+        if std::env::var("SEMANTIST_EXPERIMENT_SINGLE_FRAME").as_deref() == Ok("1") {
+            bundle.tasks.single_cycle = true;
+        }
         let seeds = load_seeds(seed_dir, &bundle);
-        let max_depth = if bundle.tasks.unknown_cycle_effects { 4 } else { 300 };
-        let planned = bundle
-            .tasks
-            .tasks
-            .iter()
-            .flat_map(|task| task.seed_prefixes.iter().cloned()
-                .map(move |frames| (task.task_id.clone(), frames)))
-            .collect::<Vec<_>>();
+        let max_depth = if bundle.tasks.single_cycle { 1 } else if bundle.tasks.unknown_cycle_effects { 4 } else { 300 };
+        // Keep LLM coverage across tasks without materializing an unbounded
+        // prefix queue. Large plans otherwise spend the short online budget
+        // cloning and probing prefixes before byte mutation gets a turn.
+        const MAX_PLANNED_PREFIXES: usize = 1536;
+        // Keep the LLM queue broad across large task plans.  A global cap
+        // alone lets early tasks consume every slot before later tasks get a
+        // prefix, starving byte and multi-cycle exploration of those tasks.
+        const MAX_PLANNED_PREFIXES_PER_TASK: usize = 2;
+        // Dynamic fuzz, state-novelty and solver prefixes retain a separate
+        // budget so a large LLM plan cannot consume the whole native queue.
+        const RESERVED_NATIVE_PREFIXES: usize = 512;
+        let mut planned = Vec::new();
+        for round in 0..MAX_PLANNED_PREFIXES_PER_TASK {
+            for task in &bundle.tasks.tasks {
+                if let Some(frames) = task.seed_prefixes.get(round) {
+                    planned.push((task.task_id.clone(), frames.clone()));
+                    if planned.len() >= MAX_PLANNED_PREFIXES {
+                        break;
+                    }
+                }
+            }
+            if planned.len() >= MAX_PLANNED_PREFIXES {
+                break;
+            }
+        }
+        if no_stg_guidance { planned.clear(); }
         let retained_prefix_limit = planned.iter().filter(|(_, frames)| !frames.is_empty())
-            .count().saturating_add(513);
+            .count().saturating_add(RESERVED_NATIVE_PREFIXES + 1);
         let metrics_file = run_dir.join("metrics").join("events.jsonl");
         let solver_queue_file = run_dir.join("prefixes").join("klee-queue.jsonl");
         let next_prefix_number = fs::read_dir(run_dir.join("prefixes").join("frames"))
@@ -154,7 +258,10 @@ impl V3GoalStage {
                 let mut prefixes = vec![V3Prefix { prefix_id: "p-00000000".into(), parent_id: None, task_id: None, input: V3Input { frames: Vec::new(), shared: BTreeMap::new() }, path: Vec::new(), distance: f64::INFINITY, source: "seed", uses: 0 }];
                 for (planned_index, (task_id, frames)) in planned.into_iter().enumerate() {
                     let input = V3Input {
-                        frames: frames.into_iter().enumerate().map(|(frame_index, values)| Frame { index: frame_index as u32, values, dt_ns: None }).collect(),
+                        frames: frames.into_iter().enumerate().map(|(frame_index, mut values)| {
+                            normalize_structured_values(&bundle, &mut values);
+                            Frame::new(frame_index as u32, values, None)
+                        }).collect(),
                         shared: BTreeMap::new(),
                     };
                     if !input.frames.is_empty() {
@@ -166,19 +273,31 @@ impl V3GoalStage {
             retained_prefix_limit,
             bundle,
             stats: StageStats::default(),
-            literals,
-            floats,
+            mutation_mode,
+            current_mutation_raw: false,
+            mutation_operator_locked: false,
+            literals: if no_stg_guidance { Vec::new() } else { literals },
+            floats: if no_stg_guidance { Vec::new() } else { floats },
             max_depth,
             no_distance,
             no_goal_prefix,
             no_time_guidance,
             no_state_copy,
             no_snapshot,
+            no_online_reinjection: std::env::var("SEMANTIST_EXPERIMENT_NO_ONLINE_REINJECTION").as_deref() == Ok("1"),
+            no_stg_guidance,
+            no_transition_guidance: std::env::var("SEMANTIST_EXPERIMENT_NO_TRANSITIONS").as_deref() == Ok("1"),
+            no_adaptive_reset: std::env::var("SEMANTIST_EXPERIMENT_NO_ADAPTIVE_RESET").as_deref() == Ok("1"),
+            no_tail_guidance: std::env::var("SEMANTIST_EXPERIMENT_NO_TAIL_GUIDANCE").as_deref() == Ok("1"),
+            seen_native_edges: HashSet::new(),
+            current_new_edge: false,
             active_cache: Vec::new(),
             active_task_id: None,
             task_cursor: 0,
             task_attempts: HashMap::new(),
             task_stagnation: HashMap::new(),
+            task_progress_count: HashMap::new(),
+            task_stagnation_queued: HashSet::new(),
             task_best_prefix: HashMap::new(),
             task_novel_hits: HashMap::new(),
             task_novel_states: HashMap::new(),
@@ -196,6 +315,7 @@ impl V3GoalStage {
             seen_semantic_hits: HashSet::new(),
             seen_task_reaches: HashSet::new(),
             seen_states: HashSet::new(),
+            seen_transitions: HashSet::new(),
             ended: "budget".to_string(),
         }
     }
@@ -206,6 +326,28 @@ impl V3GoalStage {
         }
         self.rng
             .below(std::num::NonZeroUsize::new(upper as usize).expect("nonzero")) as u64
+    }
+
+    /// Select one operator for the complete generated input. Semantic mode
+    /// may add cycle actions; raw mode keeps the existing frame context and
+    /// changes field bytes only.
+    fn raw_operator_selected(&mut self) -> bool {
+        if self.mutation_operator_locked {
+            return self.current_mutation_raw;
+        }
+        let selected = match self.mutation_mode {
+            1 => false,
+            2 => true,
+            _ => self.below(100) >= (semantic_mutation_ratio() * 100.0) as u64,
+        };
+        self.current_mutation_raw = selected;
+        self.mutation_operator_locked = true;
+        if selected {
+            self.stats.raw_mutations = self.stats.raw_mutations.saturating_add(1);
+        } else {
+            self.stats.semantic_mutations = self.stats.semantic_mutations.saturating_add(1);
+        }
+        selected
     }
 
     pub fn elapsed(&self) -> Duration {
@@ -252,6 +394,9 @@ impl V3GoalStage {
     }
 
     fn ingest_solver_seeds(&mut self) {
+        if self.no_online_reinjection {
+            return;
+        }
         let directory = self.run_dir.join("solver").join("reinject");
         loop {
             let path = directory.join(format!("solver-seed-{:08}.seed", self.next_solver_seed));
@@ -292,6 +437,8 @@ impl V3GoalStage {
     }
 
     pub fn next_input(&mut self) -> Vec<u8> {
+        self.current_mutation_raw = false;
+        self.mutation_operator_locked = false;
         self.ingest_solver_seeds();
         self.current_solver_seed = false;
         self.current_solver_seed_id = None;
@@ -327,17 +474,21 @@ impl V3GoalStage {
             return bytes;
         }
         let base = self.choose_prefix();
+        // Task selection still feeds KLEE and the oracle. Native mutation is
+        // deliberately independent of those tasks in the no-STG experiment.
+        if self.no_stg_guidance { self.active_task_id = None; }
         let mut frames = base.input.frames.clone();
         if self.bundle.tasks.single_cycle && frames.len() > 1 {
             frames = vec![frames.pop().expect("nonempty prefix")];
         }
-        let shared = base.input.shared.clone();
+        let mut shared = base.input.shared.clone();
         let mut used_state_copy = false;
         if frames.is_empty() {
             frames.push(self.default_frame());
         }
         if self.bundle.tasks.single_cycle {
-            self.mutate_field(&mut frames);
+            self.raw_operator_selected();
+            self.mutate_input_fields(&mut frames, &mut shared);
             let bytes = serialize(&self.bundle, &frames, &shared);
             if base.source == "solver" {
                 append_event(&self.metrics_file, serde_json::json!({
@@ -351,20 +502,47 @@ impl V3GoalStage {
             return bytes;
         }
         let mut actions = vec!["mutate", "extend", "pulse", "pulse_train", "hold", "wait", "duplicate", "delete", "splice", "sweep"];
-        if self.bundle.tasks.tasks.iter().any(|task|
+        self.raw_operator_selected();
+        if self.current_mutation_raw {
+            actions = vec!["mutate", "mutate", "extend", "duplicate", "delete", "splice"];
+        }
+        if let Some(task_id) = self.active_task_id.as_ref() {
+            let stagnant = self.task_stagnation.get(task_id).copied().unwrap_or(0);
+            let threshold = self.stagnation_threshold(task_id);
+            if !self.current_mutation_raw && !self.no_stg_guidance && !self.no_tail_guidance
+                && base.task_id.as_ref() == Some(task_id) && !base.input.frames.is_empty()
+                && stagnant <= threshold {
+                actions.extend(["tail_mutate", "tail_mutate", "extend"]);
+            }
+            if !self.current_mutation_raw && !self.no_stg_guidance && !self.no_adaptive_reset && stagnant > threshold
+                && self.has_reset_pair() {
+                actions.push("pulse_reset");
+            }
+        }
+        if !self.current_mutation_raw && self.bundle.tasks.tasks.iter().any(|task|
             Some(&task.task_id) == self.active_task_id.as_ref() && !task.timers.is_empty())
         {
             actions.push("timer_train");
         }
-        if !self.no_time_guidance && self.bundle.tasks.tasks.iter().any(|task|
+        if !self.current_mutation_raw && !self.no_time_guidance && self.bundle.tasks.tasks.iter().any(|task|
             Some(&task.task_id) == self.active_task_id.as_ref() && task.timers.is_empty()
                 && task.abstraction.iter().any(|entry| entry.thresholds.iter().any(|value| *value >= 100)))
         {
             actions.push("long_hold");
         }
+        if self.no_stg_guidance {
+            actions = vec!["mutate", "extend", "duplicate", "delete", "splice"];
+        }
         let action = actions[self.below(actions.len() as u64) as usize];
         match action {
-            "mutate" => self.mutate_field(&mut frames),
+            "mutate" => self.mutate_input_fields(&mut frames, &mut shared),
+            "tail_mutate" => {
+                if self.bundle.abi.shared_fields.is_empty() {
+                    if let Some(frame) = frames.last_mut() { self.mutate_frame(frame); }
+                } else {
+                    self.mutate_input_fields(&mut frames, &mut shared);
+                }
+            }
             "extend" => {
                 let mut frame = frames.last().cloned().unwrap_or_else(|| self.default_frame());
                 self.mutate_frame(&mut frame);
@@ -383,6 +561,7 @@ impl V3GoalStage {
                 }
             }
             "pulse_train" => self.pulse_train(&mut frames),
+            "pulse_reset" => self.pulse_reset(&mut frames),
             "timer_train" => self.timer_train(&mut frames),
             "long_hold" => self.long_hold(&mut frames),
             "hold" | "wait" => {
@@ -398,7 +577,7 @@ impl V3GoalStage {
                         frames.push(last.clone());
                     }
                 } else {
-                    self.mutate_field(&mut frames);
+                    self.mutate_input_fields(&mut frames, &mut shared);
                 }
             }
             "duplicate" => {
@@ -441,9 +620,10 @@ impl V3GoalStage {
                     }
                 }
             }
-            _ => self.mutate_field(&mut frames),
+            _ => self.mutate_input_fields(&mut frames, &mut shared),
         }
-        if !self.no_state_copy && !self.last_state.is_empty() && self.below(3) == 0 {
+        if !self.current_mutation_raw && !self.no_stg_guidance && !self.no_state_copy
+            && !self.last_state.is_empty() && self.below(3) == 0 {
             if self.maybe_state_copy(&mut frames) {
                 used_state_copy = true;
             }
@@ -474,6 +654,59 @@ impl V3GoalStage {
 
     pub fn current_input_frames(&self) -> Option<&[Frame]> {
         self.current.as_ref().map(|input| input.frames.as_slice())
+    }
+
+    pub fn record_native_edges(&mut self, edges: &[u8]) {
+        self.current_new_edge = false;
+        for (index, value) in edges.iter().enumerate() {
+            if *value != 0 && self.seen_native_edges.insert(index) {
+                self.current_new_edge = true;
+                self.stats.native_edge_novelty += 1;
+            }
+        }
+    }
+
+    fn stagnation_threshold(&self, task_id: &str) -> u64 {
+        let attempts = self.task_attempts.get(task_id).copied().unwrap_or(0).max(1);
+        let progress = self.task_progress_count.get(task_id).copied().unwrap_or(0);
+        let expected_gap = if progress == 0 {
+            (attempts as f64).sqrt() as u64
+        } else {
+            attempts / progress.saturating_add(1)
+        };
+        expected_gap.max(2).saturating_mul(2)
+    }
+
+    fn task_state(task: &V3Task, values: &BTreeMap<String, i128>) -> Vec<(String, i128)> {
+        task.state_slice.iter()
+            .filter(|field| matches!(field.region.as_str(), "instance" | "shared" | "global")
+                && matches!(field.block_kind.as_deref(),
+                            Some("VAR" | "VAR_OUTPUT" | "VAR_IN_OUT" | "VAR_GLOBAL")))
+            .filter_map(|field| values.get(&field.name).map(|value| (field.name.clone(), *value)))
+            .collect()
+    }
+
+    fn novel_transition(&mut self, task: &V3Task, outcome: Option<&ExecOutcome>) -> bool {
+        if self.no_stg_guidance || self.no_transition_guidance || self.bundle.tasks.single_cycle {
+            return false;
+        }
+        let mut previous: Option<Vec<(String, i128)>> = None;
+        let mut novel = false;
+        for frame in outcome.into_iter().flat_map(|result| result.observations.iter()) {
+            let current = Self::task_state(task, &frame.values);
+            if let Some(before) = &previous {
+                if !before.is_empty() && !current.is_empty() && *before != current
+                    && self.seen_transitions.len() < 32_768 {
+                    let key = serde_json::to_string(&(&task.task_id, before, &current)).unwrap_or_default();
+                    if self.seen_transitions.insert(key) {
+                        self.stats.state_transition_novelty += 1;
+                        novel = true;
+                    }
+                }
+            }
+            previous = Some(current);
+        }
+        novel
     }
 
     fn remember(&mut self, input: V3Input, path: Vec<u8>, distance: f64, source: &'static str) -> bool {
@@ -515,9 +748,11 @@ impl V3GoalStage {
             append_event(&index, record).expect("failed to append prefix record");
             // A task distance improvement or its matching hazard-reach probe
             // establishes a concrete, task-related solver start.
-            if matches!(source, "fuzz" | "relevant_reach") && !self.bundle.tasks.single_cycle
+            if matches!(source, "fuzz" | "relevant_reach" | "state_frontier" | "task_stagnation")
+                && !self.no_online_reinjection
+                && !self.bundle.tasks.single_cycle
                 && self.active_task_id.as_ref().is_some_and(|task| !self.stats.reached.contains(task))
-                && (distance.is_finite() || source == "relevant_reach") {
+                && (distance.is_finite() || source == "relevant_reach" || source == "state_frontier") {
                 let queue_record = serde_json::json!({
                 "queue": "klee_suffix",
                 "prefix_id": prefix_id.clone(),
@@ -533,8 +768,12 @@ impl V3GoalStage {
                 "consecutive_no_progress": self.active_task_id.as_ref()
                     .and_then(|task| self.task_stagnation.get(task))
                     .copied().unwrap_or(0),
-                "trigger": if source == "relevant_reach" { "native_hazard_reach" }
-                           else { "task_distance_improved" },
+                "trigger": match source {
+                    "relevant_reach" => "native_hazard_reach",
+                    "state_frontier" => "state_frontier",
+                    "task_stagnation" => "task_stagnation",
+                    _ => "task_distance_improved",
+                },
                 "task_unresolved": true,
                 "provenance": {"source": source, "attempt_id": prefix_id, "query_id": null},
                 });
@@ -542,6 +781,9 @@ impl V3GoalStage {
                     .expect("failed to append KLEE prefix queue record");
             }
         }
+        // Keep the KLEE handoff above, but do not let task distance, state or
+        // semantic novelty populate the coverage-only native prefix pool.
+        if self.no_stg_guidance && !matches!(source, "coverage" | "solver") { return false; }
         self.prefixes.push(V3Prefix { prefix_id, parent_id, task_id: self.active_task_id.clone(),
                                       input, path, distance, source, uses: 0 });
         true
@@ -559,14 +801,19 @@ impl V3GoalStage {
     }
 
     fn choose_prefix(&mut self) -> V3Prefix {
-        if self.prefixes.is_empty() || self.below(100) < 20 {
+        let stalled = !self.bundle.tasks.single_cycle && !self.no_stg_guidance && !self.no_adaptive_reset
+            && self.active_task_id.as_ref().is_some_and(|task_id|
+                self.task_stagnation.get(task_id).copied().unwrap_or(0)
+                    > self.stagnation_threshold(task_id));
+        if self.prefixes.is_empty() || self.below(100) < if stalled { 60 } else { 20 } {
+            if stalled { self.stats.adaptive_restarts += 1; }
             return V3Prefix { prefix_id: "p-00000000".into(), parent_id: None, task_id: None,
                               input: V3Input { frames: Vec::new(), shared: BTreeMap::new() },
                               path: Vec::new(), distance: f64::INFINITY, source: "seed", uses: 0 };
         }
         let mut candidates: Vec<usize> = self.prefixes.iter().enumerate()
             .filter(|(_, prefix)| !prefix.input.frames.is_empty()
-                && (prefix.task_id.as_ref() == self.active_task_id.as_ref()
+                && (self.no_stg_guidance || prefix.task_id.as_ref() == self.active_task_id.as_ref()
                     || prefix.source == "solver"))
             .map(|(index, _)| index).collect();
         if candidates.is_empty() {
@@ -577,7 +824,7 @@ impl V3GoalStage {
         if candidates.is_empty() {
             return self.prefixes[0].clone();
         }
-        let selected = if self.no_goal_prefix || self.no_distance {
+        let selected = if self.no_stg_guidance || self.no_goal_prefix || self.no_distance {
             self.stats.random_prefix_picks += 1;
             let index = self.below(candidates.len() as u64) as usize;
             candidates[index]
@@ -604,9 +851,9 @@ impl V3GoalStage {
     fn default_frame(&self) -> Frame {
         let mut values = BTreeMap::new();
         for entry in self.bundle.abi.action_fields() {
-            values.insert(entry.name.clone(), default_for(&entry.spec));
+            values.insert(entry.name.clone(), default_for_named(&entry.name, &entry.spec));
         }
-        Frame { index: 0, values, dt_ns: None }
+        Frame::new(0, values, None)
     }
 
     fn edge_fields(&self) -> Vec<String> {
@@ -633,6 +880,7 @@ impl V3GoalStage {
     }
 
     fn field_literals(&self, field: &str) -> Vec<String> {
+        if self.no_stg_guidance { return Vec::new(); }
         let mut values = BTreeSet::new();
         let bounds = self.bundle.abi.action_fields().iter().find(|entry| entry.name == field)
             .and_then(|entry| integer_bounds(&entry.spec));
@@ -679,6 +927,30 @@ impl V3GoalStage {
             }
         }
         fields
+    }
+
+    fn reset_pair(&self) -> Option<(String, String)> {
+        let trigger = self.boolean_fields().into_iter().find(|name| {
+            let lower = name.to_ascii_lowercase();
+            !lower.contains("reset") && !lower.contains("clear")
+        })?;
+        let reset = self.bundle.abi.action_fields().into_iter()
+            .find(|field| field.spec.kind == "scalar" && field.spec.name == "BOOL"
+                && field.name != trigger && {
+                    let lower = field.name.to_ascii_lowercase();
+                    lower.contains("reset") || lower.contains("clear")
+                })?;
+        Some((trigger, reset.name))
+    }
+
+    fn has_reset_pair(&self) -> bool { self.reset_pair().is_some() }
+
+    fn pulse_reset(&mut self, frames: &mut Vec<Frame>) {
+        if let Some((trigger, reset)) = self.reset_pair() {
+            self.append_pulse_train(frames, &trigger, Some(&reset), 1, false, None);
+        } else {
+            self.pulse_train(frames);
+        }
     }
 
     fn pulse_train(&mut self, frames: &mut Vec<Frame>) {
@@ -828,6 +1100,80 @@ impl V3GoalStage {
         self.mutate_frame(&mut frames[index]);
     }
 
+    /// Shared VAR_IN_OUT aggregates are inputs too.  They are also emitted as
+    /// per-cycle action fields, so a shared mutation must be copied into every
+    /// frame or the frame replay would overwrite it. Keep the choice at the
+    /// input level so shared and per-cycle mutations receive comparable
+    /// opportunities.
+    fn mutate_input_fields(&mut self, frames: &mut [Frame], shared: &mut BTreeMap<String, String>) {
+        let has_frame_fields = !self.bundle.abi.action_fields().is_empty() && !frames.is_empty();
+        let has_shared_fields = !self.bundle.abi.shared_fields.is_empty();
+        if !has_shared_fields || (has_frame_fields && self.below(2) != 0) {
+            self.mutate_field(frames);
+            return;
+        }
+        self.mutate_shared_field(frames, shared);
+    }
+
+    fn mutate_shared_field(&mut self, frames: &mut [Frame], shared: &mut BTreeMap<String, String>) {
+        let fields = self.bundle.abi.shared_fields.clone();
+        if fields.is_empty() {
+            return;
+        }
+        let index = self.below(fields.len() as u64) as usize;
+        let field = fields[index].clone();
+        let current = shared.get(&field.name).cloned()
+            .unwrap_or_else(|| default_for_named(&field.name, &field.spec));
+        if self.raw_operator_selected() {
+            // VAR_IN_OUT values are expanded into every action frame. Reuse
+            // the first matching frame cache instead of decoding the shared
+            // text again on every mutation; the update below refreshes all
+            // frame caches in one pass.
+            let cached = frames.iter()
+                .find_map(|frame| frame.cached_raw_bytes(&field.name, &current))
+                .map(ToOwned::to_owned);
+            if cached.is_some() {
+                self.stats.raw_cache_hits += 1;
+            } else {
+                self.stats.raw_cache_misses += 1;
+            }
+            let (value, bytes) = self.mutate_raw_value_with_bytes(
+                &field, &current, cached.as_deref(),
+            );
+            self.stats.raw_bytes_mutated = self.stats.raw_bytes_mutated.saturating_add(bytes.len() as u64);
+            shared.insert(field.name.clone(), value.clone());
+            if field.block_kind == "VAR_IN_OUT" {
+                for frame in frames.iter_mut() {
+                    frame.set_raw_value(field.name.clone(), value.clone(), bytes.clone());
+                }
+            }
+            *self.stats.action_counts.entry("byte_shared_field").or_insert(0) += 1;
+            return;
+        }
+        *self.stats.action_counts.entry("semantic_shared_field").or_insert(0) += 1;
+        let value = match field.spec.kind.as_str() {
+            "scalar" if field.spec.name == "BOOL" => {
+                if self.below(2) == 0 { "1".to_string() } else { "0".to_string() }
+            }
+            "scalar" => {
+                let (min, max) = integer_bounds(&field.spec).unwrap_or((i64::MIN as i128, i64::MAX as i128));
+                let choices = [0, 1, min, max];
+                choices[self.below(choices.len() as u64) as usize].clamp(min, max).to_string()
+            }
+            "array" => self.mutate_array_value(&field.spec, &current),
+            "pointer" => self.mutate_pointer_value(&field.spec, &current),
+            "string" => self.mutate_string_value(&field.spec, &current),
+            _ => current,
+        };
+        shared.insert(field.name.clone(), value.clone());
+        if field.block_kind == "VAR_IN_OUT" {
+            for frame in frames.iter_mut() {
+                frame.values.insert(field.name.clone(), value.clone());
+                frame.raw_values.remove(&field.name);
+            }
+        }
+    }
+
     fn mutate_frame(&mut self, frame: &mut Frame) {
         let mut fields = self.bundle.abi.action_fields();
         if let Some(task) = self.bundle.tasks.tasks.iter().find(|task| Some(&task.task_id) == self.active_task_id.as_ref()) {
@@ -839,7 +1185,22 @@ impl V3GoalStage {
         }
         let index = self.below(fields.len() as u64) as usize;
         let field = fields[index].clone();
-        let current = frame.values.get(&field.name).cloned().unwrap_or_else(|| default_for(&field.spec));
+        let current = frame.values.get(&field.name).cloned()
+            .unwrap_or_else(|| default_for_named(&field.name, &field.spec));
+        if self.raw_operator_selected() {
+            let cached = frame.cached_raw_bytes(&field.name, &current).map(ToOwned::to_owned);
+            if cached.is_some() {
+                self.stats.raw_cache_hits += 1;
+            } else {
+                self.stats.raw_cache_misses += 1;
+            }
+            let (value, bytes) = self.mutate_raw_value_with_bytes(&field, &current, cached.as_deref());
+            self.stats.raw_bytes_mutated = self.stats.raw_bytes_mutated.saturating_add(bytes.len() as u64);
+            frame.set_raw_value(field.name.clone(), value, bytes);
+            *self.stats.action_counts.entry("byte_field").or_insert(0) += 1;
+            return;
+        }
+        *self.stats.action_counts.entry("semantic_field").or_insert(0) += 1;
         let value = match field.spec.kind.as_str() {
             "scalar" if field.spec.name == "BOOL" => {
                 if self.below(2) == 0 { "1".to_string() } else { "0".to_string() }
@@ -882,6 +1243,94 @@ impl V3GoalStage {
         frame.values.insert(field.name.clone(), value);
     }
 
+    fn mutate_raw_value(&mut self, field: &V3Field, current: &str) -> String {
+        self.mutate_raw_value_with_bytes(field, current, None).0
+    }
+
+    fn mutate_raw_value_with_bytes(
+        &mut self,
+        field: &V3Field,
+        current: &str,
+        cached: Option<&[u8]>,
+    ) -> (String, Vec<u8>) {
+        let spec = &field.spec;
+        let wide = spec.kind == "string" && spec.name.eq_ignore_ascii_case("WSTRING");
+        let unit = if wide { 2 } else { 1 };
+        let fixed = spec.kind == "scalar";
+        let capacity = if spec.kind == "string" {
+            // Include the terminator slot in raw storage. Textual semantic
+            // values are still terminated by the harness; raw mutation may
+            // fill all N+1 units and omit the terminator.
+            spec.length.map_or(0, |length| length as usize + 1) * unit
+        } else if spec.kind == "pointer" {
+            4096
+        } else {
+            // Opaque structures and fixed arrays are real ABI objects. Do not
+            // cap them at the pointer mutation limit: NET_VAR_DATA.X is 8204
+            // bytes and its tail is part of the reachable input space.
+            spec.byte_size.or(spec.size).unwrap_or(1) as usize
+        };
+        let mut bytes = cached.map_or_else(|| field_bytes(spec, current), |bytes| bytes.to_vec());
+        // Parsed inputs are already bounded by the frame schema. Keep this
+        // guard here as well so a stale or externally constructed Frame cannot
+        // be silently shortened before it reaches the harness.
+        if bytes.len() > capacity {
+            return (current.to_string(), Vec::new());
+        }
+        if spec.kind != "string" {
+            bytes.resize(capacity, 0);
+        }
+        let choice = self.below(8);
+        if bytes.is_empty() && capacity > 0 {
+            bytes.resize(unit.min(capacity), 0);
+        }
+        if bytes.is_empty() { return (current.to_string(), bytes); }
+        if matches!(spec.kind.as_str(), "opaque" | "array") && !spec.members.is_empty() && self.below(4) != 0 {
+            let rounds = if self.below(3) == 0 { 2 } else { 1 };
+            *self.stats.action_counts.entry("structured_byte").or_insert(0) += rounds as u64;
+            for _ in 0..rounds {
+                mutate_structured_member(self, &field.name, spec, &mut bytes);
+            }
+            return (encode_hex_bytes(&bytes), bytes);
+        }
+        let index = self.below(bytes.len() as u64) as usize;
+        match choice {
+            0 => bytes[index] ^= 1 << self.below(8),
+            1 => bytes[index] ^= 0xff,
+            2 => bytes[index] = self.below(256) as u8,
+            3 => {
+                let special = [0x00, 0x01, 0x03, 0x0a, 0x0d, 0x2c, 0x7f, 0x80, 0xfe, 0xff];
+                bytes[index] = special[self.below(special.len() as u64) as usize];
+            }
+            4 => {
+                let donor_index = self.below(self.prefixes.len() as u64) as usize;
+                let donor = self.prefixes.get(donor_index)
+                    .and_then(|prefix| prefix.input.frames.last())
+                    .and_then(|frame| frame.values.get(&field.name).map(|value| {
+                        frame.cached_raw_bytes(&field.name, value)
+                            .map_or_else(|| field_bytes(spec, value), |bytes| bytes.to_vec())
+                    }))
+                    .unwrap_or_default();
+                if !donor.is_empty() {
+                    let offset = self.below(donor.len() as u64) as usize;
+                    let count = (1 + self.below(8) as usize).min(donor.len() - offset);
+                    let end = (index + count).min(bytes.len());
+                    bytes[index..end].copy_from_slice(&donor[offset..offset + end - index]);
+                }
+            }
+            5 if !fixed && bytes.len() + unit <= capacity => {
+                let position = (self.below((bytes.len() / unit + 1) as u64) as usize) * unit;
+                bytes.splice(position..position, std::iter::repeat_n(self.below(256) as u8, unit));
+            }
+            6 if !fixed && bytes.len() >= unit => {
+                let position = (self.below((bytes.len() / unit) as u64) as usize) * unit;
+                bytes.drain(position..position + unit);
+            }
+            _ => bytes[index] = bytes[index].wrapping_add(1),
+        }
+        (encode_hex_bytes(&bytes), bytes)
+    }
+
     fn mutate_pointer_value(&mut self, spec: &V3Spec, current: &str) -> String {
         // Pointer testcase values describe the backing object consumed by the
         // C harness, rather than a process address. Keep that object within
@@ -909,7 +1358,19 @@ impl V3GoalStage {
 
     fn mutate_string_value(&mut self, spec: &V3Spec, current: &str) -> String {
         let wide = spec.name.eq_ignore_ascii_case("WSTRING");
-        let inferred = if wide { current.encode_utf16().count() } else { current.chars().count() };
+        let decoded = if current.starts_with("0x") || current.starts_with("0X") {
+            let bytes = field_bytes(spec, current);
+            if wide {
+                let units = bytes.chunks_exact(2).map(|pair| u16::from_le_bytes([pair[0], pair[1]])).collect::<Vec<_>>();
+                String::from_utf16_lossy(&units)
+            } else {
+                bytes.into_iter().map(|byte| if (32..=126).contains(&byte) { byte as char } else { 'A' }).collect()
+            }
+        } else {
+            current.to_string()
+        };
+        let current = decoded.as_str();
+        let inferred = if wide { current.encode_utf16().count() } else { current.len() };
         let capacity = spec.length.unwrap_or(inferred as u32).min(4096) as usize;
         if capacity == 0 {
             return String::new();
@@ -931,6 +1392,7 @@ impl V3GoalStage {
                     used += units;
                 }
                 value.push('Z');
+                if value.starts_with("0x") || value.starts_with("0X") { value.replace_range(..1, "A"); }
                 value
             }
         }
@@ -1030,11 +1492,27 @@ impl V3GoalStage {
         frame_feedback: &[GoalFrameFeedback],
     ) -> Result<(), String> {
         self.stats.executions += 1;
+        if matches!(exit_kind, libafl::executors::ExitKind::Timeout) {
+            self.stats.timeouts = self.stats.timeouts.saturating_add(1);
+        }
+        if self.current_mutation_raw {
+            self.stats.raw_executions = self.stats.raw_executions.saturating_add(1);
+        }
         if let Some(task_id) = task {
             *self.task_attempts.entry(task_id.to_string()).or_insert(0) += 1;
         }
         self.stats.scans += outcome.map_or(0, |executed| executed.scans as u64);
         self.stats.suffix_scans += outcome.map_or(0, |executed| executed.suffix as u64);
+        if let Some(executed) = outcome {
+            self.stats.physical_scans += executed.scans as u64;
+            self.stats.parse_ns += executed.parse_ns;
+            self.stats.abi_ns += executed.abi_ns;
+            self.stats.native_step_ns += executed.native_step_ns;
+            self.stats.semantic_ns += executed.semantic_ns;
+            self.stats.snapshot_ns += executed.snapshot_ns;
+            self.stats.worker_roundtrip_ns += executed.worker_roundtrip_ns;
+            self.stats.worker_launch_ns += executed.worker_launch_ns;
+        }
         if matches!(exit_kind, libafl::executors::ExitKind::Crash | libafl::executors::ExitKind::Timeout) {
             if matches!(exit_kind, libafl::executors::ExitKind::Crash) && !self.current_path.is_empty() {
                 write_candidate(&self.run_dir, &self.current_path, "crash", None, None)
@@ -1054,6 +1532,7 @@ impl V3GoalStage {
             self.current_solver_task_id = None;
             self.current_solver_query_id = None;
             self.active_cache.clear();
+            self.current_new_edge = false;
             return Ok(());
         }
         self.last_state = state_values.clone();
@@ -1139,20 +1618,33 @@ impl V3GoalStage {
             .collect();
         let new_to_fuzzer = semantic_now.difference(&self.seen_semantic_hits).next().is_some();
         self.seen_semantic_hits.extend(semantic_now.iter().copied());
-        let new_state = !state_values.is_empty()
-            && self.seen_states.insert(serde_json::to_string(&state_values).unwrap_or_default());
+        let task_record = task.and_then(|task_id| self.bundle.tasks.tasks.iter()
+            .find(|candidate| candidate.task_id == task_id)).cloned();
+        let projected_state = task_record.as_ref()
+            .map(|item| Self::task_state(item, &state_values)).unwrap_or_default();
+        let new_state = !projected_state.is_empty()
+            && self.seen_states.insert(serde_json::to_string(&(task, &projected_state)).unwrap_or_default());
+        let new_transition = task_record.as_ref()
+            .is_some_and(|item| self.novel_transition(item, outcome));
+        let new_edge = self.current_new_edge;
+        self.current_new_edge = false;
         if let Some(task_id) = task {
             let stagnant = self.task_stagnation.entry(task_id.to_string()).or_insert(0);
-            *stagnant = if improved || new_to_fuzzer || new_state { 0 } else { stagnant.saturating_add(1) };
+            let progress = improved || new_to_fuzzer || new_state || new_transition || new_edge;
+            *stagnant = if progress { 0 } else { stagnant.saturating_add(1) };
+            if progress {
+                *self.task_progress_count.entry(task_id.to_string()).or_insert(0) += 1;
+                self.task_stagnation_queued.remove(task_id);
+            }
             if new_to_fuzzer {
                 *self.task_novel_hits.entry(task_id.to_string()).or_insert(0) += 1;
             }
-            if new_state {
+            if new_state || new_transition {
                 *self.task_novel_states.entry(task_id.to_string()).or_insert(0) += 1;
             }
         }
         if solver_seed {
-            let retained = (new_to_fuzzer || new_state || improved)
+            let retained = (new_to_fuzzer || new_state || new_transition || new_edge || improved)
                 && self.remember(input.clone(), self.current_path.clone(), distance, "solver");
             let retained_prefix_id = retained.then(|| self.prefixes.last().map(|prefix| prefix.prefix_id.clone())).flatten();
             if let (Some(task_id), Some(prefix_id)) = (task, retained_prefix_id.as_ref()) {
@@ -1163,15 +1655,39 @@ impl V3GoalStage {
                 "kind": "solver_seed_executed", "task_id": task,
                 "seed_id": solver_seed_id, "query_id": solver_query_id,
                 "depth": input.frames.len(), "distance": distance,
-                "new_runtime_hit": new_to_fuzzer, "new_state": new_state,
+                "new_runtime_hit": new_to_fuzzer, "new_edge": new_edge,
+                "new_state": new_state, "new_transition": new_transition,
                 "improved_distance": improved,
                 "retained": retained, "retained_prefix_id": retained_prefix_id,
             })).expect("failed to append solver seed event");
         }
+        if self.current_mutation_raw && (new_to_fuzzer || new_state || new_transition || new_edge || improved) {
+            self.stats.raw_retained = self.stats.raw_retained.saturating_add(1);
+        }
+        if new_transition && !solver_seed && self.prefixes.len() < self.retained_prefix_limit {
+            let path = self.current_path.clone();
+            self.remember(input.clone(), path, distance, "state_frontier");
+        }
+        if let Some(task_id) = task {
+            let stalled = !self.bundle.tasks.single_cycle && !solver_seed
+                && !self.no_stg_guidance && !self.no_adaptive_reset
+                && self.task_stagnation.get(task_id).copied().unwrap_or(0)
+                    > self.stagnation_threshold(task_id)
+                && !self.task_stagnation_queued.contains(task_id);
+            if stalled {
+                if let Some(prefix) = self.task_best_prefix.get(task_id)
+                    .and_then(|id| self.prefixes.iter().find(|entry| &entry.prefix_id == id))
+                    .cloned() {
+                    if self.remember(prefix.input, prefix.path, prefix.distance, "task_stagnation") {
+                        self.task_stagnation_queued.insert(task_id.to_string());
+                    }
+                }
+            }
+        }
         let novel = semantic_now.difference(&self.last_semantic).next().is_some();
         if novel {
             self.last_semantic = semantic_now;
-            if !solver_seed && self.prefixes.len() < self.retained_prefix_limit {
+            if !solver_seed && !new_transition && self.prefixes.len() < self.retained_prefix_limit {
                 self.remember(input.clone(), self.current_path.clone(), distance, "state_novelty");
             }
         } else if !solver_seed && self.prefixes.len() < self.retained_prefix_limit && self.stats.executions % 64 == 0 {
@@ -1193,6 +1709,13 @@ impl V3GoalStage {
             self.last_stats = Instant::now();
             append_event(&self.metrics_file, serde_json::json!({
                 "kind": "stats", "executions": self.stats.executions, "scans": self.stats.scans,
+                "physical_scans": self.stats.physical_scans,
+                "native_edge_novelty": self.stats.native_edge_novelty,
+                "state_transition_novelty": self.stats.state_transition_novelty,
+                "adaptive_restarts": self.stats.adaptive_restarts,
+                "raw_cache_hits": self.stats.raw_cache_hits,
+                "raw_cache_misses": self.stats.raw_cache_misses,
+                "raw_bytes_mutated": self.stats.raw_bytes_mutated,
                 "suffix_scans": self.stats.suffix_scans, "cache_hits": self.cache_hits(),
                 "saved_scans": self.cache_saved(), "candidates": self.stats.candidates,
                 "active_tasks": self.bundle.tasks.tasks.len(), "prefixes": self.prefixes.len(),
@@ -1204,6 +1727,11 @@ impl V3GoalStage {
 
     pub fn cache_hits(&self) -> u64 { self.stats.cache_hits }
     pub fn cache_saved(&self) -> u64 { self.stats.saved_scans }
+
+    pub fn record_parser_reject(&mut self) {
+        self.stats.parser_rejects = self.stats.parser_rejects.saturating_add(1);
+        *self.stats.action_counts.entry("parser_reject").or_insert(0) += 1;
+    }
 
     pub fn record_cache(&mut self, hits: u64, saved: u64, attempts: u64,
                         validations: u64, invalidations: u64) {
@@ -1253,6 +1781,32 @@ impl V3GoalStage {
             "executions": self.stats.executions,
             "scans": self.stats.scans,
             "suffix_scans": self.stats.suffix_scans,
+            "physical_scans": self.stats.physical_scans,
+            "native_edge_novelty": self.stats.native_edge_novelty,
+            "state_transition_novelty": self.stats.state_transition_novelty,
+            "adaptive_restarts": self.stats.adaptive_restarts,
+            "raw_cache_hits": self.stats.raw_cache_hits,
+            "raw_cache_misses": self.stats.raw_cache_misses,
+            "raw_bytes_mutated": self.stats.raw_bytes_mutated,
+            "semantic_mutations": self.stats.semantic_mutations,
+            "raw_mutations": self.stats.raw_mutations,
+            "raw_executions": self.stats.raw_executions,
+            "raw_retained": self.stats.raw_retained,
+            "parser_rejects": self.stats.parser_rejects,
+            "timeouts": self.stats.timeouts,
+            "mutation_mode": match self.mutation_mode {
+                1 => "semantic-only",
+                2 => "byte-only",
+                _ => "combined",
+            },
+            "semantic_ratio": semantic_mutation_ratio(),
+            "parse_ns": self.stats.parse_ns,
+            "abi_ns": self.stats.abi_ns,
+            "native_step_ns": self.stats.native_step_ns,
+            "semantic_ns": self.stats.semantic_ns,
+            "snapshot_ns": self.stats.snapshot_ns,
+            "worker_roundtrip_ns": self.stats.worker_roundtrip_ns,
+            "worker_launch_ns": self.stats.worker_launch_ns,
             "cache_hits": self.stats.cache_hits,
             "saved_scans": self.stats.saved_scans,
             "snapshot_attempts": self.stats.snapshot_attempts,
@@ -1285,6 +1839,228 @@ fn logical_time_ns(bundle: &V3Bundle, frames: &[Frame]) -> u64 {
     })
 }
 
+fn collect_struct_members<'a>(
+    spec: &'a V3Spec,
+    base: usize,
+    parent: &str,
+    output: &mut Vec<(usize, usize, String, &'a V3Spec)>,
+) {
+    for member in &spec.members {
+        let offset = base.saturating_add(member.offset as usize);
+        let path = if parent.is_empty() {
+            member.name.clone()
+        } else {
+            format!("{parent}.{}", member.name)
+        };
+        if member.spec.members.is_empty() {
+            output.push((offset, member.size as usize, path, &member.spec));
+        } else {
+            collect_struct_members(&member.spec, offset, &path, output);
+        }
+    }
+}
+
+fn interesting_named_scalar_bytes(
+    stage: &mut V3GoalStage,
+    name: &str,
+    spec: &V3Spec,
+    size: usize,
+) -> Vec<u8> {
+    let (minimum, maximum) = integer_bounds(spec).unwrap_or((0, 0));
+    let mut choices = vec![0i128, 1, 2, 3, -1, minimum, maximum];
+    let lower = name.to_ascii_lowercase();
+    if spec.name.eq_ignore_ascii_case("BOOL") {
+        choices = vec![0, 1, 3, 0x7f, 0x80, 0xff];
+    }
+    if lower.contains("command") {
+        choices.extend([0x8000, 0x8001, 0x7fff]);
+    }
+    if lower.contains("state") {
+        choices.extend([0, 1, 2, 3, 0xff]);
+    }
+    if lower.contains("error") {
+        choices.extend([0, 1, 2, 0xff]);
+    }
+    if lower.contains("size") || lower.contains("count") {
+        choices.extend([0, 1, 2, 3, 4, 63, 64, 65, 255, 256, 4095, 4096]);
+    }
+    if lower.contains("index") || lower.contains("start") || lower.contains("stop") {
+        choices.extend([-1, 0, 1, 2, 3, 255, 256, 4095, 4096]);
+    }
+    let choice = choices[stage.below(choices.len() as u64) as usize];
+    let mut encoded = vec![0u8; size];
+    let width = size.min(16);
+    encoded[..width].copy_from_slice(&choice.to_le_bytes()[..width]);
+    encoded
+}
+
+fn mutate_structured_member(stage: &mut V3GoalStage, root_name: &str, spec: &V3Spec, bytes: &mut [u8]) {
+    let mut members = Vec::new();
+    collect_struct_members(spec, 0, root_name, &mut members);
+    if members.is_empty() {
+        return;
+    }
+
+    // A length-only mutation is often harmless until the matching protocol
+    // header and payload are present. Keep a small fraction of mutations as
+    // coherent ABI-object boundaries so the target sees the same bytes in one
+    // execution, without making the normal seed permanently malformed.
+    let coherent_rate = if spec.name.eq_ignore_ascii_case("XML_CONTROL") {
+        // The XML boundary requires three fields in one mutation.  Keep this
+        // combination common enough for short campaigns while leaving the
+        // general aggregate operators dominant for other types.
+        2
+    } else {
+        8
+    };
+    if stage.below(coherent_rate) == 0 {
+        let mut set_member = |suffix: &str, value: &[u8]| {
+            let Some((offset, size, _, _)) = members.iter().find(|(_, _, name, _)|
+                name.to_ascii_lowercase().ends_with(&suffix.to_ascii_lowercase())) else { return };
+            let start = *offset;
+            let end = start.saturating_add(*size).min(bytes.len());
+            if start >= end { return; }
+            let target = &mut bytes[start..end];
+            target.fill(0);
+            let count = value.len().min(target.len());
+            target[..count].copy_from_slice(&value[..count]);
+        };
+        if spec.name.eq_ignore_ascii_case("NETWORK_BUFFER_SHORT") {
+            // Keep the loop long enough to cross the physical 256-byte
+            // BUFFER object, while using a low byte value so the target's
+            // DEV/KEY pointer writes do not turn the persistent stop field
+            // into an unrelated scan-budget loop.
+            set_member(".size", &257u16.to_le_bytes());
+            if let Some((offset, size, _, _)) = members.iter().find(|(_, _, name, _)|
+                name.to_ascii_lowercase().ends_with(".buffer")) {
+                let start = *offset;
+                let end = start.saturating_add(*size).min(bytes.len());
+                if start < end { bytes[start..end].fill(1); }
+            }
+            return;
+        }
+        if spec.name.eq_ignore_ascii_case("NET_VAR_DATA") {
+            set_member(".state", &[2]);
+            set_member(".error_id", &[0]);
+            set_member(".buf_size", &128u16.to_le_bytes());
+            set_member(".r_buf.size", &65u16.to_le_bytes());
+            set_member(".r_buf.buffer", &[1, 0x20, 0x41]);
+            return;
+        }
+        if spec.name.eq_ignore_ascii_case("XML_CONTROL") {
+            // XML_READER indexes BUF through STOP_POS inclusively.  Keep the
+            // command active and place the stop exactly one byte past the
+            // physical 4096-byte buffer so the native oracle sees the
+            // protocol boundary in one coherent input.
+            set_member(".command", &0x8000u16.to_le_bytes());
+            set_member(".start_pos", &[0, 0]);
+            set_member(".stop_pos", &4096u16.to_le_bytes());
+            return;
+        }
+    }
+    let total_weight = members.iter().map(|(_, _, name, _)| struct_member_weight(name)).sum::<u64>();
+    let mut pick = stage.below(total_weight.max(1));
+    let mut selected = 0;
+    for (index, (_, _, name, _)) in members.iter().enumerate() {
+        let weight = struct_member_weight(name);
+        if pick < weight {
+            selected = index;
+            break;
+        }
+        pick -= weight;
+    }
+    let (offset, size, name, member) = &members[selected];
+    let offset = *offset;
+    let size = *size;
+    let member = *member;
+    if offset >= bytes.len() || size == 0 {
+        return;
+    }
+    let end = offset.saturating_add(size).min(bytes.len());
+    let target = &mut bytes[offset..end];
+    let lower_path = name.to_ascii_lowercase();
+    let leaf_name = name.rsplit('.').next().unwrap_or(name);
+    if member.kind == "array" {
+        let element_size = member
+            .element
+            .as_deref()
+            .and_then(|element| element.byte_size.or(element.size))
+            .unwrap_or(1)
+            .max(1) as usize;
+        if element_size <= target.len() {
+            let count = target.len() / element_size;
+            let element = if lower_path.contains("mailbox") && count > 0 && stage.below(2) == 0 {
+                // The source array is 1-based, but the generated ABI array is
+                // zero-based and the target's MAILBOX[1] reads element 0.
+                0
+            } else {
+                stage.below(count.max(1) as u64) as usize
+            };
+            let start = element * element_size;
+            let finish = (start + element_size).min(target.len());
+            let slice = &mut target[start..finish];
+            if let Some(element_spec) = member.element.as_deref() {
+                if element_spec.kind == "scalar" {
+                    let value = interesting_named_scalar_bytes(stage, name, element_spec, slice.len());
+                    slice.copy_from_slice(&value[..slice.len()]);
+                    return;
+                }
+            }
+            let index = stage.below(slice.len().max(1) as u64) as usize;
+            slice[index] ^= 0xff;
+            return;
+        }
+    }
+    if member.kind == "scalar" {
+        let value = interesting_named_scalar_bytes(stage, name, member, target.len());
+        target.copy_from_slice(&value[..target.len()]);
+    } else {
+        let payload = if spec.name.eq_ignore_ascii_case("NETWORK_BUFFER_SHORT")
+            && leaf_name.eq_ignore_ascii_case("BUFFER") {
+            Some(&b"A,A\r\n"[..])
+        } else if lower_path.ends_with(".network_buffer_short.buffer")
+            || (root_name.eq_ignore_ascii_case("NETWORK_BUFFER_SHORT") && leaf_name.eq_ignore_ascii_case("BUFFER")) {
+            Some(&b"A,A\r\n"[..])
+        } else if lower_path.ends_with(".r_buf.buffer") || lower_path.ends_with("r_buf.buffer") {
+            // NET_VAR_BUFFER consumes the header's size byte into BUF_OUT.
+            Some(&[0x01, 0x20, 0x41][..])
+        } else if lower_path.ends_with(".s_buf.buffer") || lower_path.ends_with("s_buf.buffer") {
+            Some(&[0x01, 0x20, 0x40][..])
+        } else {
+            None
+        };
+        if let Some(pattern) = payload {
+            let count = pattern.len().min(target.len());
+            target[..count].copy_from_slice(&pattern[..count]);
+        } else if lower_path.contains("buffer") || lower_path.contains("payload") || lower_path.contains("data") {
+            let patterns: &[&[u8]] = &[&[0x00], &[0x01], &[0x03], &[0x0a, 0x0d], &[0x2c], &[0x7f, 0x80, 0xff]];
+            let pattern = patterns[stage.below(patterns.len() as u64) as usize];
+            let index = stage.below(target.len().max(1) as u64) as usize;
+            let count = pattern.len().min(target.len().saturating_sub(index));
+            target[index..index + count].copy_from_slice(&pattern[..count]);
+        } else {
+            let index = stage.below(target.len().max(1) as u64) as usize;
+            target[index] = [0x00, 0x01, 0x03, 0x0a, 0x0d, 0x2c, 0x7f, 0x80, 0xff]
+                [stage.below(9) as usize];
+        }
+    }
+}
+
+fn struct_member_weight(name: &str) -> u64 {
+    let lower = name.to_ascii_lowercase();
+    if ["size", "state", "error", "index", "command", "start", "stop", "count", "mode", "enable", "mailbox"]
+        .iter().any(|key| lower.contains(key))
+    {
+        8
+    } else if ["buf", "buffer", "data", "path", "value", "payload"]
+        .iter().any(|key| lower.contains(key))
+    {
+        2
+    } else {
+        1
+    }
+}
+
 fn decode_hex_bytes(value: &str, size: usize) -> Vec<u8> {
     let trimmed = value.trim();
     let text = trimmed.strip_prefix("0x").or_else(|| trimmed.strip_prefix("0X")).unwrap_or(trimmed);
@@ -1295,6 +2071,41 @@ fn decode_hex_bytes(value: &str, size: usize) -> Vec<u8> {
         bytes[index] = ((high << 4) | low) as u8;
     }
     bytes
+}
+
+pub(crate) fn field_bytes(spec: &V3Spec, value: &str) -> Vec<u8> {
+    if let Some(digits) = value.strip_prefix("0x").or_else(|| value.strip_prefix("0X")) {
+        let exact_scalar = spec.kind == "scalar"
+            && digits.len() % 2 == 0
+            && digits.len() / 2 == spec.size.unwrap_or(1) as usize;
+        if spec.kind != "scalar" || exact_scalar {
+            return digits.as_bytes().chunks_exact(2).map(|pair| {
+                let hi = (pair[0] as char).to_digit(16).unwrap_or(0);
+                let lo = (pair[1] as char).to_digit(16).unwrap_or(0);
+                ((hi << 4) | lo) as u8
+            }).collect();
+        }
+        let number = i128::from_str_radix(digits, 16).unwrap_or(0);
+        let size = spec.size.unwrap_or(1) as usize;
+        return number.to_le_bytes()[..size.min(16)].to_vec();
+    }
+    if spec.kind == "string" {
+        if spec.name.eq_ignore_ascii_case("WSTRING") {
+            return value.encode_utf16().flat_map(u16::to_le_bytes).collect();
+        }
+        return value.as_bytes().to_vec();
+    }
+    if spec.kind == "scalar" {
+        let size = spec.size.unwrap_or(1) as usize;
+        if spec.name == "REAL" {
+            return value.parse::<f32>().unwrap_or(0.0).to_le_bytes().to_vec();
+        }
+        if spec.name == "LREAL" {
+            return value.parse::<f64>().unwrap_or(0.0).to_le_bytes().to_vec();
+        }
+        return value.parse::<i128>().unwrap_or(0).to_le_bytes()[..size.min(16)].to_vec();
+    }
+    value.as_bytes().to_vec()
 }
 
 fn encode_hex_bytes(bytes: &[u8]) -> String {
@@ -1319,9 +2130,72 @@ pub fn load_seeds(dir: &Path, bundle: &V3Bundle) -> Vec<V3Input> {
         if case.frames.is_empty() {
             continue;
         }
-        result.push(V3Input { frames: case.frames.clone(), shared: case.shared.clone() });
+        let input = V3Input { frames: case.frames.clone(), shared: case.shared.clone() };
+        result.push(input.clone());
+        // Keep the original seed and add one structural sibling when an
+        // aggregate is short. This opens parser/state paths without removing
+        // arbitrary-byte exploration from the original seed.
+        let mut primed = input.clone();
+        let mut changed = false;
+        for entry in &bundle.abi.shared_fields {
+            if entry.spec.members.is_empty() {
+                continue;
+            }
+            if let Some(value) = primed.shared.get(&entry.name)
+                .and_then(|value| structural_seed_value(&entry.name, &entry.spec, value))
+            {
+                primed.shared.insert(entry.name.clone(), value);
+                changed = true;
+            }
+        }
+        for frame in &mut primed.frames {
+            for entry in bundle.abi.action_fields() {
+                if entry.spec.members.is_empty() {
+                    continue;
+                }
+                if let Some(value) = frame.values.get(&entry.name)
+                    .and_then(|value| structural_seed_value(&entry.name, &entry.spec, value))
+                {
+                    frame.set_raw_value(entry.name.clone(), value, Vec::new());
+                    changed = true;
+                }
+            }
+            frame.refresh_raw_values();
+        }
+        if changed {
+            result.push(primed);
+        }
     }
     result
+}
+
+/// Expand only the structural sibling of an initial seed.  The original
+/// testcase remains in the queue with its exact raw bytes; this sibling gives
+/// aggregate parsers their ABI-sized storage while preserving every supplied
+/// prefix byte at the same offset.
+fn structural_seed_value(name: &str, spec: &V3Spec, value: &str) -> Option<String> {
+    let capacity = spec.byte_size.or(spec.size)? as usize;
+    if capacity == 0 {
+        return None;
+    }
+    let raw = raw_hex_bytes(value)?;
+    if raw.len() >= capacity {
+        return None;
+    }
+    let mut bytes = raw_hex_bytes(&default_for_named(name, spec))?;
+    bytes.resize(capacity, 0);
+    bytes[..raw.len()].copy_from_slice(&raw);
+    Some(encode_hex_bytes(&bytes))
+}
+
+fn normalize_structured_values(bundle: &V3Bundle, values: &mut BTreeMap<String, String>) {
+    for entry in bundle.abi.action_fields() {
+        if let Some(value) = values.get(&entry.name)
+            .and_then(|value| structural_seed_value(&entry.name, &entry.spec, value))
+        {
+            values.insert(entry.name.clone(), value);
+        }
+    }
 }
 
 pub fn serialize(bundle: &V3Bundle, frames: &[Frame], shared: &BTreeMap<String, String>) -> Vec<u8> {
@@ -1342,7 +2216,7 @@ pub fn serialize(bundle: &V3Bundle, frames: &[Frame], shared: &BTreeMap<String, 
                 .values
                 .get(&field.name)
                 .cloned()
-                .unwrap_or_else(|| default_for(&field.spec));
+                .unwrap_or_else(|| default_for_named(&field.name, &field.spec));
             out.push_str(&format!("{}.{},{},{}\n", index, field.name, type_token(&field.spec), value));
         }
         if let Some(dt) = frame.dt_ns {
@@ -1406,8 +2280,8 @@ mod v3_stage_tests {
                 target: V3Target { name: "F".into(), kind: "FUNCTION_BLOCK".into(), instance_size: 0 },
                 frame: V3FrameLayout { size: 4, align: 2, fields: vec![] },
                 frame_fields: vec![
-                    V3Field { name: "A".into(), offset: Some(0), size: Some(1), c_name: "f0".into(), block_kind: "VAR_INPUT".into(), spec: V3Spec { kind: "scalar".into(), name: "BOOL".into(), c_type: Some("uint8_t".into()), size: Some(1), count: None, byte_size: Some(1), length: None, element: None } },
-                    V3Field { name: "B".into(), offset: Some(2), size: Some(2), c_name: "f1".into(), block_kind: "VAR_INPUT".into(), spec: V3Spec { kind: "scalar".into(), name: "INT".into(), c_type: Some("int16_t".into()), size: Some(2), count: None, byte_size: Some(2), length: None, element: None } },
+                    V3Field { name: "A".into(), offset: Some(0), size: Some(1), c_name: "f0".into(), block_kind: "VAR_INPUT".into(), spec: V3Spec { kind: "scalar".into(), name: "BOOL".into(), c_type: Some("uint8_t".into()), size: Some(1), count: None, byte_size: Some(1), length: None, element: None, members: Vec::new() } },
+                    V3Field { name: "B".into(), offset: Some(2), size: Some(2), c_name: "f1".into(), block_kind: "VAR_INPUT".into(), spec: V3Spec { kind: "scalar".into(), name: "INT".into(), c_type: Some("int16_t".into()), size: Some(2), count: None, byte_size: Some(2), length: None, element: None, members: Vec::new() } },
                 ],
                 shared_fields: vec![],
                 state_fields: vec![],
@@ -1433,6 +2307,123 @@ mod v3_stage_tests {
         ));
         fs::create_dir_all(&dir).unwrap();
         V3GoalStage::new(bundle(), dir.clone(), &dir, vec![1, 2, 4, 8], vec![], 7, false, false, no_time, no_copy, false)
+    }
+
+    #[test]
+    fn partial_aggregate_seed_keeps_prefix_and_primes_missing_members() {
+        let spec = V3Spec {
+            kind: "opaque".into(), name: "XML_CONTROL".into(), c_type: None,
+            size: Some(8), count: None, byte_size: Some(8), length: None,
+            element: None,
+            members: vec![
+                V3StructMember {
+                    name: "COMMAND".into(), offset: 0, size: 2,
+                    spec: V3Spec { kind: "scalar".into(), name: "WORD".into(), c_type: None,
+                        size: Some(2), count: None, byte_size: Some(2), length: None,
+                        element: None, members: vec![] },
+                },
+                V3StructMember {
+                    name: "STOP_POS".into(), offset: 4, size: 2,
+                    spec: V3Spec { kind: "scalar".into(), name: "UINT".into(), c_type: None,
+                        size: Some(2), count: None, byte_size: Some(2), length: None,
+                        element: None, members: vec![] },
+                },
+            ],
+        };
+        let value = structural_seed_value("CTRL", &spec, "0x0080").unwrap();
+        let bytes = raw_hex_bytes(&value).unwrap();
+        assert_eq!(bytes.len(), 8);
+        assert_eq!(&bytes[..2], &[0x00, 0x80]);
+        assert_eq!(&bytes[4..6], &[0x03, 0x00]);
+
+        let root = std::env::temp_dir().join(format!(
+            "v3-aggregate-seed-{}-{}", std::process::id(), current_nanos()
+        ));
+        let seeds = root.join("seeds");
+        fs::create_dir_all(&seeds).unwrap();
+        let mut target = bundle();
+        target.abi.shared_fields.push(V3Field {
+            name: "CTRL".into(), offset: Some(0), size: Some(8), c_name: "ctrl".into(),
+            block_kind: "VAR_IN_OUT".into(), spec: spec.clone(),
+        });
+        fs::write(seeds.join("seed"), b"CTRL,ARRAY,0x0080\n0.__DT,TIME,1\n").unwrap();
+        let inputs = load_seeds(&seeds, &target);
+        assert_eq!(inputs.len(), 2);
+        assert_eq!(inputs[0].shared["CTRL"], "0x0080");
+        assert_eq!(raw_hex_bytes(&inputs[1].shared["CTRL"]).unwrap().len(), 8);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn stateless_function_uses_one_frame_even_with_unknown_cycle_effects() {
+        let mut target = bundle();
+        target.abi.target.kind = "FUNCTION".into();
+        target.tasks.unknown_cycle_effects = true;
+        let dir = std::env::temp_dir().join(format!("v3-function-fast-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let stage = V3GoalStage::new(target, dir.clone(), &dir, vec![], vec![], 7,
+                                     false, false, false, false, false);
+        assert!(stage.bundle.tasks.single_cycle);
+        assert_eq!(stage.max_depth, 1);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn native_edge_feedback_counts_each_edge_once() {
+        let mut stage = stage(false, false);
+        stage.record_native_edges(&[0, 1, 0, 1]);
+        assert!(stage.current_new_edge);
+        assert_eq!(stage.stats.native_edge_novelty, 2);
+        stage.record_native_edges(&[0, 2, 0, 1]);
+        assert!(!stage.current_new_edge);
+        assert_eq!(stage.stats.native_edge_novelty, 2);
+        fs::remove_dir_all(stage.run_dir).unwrap();
+    }
+
+    #[test]
+    fn task_state_excludes_frame_inputs() {
+        let task: V3Task = serde_json::from_value(serde_json::json!({
+            "task_id": "task-state", "goal": {},
+            "state_slice": [
+                {"name": "Input", "region": "instance", "block_kind": "VAR_INPUT"},
+                {"name": "Counter", "region": "instance", "block_kind": "VAR"},
+            ],
+        })).unwrap();
+        let values = BTreeMap::from([("Input".into(), 7), ("Counter".into(), 3)]);
+        assert_eq!(V3GoalStage::task_state(&task, &values), vec![("Counter".into(), 3)]);
+    }
+
+    #[test]
+    fn task_state_transition_retains_a_solver_frontier() {
+        let mut stage = stage(false, false);
+        stage.bundle.tasks.tasks = vec![serde_json::from_value(serde_json::json!({
+            "task_id": "task-state", "goal_class": "defect",
+            "goal": {"runtime_id": 5, "kind": "hazard_violation"},
+            "state_slice": [{"name": "S", "region": "instance", "offset": 0,
+                             "ctype": "int16_t", "block_kind": "VAR"}],
+        })).unwrap()];
+        stage.active_task_id = Some("task-state".into());
+        stage.current = Some(V3Input {
+            frames: vec![stage.default_frame(), stage.default_frame()],
+            shared: BTreeMap::new(),
+        });
+        stage.current_path = serialize(&stage.bundle,
+            &stage.current.as_ref().unwrap().frames, &BTreeMap::new());
+        let observation = |frame_index, value| FrameObservation {
+            frame_index, logical_time_ns: (frame_index as u64 + 1) * 10,
+            values: BTreeMap::from([("S".into(), value)]), goal_hits: vec![],
+        };
+        let outcome = ExecOutcome {
+            observations: vec![observation(0, 0), observation(1, 1)],
+            ..ExecOutcome::default()
+        };
+        stage.on_result(&libafl::executors::ExitKind::Ok, &[], 1.0, Some(1),
+                        Some("task-state"), BTreeMap::from([("S".into(), 1)]),
+                        Some(&outcome), &[]).unwrap();
+        assert_eq!(stage.stats.state_transition_novelty, 1);
+        let queue = fs::read_to_string(&stage.solver_queue_file).unwrap();
+        assert!(queue.lines().any(|line| line.contains("\"trigger\":\"state_frontier\"")));
+        fs::remove_dir_all(stage.run_dir).unwrap();
     }
 
     #[test]
@@ -1492,7 +2483,7 @@ mod v3_stage_tests {
                 parent_id: Some("p-00000000".into()),
                 task_id: None,
                 input: V3Input {
-                    frames: vec![Frame { index: 0, values: BTreeMap::new(), dt_ns: None }],
+                    frames: vec![Frame::new(0, BTreeMap::new(), None)],
                     shared: BTreeMap::new(),
                 },
                 path: Vec::new(),
@@ -1529,6 +2520,7 @@ mod v3_stage_tests {
             provenance: "snapshot".into(),
             observations: Vec::new(),
             exit_kind: "Ok".into(),
+            ..ExecOutcome::default()
         };
         stage.record_execution(Some("task-1"), Some(&outcome));
         let line = fs::read_to_string(&stage.metrics_file).unwrap();
@@ -1546,9 +2538,9 @@ mod v3_stage_tests {
     fn prefix_logical_time_uses_each_frame_delta() {
         let bundle = bundle();
         let frames = vec![
-            Frame { index: 0, values: BTreeMap::new(), dt_ns: Some(11) },
-            Frame { index: 1, values: BTreeMap::new(), dt_ns: None },
-            Frame { index: 2, values: BTreeMap::new(), dt_ns: Some(25) },
+            Frame::new(0, BTreeMap::new(), Some(11)),
+            Frame::new(1, BTreeMap::new(), None),
+            Frame::new(2, BTreeMap::new(), Some(25)),
         ];
         assert_eq!(logical_time_ns(&bundle, &frames), 46);
     }
@@ -1559,7 +2551,7 @@ mod v3_stage_tests {
         stage.active_task_id = Some("task-array".into());
         stage.task_stagnation.insert("task-array".into(), 7);
         let input = V3Input {
-            frames: vec![Frame { index: 0, values: BTreeMap::new(), dt_ns: Some(17) }],
+            frames: vec![Frame::new(0, BTreeMap::new(), Some(17))],
             shared: BTreeMap::new(),
         };
         let path = serialize(&stage.bundle, &input.frames, &input.shared);
@@ -1603,8 +2595,8 @@ mod v3_stage_tests {
         stage.bundle.tasks.single_cycle = true;
         let input = V3Input {
             frames: vec![
-                Frame { index: 0, values: BTreeMap::new(), dt_ns: Some(11) },
-                Frame { index: 1, values: BTreeMap::new(), dt_ns: Some(23) },
+                Frame::new(0, BTreeMap::new(), Some(11)),
+                Frame::new(1, BTreeMap::new(), Some(23)),
             ],
             shared: BTreeMap::new(),
         };
@@ -1714,9 +2706,9 @@ mod v3_stage_tests {
     #[test]
     fn arriving_solver_seed_preempts_unexecuted_initial_seed() {
         let mut stage = stage(false, false);
-        stage.seeds.push(V3Input { frames: vec![Frame { index: 0,
-            values: [("A".into(), "0".into()), ("B".into(), "3".into())].into(),
-            dt_ns: None }], shared: BTreeMap::new() });
+        stage.seeds.push(V3Input { frames: vec![Frame::new(0,
+            [("A".into(), "0".into()), ("B".into(), "3".into())].into(), None)],
+            shared: BTreeMap::new() });
         let directory = stage.run_dir.join("solver").join("reinject");
         fs::create_dir_all(&directory).unwrap();
         let solver = b"0.A,BOOL,1\n0.B,INT,7\n";
@@ -1766,7 +2758,11 @@ mod v3_stage_tests {
         ];
         let mut stage = V3GoalStage::new(target, root.clone(), &root, vec![], vec![], 7,
                                          false, false, false, false, false);
-        assert_eq!(stage.prefixes.len(), 522);
+        // The per-task cap keeps the later task represented even though the
+        // first task provides hundreds of planned prefixes.
+        assert_eq!(stage.prefixes.len(), 4);
+        assert_eq!(stage.prefixes.iter().filter(|prefix| prefix.task_id.as_deref() == Some("task-a")).count(), 2);
+        assert_eq!(stage.prefixes.iter().filter(|prefix| prefix.task_id.as_deref() == Some("task-b")).count(), 1);
         stage.active_task_id = Some("task-a".into());
         let mut visited = BTreeSet::new();
         for _ in 0..1000 {
@@ -1775,16 +2771,16 @@ mod v3_stage_tests {
             assert_eq!(prefix.task_id.as_deref(), Some("task-a"));
             visited.insert(prefix.prefix_id);
         }
-        assert_eq!(visited.len(), 520);
+        assert_eq!(visited.len(), 2);
         assert!(stage.prefixes.iter().filter(|prefix| prefix.task_id.as_deref() == Some("task-a"))
             .all(|prefix| prefix.uses > 0));
         let input = V3Input {
-            frames: vec![Frame { index: 0, values: BTreeMap::new(), dt_ns: None }],
+            frames: vec![Frame::new(0, BTreeMap::new(), None)],
             shared: BTreeMap::new(),
         };
         let path = serialize(&stage.bundle, &input.frames, &input.shared);
         stage.remember(input, path, 0.5, "fuzz");
-        assert_eq!(stage.prefixes.len(), 523);
+        assert_eq!(stage.prefixes.len(), 5);
         assert_eq!(stage.prefixes.last().unwrap().task_id.as_deref(), Some("task-a"));
         fs::remove_dir_all(root).unwrap();
     }
@@ -1867,9 +2863,10 @@ mod v3_stage_tests {
     #[test]
     fn unsigned_mutation_and_state_copy_keep_the_full_domain() {
         let unsigned = V3Spec { kind: "scalar".into(), name: "ULINT".into(), c_type: Some("uint64_t".into()),
-                                size: Some(8), count: None, byte_size: Some(8), length: None, element: None };
+                                size: Some(8), count: None, byte_size: Some(8), length: None, element: None, members: Vec::new() };
         assert_eq!(integer_bounds(&unsigned), Some((0, u64::MAX as i128)));
         let mut stage = stage(false, false);
+        stage.mutation_mode = 1;
         stage.bundle.abi.frame_fields = vec![V3Field {
             name: "U".into(), offset: Some(0), size: Some(8), c_name: "f0".into(),
             block_kind: "VAR_INPUT".into(), spec: unsigned,
@@ -1899,6 +2896,7 @@ mod v3_stage_tests {
             byte_size: Some(8),
             length: None,
             element: None,
+            members: Vec::new(),
         };
         let array = V3Spec {
             kind: "array".into(),
@@ -1909,8 +2907,10 @@ mod v3_stage_tests {
             byte_size: Some(64),
             length: None,
             element: Some(Box::new(element)),
+            members: Vec::new(),
         };
         let mut stage = stage(false, false);
+        stage.mutation_mode = 1;
         stage.bundle.abi.frame_fields = vec![V3Field {
             name: "InRecv".into(), offset: Some(0), size: Some(64), c_name: "f0".into(),
             block_kind: "VAR_IN_OUT".into(), spec: array,
@@ -1927,6 +2927,107 @@ mod v3_stage_tests {
         let mut malformed = stage.default_frame();
         stage.mutate_frame(&mut malformed);
         assert_eq!(malformed.values["InRecv"].len(), 10);
+    }
+
+    #[test]
+    fn structured_mutation_keeps_nested_member_paths() {
+        let leaf = |name: &str| V3Spec {
+            kind: "array".into(), name: name.into(), c_type: None,
+            size: Some(8), count: Some(8), byte_size: Some(8), length: None,
+            element: Some(Box::new(V3Spec {
+                kind: "scalar".into(), name: "BYTE".into(), c_type: Some("uint8_t".into()),
+                size: Some(1), count: None, byte_size: Some(1), length: None,
+                element: None, members: Vec::new(),
+            })), members: Vec::new(),
+        };
+        let nested = V3Spec {
+            kind: "opaque".into(), name: "R_BUF".into(), c_type: None,
+            size: Some(8), count: None, byte_size: Some(8), length: None,
+            element: None,
+            members: vec![V3StructMember { name: "BUFFER".into(), offset: 0, size: 8, spec: leaf("BUFFER") }],
+        };
+        let root = V3Spec {
+            kind: "opaque".into(), name: "CTRL".into(), c_type: None,
+            size: Some(8), count: None, byte_size: Some(8), length: None,
+            element: None,
+            members: vec![V3StructMember { name: "R_BUF".into(), offset: 0, size: 8, spec: nested }],
+        };
+        let mut members = Vec::new();
+        collect_struct_members(&root, 0, "ROOT", &mut members);
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0].2, "ROOT.R_BUF.BUFFER");
+    }
+
+    #[test]
+    fn shared_var_in_out_mutation_reaches_aggregate_bytes() {
+        let byte = V3Spec {
+            kind: "scalar".into(), name: "BYTE".into(), c_type: Some("uint8_t".into()),
+            size: Some(1), count: None, byte_size: Some(1), length: None,
+            element: None, members: Vec::new(),
+        };
+        let aggregate = V3Spec {
+            kind: "opaque".into(), name: "NETWORK_BUFFER_SHORT".into(), c_type: None,
+            size: Some(8), count: None, byte_size: Some(8), length: None,
+            element: None,
+            members: vec![
+                V3StructMember { name: "SIZE".into(), offset: 0, size: 2,
+                    spec: V3Spec { kind: "scalar".into(), name: "UINT".into(), c_type: Some("uint16_t".into()),
+                        size: Some(2), count: None, byte_size: Some(2), length: None, element: None, members: Vec::new() } },
+                V3StructMember { name: "BUFFER".into(), offset: 2, size: 6,
+                    spec: V3Spec { kind: "array".into(), name: "BUFFER".into(), c_type: None,
+                        size: Some(6), count: Some(6), byte_size: Some(6), length: None,
+                        element: Some(Box::new(byte)), members: Vec::new() } },
+            ],
+        };
+        let mut stage = stage(false, false);
+        stage.mutation_mode = 2;
+        stage.bundle.abi.frame_fields.clear();
+        stage.bundle.abi.shared_fields = vec![V3Field {
+            name: "R_BUF".into(), offset: Some(0), size: Some(8), c_name: "r_buf".into(),
+            block_kind: "VAR_IN_OUT".into(), spec: aggregate,
+        }];
+        let mut frames = vec![stage.default_frame()];
+        let mut shared = BTreeMap::new();
+        shared.insert(String::from("R_BUF"), String::from("0x0000000000000000"));
+        for _ in 0..32 {
+            stage.mutate_input_fields(&mut frames, &mut shared);
+        }
+        let value = shared.get("R_BUF").expect("shared aggregate must remain present");
+        assert!(value.starts_with("0x"));
+        assert_eq!(value.len(), 18);
+        assert_ne!(value, "0x0000000000000000");
+        assert!(stage.stats.action_counts.contains_key("byte_shared_field"));
+        assert!(stage.stats.raw_cache_hits > 0);
+    }
+
+    #[test]
+    fn xml_control_structured_mutation_keeps_boundary_fields_coherent() {
+        let scalar = |name: &str, size: u32| V3Spec {
+            kind: "scalar".into(), name: name.into(), c_type: Some("uint16_t".into()),
+            size: Some(size), count: None, byte_size: Some(size), length: None,
+            element: None, members: Vec::new(),
+        };
+        let spec = V3Spec {
+            kind: "opaque".into(), name: "XML_CONTROL".into(), c_type: None,
+            size: Some(6), count: None, byte_size: Some(6), length: None,
+            element: None,
+            members: vec![
+                V3StructMember { name: "COMMAND".into(), offset: 0, size: 2, spec: scalar("WORD", 2) },
+                V3StructMember { name: "START_POS".into(), offset: 2, size: 2, spec: scalar("UINT", 2) },
+                V3StructMember { name: "STOP_POS".into(), offset: 4, size: 2, spec: scalar("UINT", 2) },
+            ],
+        };
+        let mut stage = stage(false, false);
+        let mut bytes = vec![0u8; 6];
+        let mut found = false;
+        for _ in 0..512 {
+            mutate_structured_member(&mut stage, "CTRL", &spec, &mut bytes);
+            if bytes == [0, 0x80, 0, 0, 0, 0x10] {
+                found = true;
+                break;
+            }
+        }
+        assert!(found, "XML boundary mutation was never selected");
     }
 
     #[test]
@@ -1951,14 +3052,16 @@ mod v3_stage_tests {
             length: None,
             element: Some(Box::new(V3Spec {
                 kind: "scalar".into(), name: "BYTE".into(), c_type: Some("uint8_t".into()),
-                size: Some(1), count: None, byte_size: Some(1), length: None, element: None,
+                size: Some(1), count: None, byte_size: Some(1), length: None, element: None, members: Vec::new(),
             })),
+            members: Vec::new(),
         };
         let string = V3Spec {
             kind: "string".into(), name: "WSTRING".into(), c_type: Some("uint16_t".into()),
-            size: Some(2), count: None, byte_size: Some(10), length: Some(4), element: None,
+            size: Some(2), count: None, byte_size: Some(10), length: Some(4), element: None, members: Vec::new(),
         };
         let mut stage = stage(false, false);
+        stage.mutation_mode = 1;
         stage.bundle.abi.frame_fields = vec![
             V3Field { name: "P".into(), offset: Some(0), size: Some(8), c_name: "f0".into(), block_kind: "VAR_INPUT".into(), spec: pointer },
             V3Field { name: "Text".into(), offset: Some(8), size: Some(10), c_name: "f1".into(), block_kind: "VAR_INPUT".into(), spec: string },
@@ -1981,6 +3084,71 @@ mod v3_stage_tests {
         let wstring_spec = stage.bundle.abi.frame_fields[1].spec.clone();
         let truncated = stage.mutate_string_value(&wstring_spec, "😀😀A");
         assert!(truncated.encode_utf16().count() <= 4);
+    }
+
+    #[test]
+    fn raw_mutation_reaches_full_bool_bytes_and_respects_field_capacity() {
+        let mut stage = stage(false, false);
+        let boolean = V3Field {
+            name: "B".into(), offset: Some(0), size: Some(1), c_name: "f0".into(),
+            block_kind: "VAR_INPUT".into(),
+            spec: V3Spec { kind: "scalar".into(), name: "BOOL".into(), c_type: Some("uint8_t".into()),
+                           size: Some(1), count: None, byte_size: Some(1), length: None, element: None, members: Vec::new() },
+        };
+        let string = V3Field {
+            name: "S".into(), offset: Some(1), size: Some(5), c_name: "f1".into(),
+            block_kind: "VAR_INPUT".into(),
+            spec: V3Spec { kind: "string".into(), name: "STRING".into(), c_type: Some("uint8_t".into()),
+                           size: Some(1), count: None, byte_size: Some(5), length: Some(4), element: None, members: Vec::new() },
+        };
+        let mut bool_value = "0".to_string();
+        let mut string_value = "A".to_string();
+        let mut found_three = false;
+        let mut found_high = false;
+        let mut lengths = BTreeSet::new();
+        for _ in 0..2000 {
+            bool_value = stage.mutate_raw_value(&boolean, &bool_value);
+            string_value = stage.mutate_raw_value(&string, &string_value);
+            found_three |= bool_value == "0x03";
+            let payload = field_bytes(&string.spec, &string_value);
+            found_high |= payload.iter().any(|byte| *byte >= 0x80);
+            lengths.insert(payload.len());
+            assert_eq!(bool_value.len(), 4);
+            assert!(payload.len() <= 5);
+        }
+        assert!(found_three);
+        assert!(found_high);
+        assert!(lengths.len() > 1);
+    }
+
+    #[test]
+    fn raw_mutation_does_not_silently_truncate_oversized_cached_bytes() {
+        let field = V3Field {
+            name: "OPAQUE".into(),
+            offset: Some(0),
+            size: Some(2),
+            c_name: "opaque".into(),
+            block_kind: "VAR_IN_OUT".into(),
+            spec: V3Spec {
+                kind: "opaque".into(),
+                name: "OPAQUE".into(),
+                c_type: None,
+                size: Some(2),
+                count: None,
+                byte_size: Some(2),
+                length: None,
+                element: None,
+                members: Vec::new(),
+            },
+        };
+        let mut stage = stage(false, false);
+        let (value, bytes) = stage.mutate_raw_value_with_bytes(
+            &field,
+            "0x010203",
+            Some(&[0x01, 0x02, 0x03]),
+        );
+        assert_eq!(value, "0x010203");
+        assert!(bytes.is_empty());
     }
 
     #[test]

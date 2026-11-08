@@ -309,3 +309,81 @@ int32_t MID_EXT__STRING(const char *text, int32_t start, int32_t length, char *d
     dest[index] = 0;
     return index;
 }
+
+static size_t model_string_length(const char *text) {
+    size_t length = 0;
+    if (!text) return 0;
+    while (text[length]) length++;
+    return length;
+}
+
+int32_t LEFT_EXT__STRING(const char *text, int32_t length, char *dest) {
+    if (!text || !dest || length < 0) return -1;
+    size_t available = model_string_length(text);
+    size_t count = (size_t)length < available ? (size_t)length : available;
+    for (size_t index = 0; index < count; index++) dest[index] = text[index];
+    dest[count] = 0;
+    return (int32_t)count;
+}
+
+int32_t RIGHT_EXT__STRING(const char *text, int32_t length, char *dest) {
+    if (!text || !dest || length < 0) return -1;
+    size_t available = model_string_length(text);
+    size_t count = (size_t)length < available ? (size_t)length : available;
+    size_t start = available - count;
+    for (size_t index = 0; index < count; index++) dest[index] = text[start + index];
+    dest[count] = 0;
+    return (int32_t)count;
+}
+
+int32_t DELETE_EXT__STRING(const char *text, int32_t length, int32_t position,
+                           char *dest) {
+    if (!text || !dest || length < 0 || position < 1) return -1;
+    size_t available = model_string_length(text);
+    size_t start = (size_t)position - 1;
+    if (start > available) start = available;
+    size_t count = (size_t)length;
+    if (count > available - start) count = available - start;
+    size_t output = 0;
+    for (size_t index = 0; index < start; index++) dest[output++] = text[index];
+    for (size_t index = start + count; index < available; index++) dest[output++] = text[index];
+    dest[output] = 0;
+    return (int32_t)output;
+}
+
+int32_t REPLACE_EXT__STRING(const char *text, const char *replacement,
+                            int32_t length, int32_t position, char *dest) {
+    if (!text || !replacement || !dest || length < 0 || position < 1) return -1;
+    size_t available = model_string_length(text);
+    size_t start = (size_t)position - 1;
+    if (start > available) start = available;
+    size_t remove = (size_t)length;
+    if (remove > available - start) remove = available - start;
+    size_t output = 0;
+    for (size_t index = 0; index < start; index++) dest[output++] = text[index];
+    for (size_t index = 0; replacement[index]; index++) dest[output++] = replacement[index];
+    for (size_t index = start + remove; index < available; index++) dest[output++] = text[index];
+    dest[output] = 0;
+    return (int32_t)output;
+}
+
+int32_t FIND__STRING(const char *text, const char *search) {
+    if (!text || !search || !search[0]) return 0;
+    size_t needle = model_string_length(search);
+    for (size_t index = 0; text[index]; index++) {
+        size_t offset = 0;
+        while (offset < needle && text[index + offset]
+               && text[index + offset] == search[offset]) offset++;
+        if (offset == needle) return (int32_t)index + 1;
+    }
+    return 0;
+}
+
+uint8_t __STRING_EQUAL(int32_t argc, const char *const *argv) {
+    if (argc < 2 || !argv || !argv[0] || !argv[1]) return 0;
+    const char *left = argv[0];
+    const char *right = argv[1];
+    size_t index = 0;
+    while (left[index] && right[index] && left[index] == right[index]) index++;
+    return (uint8_t)(left[index] == right[index]);
+}

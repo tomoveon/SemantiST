@@ -194,7 +194,9 @@ class FunctionBlockAbiTests(unittest.TestCase):
         self.assertIn("double f4_storage[3];", harness)
         self.assertEqual(
             generate_seed(abi),
-            "buf,ARRAY,0x00\n0.SET,REAL,0.0\n0.MODE,INT,0\n1.SET,REAL,1.0\n1.MODE,INT,0\n",
+            "buf,ARRAY,0x" + "00" * 24 + "\n"
+            "0.SET,REAL,0x00000000\n0.MODE,INT,0x0000\n"
+            "1.SET,REAL,0x0000803f\n1.MODE,INT,0x0000\n",
         )
 
     @unittest.skipUnless(shutil.which("cc"), "requires a C compiler")
@@ -249,9 +251,9 @@ class FunctionAbiTests(unittest.TestCase):
         harness = generate_harness(abi)
         self.assertIn("extern void FMT(void *, void *, int16_t, void *);", harness)
         self.assertIn("uint8_t result[81];", harness)
-        self.assertIn("uint8_t f3_storage[4096];", harness)
+        self.assertIn("static uint8_t semantist_f3_storage[4096];", harness)
         self.assertIn("return semantist_v3_execute(data);", harness)
-        self.assertIn("FMT(semantist_harness_state.result, local->f1, local->f2, semantist_harness_state.f3_storage);", harness)
+        self.assertIn("FMT(semantist_harness_state.result, local->f1, local->f2, semantist_f3_storage);", harness)
 
     @unittest.skipUnless(shutil.which("cc"), "requires a C compiler")
     def test_pointer_frame_bytes_reach_function_backing_storage(self):
@@ -284,7 +286,7 @@ void FMT(void *result, void *s, int16_t n, void *pt) {
         self.assertIn('strcmp(name, "default")', harness)
         self.assertIn('strcmp(name, "IDATE")', harness)
         self.assertIn("semantist_harness_state.result = PICK(local->f0, local->f1);", harness)
-        self.assertEqual(generate_seed(abi), "0.default,REAL,0.0\n0.IDATE,DATE,0\n")
+        self.assertEqual(generate_seed(abi), "0.default,REAL,0x00000000\n0.IDATE,DATE,0x0000000000000000\n")
 
 
 class GeneratorCliTests(unittest.TestCase):

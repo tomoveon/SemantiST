@@ -802,7 +802,7 @@ def test_engine_candidates_get_cold_replay_without_post_engine_solver(tmp_path: 
 
     monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: Completed())
     campaign.run_rust_engine()
-    assert order == ["probe", "register", "confirm", "confirm", "confirm"]
+    assert order == ["probe", "register", "confirm", "confirm"]
     assert campaign.native_replay_results[0]["status"] == "candidate"
 
 

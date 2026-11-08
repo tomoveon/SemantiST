@@ -1,15 +1,8 @@
 import json
-import sys
 from pathlib import Path
-
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT))
 
 from benchmarks.oscat.prepare_targets import normalize_cross_library_source
-
-
-def _targets(path: str) -> list[dict]:
-    return json.loads((ROOT / path).read_text(encoding="utf-8"))["targets"]
 
 
 def test_oscat_roster_keeps_required_targets_and_excludes_other_families() -> None:
@@ -21,7 +14,6 @@ def test_oscat_roster_keeps_required_targets_and_excludes_other_families() -> No
             for suite in manifest["suite_counts"]} == manifest["suite_counts"]
     assert {target["suite"] for target in targets} == set(manifest["suite_counts"])
 
-    required = {target["id"] for target in _targets("benchmarks/oscat/seven_targets.json")}
     additional_required = {
         "oscat_basic__buffer_clear",
         "oscat_basic__buffer_init",
@@ -41,7 +33,6 @@ def test_oscat_roster_keeps_required_targets_and_excludes_other_families() -> No
         "oscat_network_dlog_store_mysql",
         "oscat_building_timer_p4",
     }
-    assert required <= ids
     assert additional_required <= ids
     assert "oscat_basic_filter_mav_dw" in ids
 

@@ -26,9 +26,19 @@ for line in open(sys.argv[1], encoding="utf-8"):
     name, _ty, value = line.split(",", 2)
     values[name] = value
 
-mode = values.get("MODE", "")
+def raw_text(value):
+    if value.lower().startswith("0x"):
+        return bytes.fromhex(value[2:]).decode("utf-8", errors="ignore")
+    return value
+
+def raw_int(value):
+    if value.lower().startswith("0x"):
+        return int.from_bytes(bytes.fromhex(value[2:]), "little", signed=True)
+    return int(value, 0)
+
+mode = raw_text(values.get("MODE", ""))
 try:
-    count = int(values.get("COUNT", "0"), 0)
+    count = raw_int(values.get("COUNT", "0"))
 except ValueError:
     count = 0
 buf = values.get("BUF", "")
@@ -50,9 +60,19 @@ for line in open(sys.argv[1], encoding="utf-8"):
     name, _ty, value = line.split(",", 2)
     values[name] = value
 
-mode = values.get("MODE", "")
+def raw_text(value):
+    if value.lower().startswith("0x"):
+        return bytes.fromhex(value[2:]).decode("utf-8", errors="ignore")
+    return value
+
+def raw_int(value):
+    if value.lower().startswith("0x"):
+        return int.from_bytes(bytes.fromhex(value[2:]), "little", signed=True)
+    return int(value, 0)
+
+mode = raw_text(values.get("MODE", ""))
 try:
-    count = int(values.get("COUNT", "0"), 0)
+    count = raw_int(values.get("COUNT", "0"))
 except ValueError:
     count = 0
 
@@ -80,11 +100,11 @@ class SeedMinimizationTests(unittest.TestCase):
             seed.write_text(
                 textwrap.dedent(
                     """\
-                    MODE,STRING,CRASH
-                    COUNT,INT,64
-                    JUNK,INT,123
+                    MODE,STRING,0x4352415348
+                    COUNT,INT,0x40000000
+                    JUNK,INT,0x7b000000
                     BUF,POINTER,0x00ff1122
-                    JUNK,INT,123
+                    JUNK,INT,0x7b000000
                     """
                 ),
                 encoding="utf-8",
@@ -106,8 +126,8 @@ class SeedMinimizationTests(unittest.TestCase):
 
             minimized = output.read_text(encoding="utf-8")
             self.assertNotIn("JUNK", minimized)
-            self.assertIn("MODE,STRING,C\n", minimized)
-            self.assertIn("COUNT,INT,16\n", minimized)
+            self.assertIn("MODE,STRING,0x43\n", minimized)
+            self.assertIn("COUNT,INT,0x10000000\n", minimized)
             self.assertIn("BUF,POINTER,0xff\n", minimized)
             self.assertEqual(result.original_status, "crash")
             self.assertEqual(result.minimized_status, "crash")
@@ -130,8 +150,8 @@ class SeedMinimizationTests(unittest.TestCase):
             seed.write_text(
                 textwrap.dedent(
                     """\
-                    MODE,STRING,CRASH
-                    COUNT,INT,64
+                    MODE,STRING,0x4352415348
+                    COUNT,INT,0x40000000
                     """
                 ),
                 encoding="utf-8",
@@ -147,8 +167,8 @@ class SeedMinimizationTests(unittest.TestCase):
             )
 
             minimized = output.read_text(encoding="utf-8")
-            self.assertIn("MODE,STRING,C\n", minimized)
-            self.assertNotIn("MODE,STRING,\n", minimized)
+            self.assertIn("MODE,STRING,0x43\n", minimized)
+            self.assertNotIn("MODE,STRING,0x\n", minimized)
             self.assertTrue(result.signature_match)
             self.assertEqual(
                 result.original_signature["sanitizer_kind"],

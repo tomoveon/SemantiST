@@ -1,0 +1,10 @@
+{
+  "icsquartz": {
+    "build_command": ["python3", "-m", "fuzzer.experiments.baselines", "build", "--tool", "icsquartz", "--common-build", "{common_build}", "--output", "{output}"],
+    "run_command": ["python3", "-m", "fuzzer.experiments.baselines", "run", "--tool", "icsquartz", "--common-build", "{common_build}", "--build", "{build}", "--output", "{output}", "--seed", "{seed}", "--seconds", "{seconds}"]
+  },
+  "aflpp": {
+    "build_command": ["python3", "-m", "fuzzer.experiments.baselines", "build", "--tool", "aflpp", "--common-build", "{common_build}", "--output", "{output}"],
+    "run_command": ["python3", "-m", "fuzzer.experiments.baselines", "run", "--tool", "aflpp", "--common-build", "{common_build}", "--build", "{build}", "--output", "{output}", "--seed", "{seed}", "--seconds", "{seconds}"]
+  }
+}

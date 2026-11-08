@@ -7,6 +7,7 @@
 // a target reports the same edge indices in-process as under the forkserver.
 const AFL_FIRST_GUARD_OFFSET: u32 = 5;
 const SEMANTIC_BUFFER_CAPACITY: usize = 1 << 20;
+include!("v3_worker.rs");
 
 #[repr(C, align(8))]
 struct InProcessBuffer<const N: usize>(std::cell::UnsafeCell<[u8; N]>);
@@ -40,6 +41,12 @@ static MEMORY_MEMBER_ORACLE_ENABLED: std::sync::atomic::AtomicBool =
 static MEMORY_MEMBER_VIOLATION: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 static ASAN_VIOLATION: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+// V3Worker contains target faults.  Keep them visible to the semantic stage
+// without making LibAFL restart the outer fuzzer instance.
+static WORKER_CRASHED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+static PARSER_REJECTED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
 extern "C" {
@@ -316,6 +323,12 @@ fn v3_preflight_hazard(kind: Option<&str>, modeling: Option<&str>) -> bool {
     kind == Some("hazard_violation") && modeling == Some("exact")
 }
 
+fn v3_stage_exit_kind(worker_crashed: bool, observed: libafl::executors::ExitKind)
+    -> libafl::executors::ExitKind
+{
+    if worker_crashed { libafl::executors::ExitKind::Crash } else { observed }
+}
+
 #[cfg(test)]
 #[test]
 fn preflight_only_blocks_replayable_exact_violations() {
@@ -324,78 +337,24 @@ fn preflight_only_blocks_replayable_exact_violations() {
     assert!(!v3_preflight_hazard(Some("hazard_reach"), Some("exact")));
 }
 
+#[cfg(test)]
+#[test]
+fn isolated_worker_crash_is_reported_to_stage_without_forcing_restart() {
+    assert!(matches!(
+        v3_stage_exit_kind(true, libafl::executors::ExitKind::Ok),
+        libafl::executors::ExitKind::Crash
+    ));
+    assert!(matches!(
+        v3_stage_exit_kind(false, libafl::executors::ExitKind::Ok),
+        libafl::executors::ExitKind::Ok
+    ));
+}
+
 fn v3_clear_maps() {
     let size = __semantist_semantic_buffer_size.load(std::sync::atomic::Ordering::Relaxed);
     unsafe {
         std::ptr::write_bytes(EDGES_BUFFER.as_mut_ptr(), 0, inprocess_edge_map_size());
         std::ptr::write_bytes(__semantist_semantic_buffer.as_mut_ptr(), 0, size);
-    }
-}
-
-// Native cold execution keeps fatal target faults out of the long-lived
-// in-process executor. The journal is also the exact input used for replay.
-fn v3_hazard_hit(trace: &std::path::Path, hazard_ids: &std::collections::HashSet<u32>) -> Result<bool, Error> {
-    use std::io::BufRead;
-    let file = match std::fs::File::open(trace) {
-        Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-        Err(error) => return Err(Error::illegal_argument(format!("v3 preflight trace: {error}"))),
-    };
-    for line in std::io::BufReader::new(file).lines() {
-        let line = line.map_err(|error| Error::illegal_argument(format!("v3 preflight trace: {error}")))?;
-        let record: serde_json::Value = serde_json::from_str(&line)
-            .map_err(|error| Error::illegal_argument(format!("v3 preflight trace JSON: {error}")))?;
-        let runtime_id = record.get("runtime_id").and_then(serde_json::Value::as_u64)
-            .ok_or_else(|| Error::illegal_argument("v3 preflight trace missing runtime_id"))?;
-        if u32::try_from(runtime_id).ok().is_some_and(|id| hazard_ids.contains(&id)) {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-
-fn v3_cold_preflight(target: &std::path::Path, input: &std::path::Path, timeout: std::time::Duration,
-    hazard_ids: &std::collections::HashSet<u32>)
-    -> Result<Option<libafl::executors::ExitKind>, Error>
-{
-    use std::process::{Command, Stdio};
-    let trace = input.with_extension("preflight.hits.jsonl");
-    let _ = std::fs::remove_file(&trace);
-    let mut command = Command::new(target);
-    command.arg(input)
-        .env("ASAN_OPTIONS", "halt_on_error=1:abort_on_error=1")
-        .env("UBSAN_OPTIONS", "halt_on_error=1:print_stacktrace=1")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    if !hazard_ids.is_empty() {
-        command.env("SEMANTIST_SEMANTIC_TRACE_RUNTIME", "1")
-            .env("SEMANTIST_SEMANTIC_RUNTIME_TRACE_FILE", &trace);
-    }
-    let mut child = command
-        .spawn()
-        .map_err(|error| Error::illegal_argument(format!("v3 cold preflight launch: {error}")))?;
-    let started = std::time::Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                let hazard = status.success() && v3_hazard_hit(&trace, hazard_ids)?;
-                let _ = std::fs::remove_file(&trace);
-                return Ok((!status.success() || hazard).then_some(libafl::executors::ExitKind::Crash));
-            }
-            Ok(None) if started.elapsed() >= timeout => {
-                child.kill().ok();
-                child.wait().ok();
-                let _ = std::fs::remove_file(&trace);
-                return Ok(Some(libafl::executors::ExitKind::Timeout));
-            }
-            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(1)),
-            Err(error) => {
-                child.kill().ok();
-                child.wait().ok();
-                let _ = std::fs::remove_file(&trace);
-                return Err(Error::illegal_argument(format!("v3 cold preflight wait: {error}")));
-            }
-        }
     }
 }
 
@@ -414,7 +373,10 @@ fn run_v3_inprocess(setup: CampaignSetup) -> Result<(), Error> {
         .v3_bundle
         .clone()
         .unwrap_or_else(|| run_dir.join("bundle"));
-    let bundle = V3Bundle::load(&bundle_dir, &config.target).map_err(Error::illegal_argument)?;
+    let bundle = Arc::new(V3Bundle::load(&bundle_dir, &config.target).map_err(Error::illegal_argument)?);
+    let needs_isolation = bundle.tasks.tasks.iter().any(|task|
+        task.goal.kind.as_deref() == Some("hazard_violation"))
+        || std::env::var("SEMANTIST_EXPERIMENT_NO_GOAL_TASKS").as_deref() == Ok("1");
     let hazard_ids = bundle.tasks.tasks.iter()
         .filter(|task| v3_preflight_hazard(task.goal.kind.as_deref(),
                                            task.goal.modeling.as_deref()))
@@ -450,6 +412,10 @@ fn run_v3_inprocess(setup: CampaignSetup) -> Result<(), Error> {
     let harness_cache = cache.clone();
     let harness_outcome = outcome.clone();
     let harness_bundle = bundle.clone();
+    let worker_timeout = config.timeout;
+    let worker_semantic_size = setup.semantic_map_size;
+    let worker_cache_enabled = !config.v3_no_snapshot;
+    let mut worker: Option<V3Worker> = None;
     let mut harness = move |_input: &BytesInput| {
         let data = harness_current
             .lock()
@@ -457,20 +423,91 @@ fn run_v3_inprocess(setup: CampaignSetup) -> Result<(), Error> {
             .take()
             .unwrap_or_default();
         v3_clear_maps();
-        memory_member_oracle_reset();
-        ASAN_VIOLATION.store(false, std::sync::atomic::Ordering::Relaxed);
-        let mut cache = harness_cache.lock().expect("v3 cache");
-        match execute_with_cache(&data, &harness_bundle, &mut cache) {
-            Ok(executed) => {
-                let member_violation = memory_member_oracle_seen();
-                let asan_violation = ASAN_VIOLATION.load(std::sync::atomic::Ordering::Relaxed);
-                *harness_outcome.lock().expect("v3 outcome") = Some(executed);
-                if member_violation || asan_violation { ExitKind::Crash } else { ExitKind::Ok }
-            },
-            Err(error) => {
-                eprintln!("[v3] execution error: {error}");
-                cache.clear();
-                ExitKind::Crash
+        if needs_isolation {
+            WORKER_CRASHED.store(false, std::sync::atomic::Ordering::Relaxed);
+            let mut launch_ns = 0;
+            if worker.is_none() {
+                let launch_started = std::time::Instant::now();
+                match V3Worker::spawn(&harness_bundle, worker_cache_enabled,
+                                      worker_semantic_size, &hazard_ids, worker_timeout) {
+                    Ok(started) => {
+                        launch_ns = launch_started.elapsed().as_nanos() as u64;
+                        worker = Some(started);
+                    }
+                    Err(error) => {
+                        eprintln!("[v3] execution worker launch: {error}");
+                        return ExitKind::Crash;
+                    }
+                }
+            }
+            let worker_started = std::time::Instant::now();
+            let response = worker.as_mut().expect("v3 worker").execute(&data);
+            let roundtrip_ns = worker_started.elapsed().as_nanos() as u64;
+            match response {
+                Ok(mut response) => {
+                    if response.semantic.len() != worker_semantic_size
+                        || response.telemetry.len() != TELEMETRY_SIZE {
+                        worker.take();
+                        return ExitKind::Crash;
+                    }
+                    unsafe {
+                        for (index, value) in response.edges {
+                            *EDGES_BUFFER.as_mut_ptr().add(index as usize) = value;
+                        }
+                        std::ptr::copy_nonoverlapping(response.semantic.as_ptr(),
+                            __semantist_semantic_buffer.as_mut_ptr(), response.semantic.len());
+                        std::ptr::copy_nonoverlapping(response.telemetry.as_ptr(),
+                            __semantist_telemetry_buffer.as_mut_ptr(), TELEMETRY_SIZE);
+                    }
+                    worker.as_mut().expect("v3 worker").record_cache(
+                        &mut harness_cache.lock().expect("v3 cache"), response.cache);
+                    if let Some(ref mut executed) = response.outcome {
+                        executed.worker_roundtrip_ns = roundtrip_ns;
+                        executed.worker_launch_ns = launch_ns;
+                    }
+                    *harness_outcome.lock().expect("v3 outcome") = response.outcome;
+                    if let Some(error) = response.error {
+                        eprintln!("[v3] worker execution error: {error}");
+                    }
+                    if response.parser_rejected {
+                        PARSER_REJECTED.store(true, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    if response.crashed {
+                        WORKER_CRASHED.store(true, std::sync::atomic::Ordering::Relaxed);
+                        worker.take();
+                        // The worker has already isolated the target fault;
+                        // let the current V3 campaign continue.
+                        ExitKind::Ok
+                    } else { ExitKind::Ok }
+                }
+                Err(error) => {
+                    let timed_out = matches!(error.kind(), std::io::ErrorKind::TimedOut
+                        | std::io::ErrorKind::WouldBlock);
+                    worker.take();
+                    if timed_out { ExitKind::Timeout } else { ExitKind::Crash }
+                }
+            }
+        } else {
+            memory_member_oracle_reset();
+            ASAN_VIOLATION.store(false, std::sync::atomic::Ordering::Relaxed);
+            let mut cache = harness_cache.lock().expect("v3 cache");
+            match execute_with_cache(&data, &harness_bundle, &mut cache) {
+                Ok(executed) => {
+                    let member_violation = memory_member_oracle_seen();
+                    let asan_violation = ASAN_VIOLATION.load(std::sync::atomic::Ordering::Relaxed);
+                    *harness_outcome.lock().expect("v3 outcome") = Some(executed);
+                    if member_violation || asan_violation { ExitKind::Crash } else { ExitKind::Ok }
+                },
+                Err(error) => {
+                    eprintln!("[v3] execution error: {error}");
+                    cache.clear();
+                    if error.starts_with("parser reject:") {
+                        PARSER_REJECTED.store(true, std::sync::atomic::Ordering::Relaxed);
+                        ExitKind::Ok
+                    } else {
+                        ExitKind::Crash
+                    }
+                }
             }
         }
     };
@@ -506,31 +543,35 @@ fn run_v3_inprocess(setup: CampaignSetup) -> Result<(), Error> {
         config.v3_no_state_copy,
         config.v3_no_snapshot,
     );
-    let budget = config.v3_time_budget;
-    let pending_path = run_dir.join("metrics").join("engine-pending.txt");
-    println!("[v3] in-process engine: {} tasks, budget {:?}", bundle.tasks.tasks.len(), budget);
+    // Bundle and goal-task loading can be substantial for network targets.
+    // The configured V3 budget is the online search budget, so start it only
+    // after the engine has finished constructing the executable stage.
     let started = std::time::Instant::now();
+    let budget = config.v3_time_budget;
+    println!("[v3] in-process engine: {} tasks, budget {:?}", bundle.tasks.tasks.len(), budget);
     while started.elapsed() < budget && (config.v3_full_duration
         || config.fuzz_iterations.is_none_or(|limit| stage.stats.executions < limit)) {
         let scheduled_task = stage.select_task();
         if !config.v3_full_duration && !bundle.tasks.tasks.is_empty() && scheduled_task.is_none() { break; }
         let bytes = stage.next_input();
         let task = stage.current_solver_task_id().map(str::to_owned).or(scheduled_task);
-        std::fs::write(&pending_path, &bytes)
-            .map_err(|error| Error::illegal_argument(format!("pending input journal: {error}")))?;
-        if let Some(exit_kind) = v3_cold_preflight(&config.target, &pending_path, config.timeout, &hazard_ids)? {
-            stage.on_result(&exit_kind, &[], f64::INFINITY, None, task.as_deref(),
-                std::collections::BTreeMap::new(), None, &[]).map_err(Error::illegal_argument)?;
-            let _ = std::fs::remove_file(&pending_path);
-            cache.lock().expect("v3 cache").clear();
-            continue;
-        }
         let input = BytesInput::new(bytes);
         let exit_kind = fuzzer.execute_input(&mut state, &mut executor, &mut manager, &input)?;
+        let stage_exit_kind = v3_stage_exit_kind(
+            WORKER_CRASHED.swap(false, std::sync::atomic::Ordering::Relaxed),
+            exit_kind,
+        );
+        if PARSER_REJECTED.swap(false, std::sync::atomic::Ordering::Relaxed) {
+            stage.record_parser_reject();
+        }
+        let native_edges = unsafe {
+            std::slice::from_raw_parts(EDGES_BUFFER.as_mut_ptr(), inprocess_edge_map_size())
+        };
+        stage.record_native_edges(native_edges);
         let semantic = v3_semantic_snapshot();
         let mut executed = executor.take_outcome();
         if let Some(ref mut outcome) = executed {
-            outcome.exit_kind = match exit_kind {
+            outcome.exit_kind = match stage_exit_kind {
                 libafl::executors::ExitKind::Ok => "Ok",
                 libafl::executors::ExitKind::Crash => "Crash",
                 libafl::executors::ExitKind::Timeout => "Timeout",
@@ -550,9 +591,8 @@ fn run_v3_inprocess(setup: CampaignSetup) -> Result<(), Error> {
             .unwrap_or(f64::INFINITY);
         let state_values = observer.values();
         let best_frame = task.as_deref().and_then(|task_id| observer.best_frame(task_id));
-        stage.on_result(&exit_kind, &semantic, distance, best_frame, task.as_deref(), state_values, executed.as_ref(), observer.frame_feedback())
+        stage.on_result(&stage_exit_kind, &semantic, distance, best_frame, task.as_deref(), state_values, executed.as_ref(), observer.frame_feedback())
             .map_err(Error::illegal_argument)?;
-        let _ = std::fs::remove_file(&pending_path);
         let (hits, saved, _, attempts, validations, invalidations) = executor.cache_stats();
         stage.record_cache(hits, saved, attempts, validations, invalidations);
         if !config.v3_full_duration && stage.all_goals_reached() { break; }

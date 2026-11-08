@@ -1,8 +1,9 @@
 // Canonical v3 testcase frames shared with `fuzzer/corpus/frames.py`.
 //
-// The coverage engine still consumes the textual form; this module is the
-// authoritative Rust implementation of the parser, canonical writer and the
-// FNV-1a 64 frame/prefix hashes used by the Python search and corpus store.
+// Text is the interchange format, while decoded field bytes stay cached in
+// each Frame for the native execution and mutation hot paths. This module is
+// the authoritative Rust implementation of the parser, canonical writer and
+// the FNV-1a 64 frame/prefix hashes used by the Python search and corpus store.
 
 pub const FNV_OFFSET: u64 = 14_695_981_039_346_656_037;
 pub const FNV_PRIME: u64 = 1_099_511_628_211;
@@ -19,11 +20,68 @@ pub fn fnv1a64(data: &[u8], seed: u64) -> u64 {
     value
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct Frame {
     pub index: u32,
     pub values: BTreeMap<String, String>,
     pub dt_ns: Option<u64>,
+    /// Decoded field bytes keyed by field name. Native execution and raw
+    /// mutation use this cache directly; semantic values are only the control
+    /// representation used when choosing a typed mutation.
+    pub raw_values: BTreeMap<String, Vec<u8>>,
+}
+
+impl PartialEq for Frame {
+    fn eq(&self, other: &Self) -> bool {
+        self.index == other.index && self.values == other.values && self.dt_ns == other.dt_ns
+    }
+}
+
+impl Eq for Frame {}
+
+impl Frame {
+    pub fn new(index: u32, values: BTreeMap<String, String>, dt_ns: Option<u64>) -> Self {
+        let mut frame = Self { index, values, dt_ns, raw_values: BTreeMap::new() };
+        frame.refresh_raw_values();
+        frame
+    }
+
+    pub fn refresh_raw_values(&mut self) {
+        self.raw_values.clear();
+        for (name, value) in &self.values {
+            if let Some(bytes) = raw_hex_bytes(value) {
+                self.raw_values.insert(name.clone(), bytes);
+            }
+        }
+    }
+
+    /// Populate the byte cache for legacy semantic text as well as explicit
+    /// hexadecimal values. The schema is only needed at parse boundaries;
+    /// native execution can then reuse the decoded bytes directly.
+    pub fn refresh_raw_values_with_schema(&mut self, schema: &FrameSchema) {
+        self.raw_values.clear();
+        for (name, value) in &self.values {
+            let kind = schema.frame_types.get(name).map(String::as_str);
+            let bytes = value_bytes_for_schema(
+                kind,
+                value,
+                schema.frame_scalar_width.get(name).copied(),
+                schema.frame_string_wide.get(name).copied().unwrap_or(false),
+            );
+            if let Some(bytes) = bytes {
+                self.raw_values.insert(name.clone(), bytes);
+            }
+        }
+    }
+
+    pub fn cached_raw_bytes(&self, name: &str, _current: &str) -> Option<&[u8]> {
+        self.raw_values.get(name).map(Vec::as_slice)
+    }
+
+    pub fn set_raw_value(&mut self, name: String, value: String, bytes: Vec<u8>) {
+        self.values.insert(name.clone(), value.clone());
+        self.raw_values.insert(name, bytes);
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -44,6 +102,96 @@ pub struct FrameSchema {
     pub shared_string_lengths: BTreeMap<String, usize>,
     pub frame_string_wide: BTreeMap<String, bool>,
     pub shared_string_wide: BTreeMap<String, bool>,
+    pub frame_byte_capacity: BTreeMap<String, usize>,
+    pub shared_byte_capacity: BTreeMap<String, usize>,
+    pub frame_scalar_width: BTreeMap<String, usize>,
+    pub shared_scalar_width: BTreeMap<String, usize>,
+}
+
+fn hex_bytes(value: &str) -> Result<Option<usize>, String> {
+    let Some(digits) = value.strip_prefix("0x").or_else(|| value.strip_prefix("0X")) else {
+        return Ok(None);
+    };
+    if digits.len() % 2 != 0 || !digits.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(format!("invalid hex bytes {value:?}"));
+    }
+    Ok(Some(digits.len() / 2))
+}
+
+/// Decode an already validated canonical `0x...` value without allocating a
+/// second textual representation.  Invalid values return `None`; public
+/// parsing performs the strict error reporting before this helper is used.
+pub fn raw_hex_bytes(value: &str) -> Option<Vec<u8>> {
+    let digits = value.strip_prefix("0x").or_else(|| value.strip_prefix("0X"))?;
+    if digits.len() % 2 != 0 || !digits.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return None;
+    }
+    Some(digits.as_bytes().chunks_exact(2).map(|pair| {
+        let high = (pair[0] as char).to_digit(16).expect("validated hex") as u8;
+        let low = (pair[1] as char).to_digit(16).expect("validated hex") as u8;
+        (high << 4) | low
+    }).collect())
+}
+
+fn value_bytes_for_schema(
+    kind: Option<&str>,
+    value: &str,
+    scalar_width: Option<usize>,
+    wide_string: bool,
+) -> Option<Vec<u8>> {
+    if let Some(bytes) = raw_hex_bytes(value) {
+        return Some(bytes);
+    }
+    let kind = kind?;
+    if kind.starts_with("STRING") {
+        return Some(value.as_bytes().to_vec());
+    }
+    if kind.starts_with("WSTRING") {
+        return Some(value.encode_utf16().flat_map(u16::to_le_bytes).collect());
+    }
+    if kind == "REAL" {
+        return value.parse::<f32>().ok().map(|number| number.to_le_bytes().to_vec());
+    }
+    if kind == "LREAL" {
+        return value.parse::<f64>().ok().map(|number| number.to_le_bytes().to_vec());
+    }
+    if wide_string {
+        return Some(value.encode_utf16().flat_map(u16::to_le_bytes).collect());
+    }
+    let width = scalar_width?;
+    if width == 0 || width > 16 {
+        return None;
+    }
+    let number = if let Some(hex) = value.strip_prefix("0x").or_else(|| value.strip_prefix("0X")) {
+        i128::from_str_radix(hex, 16).ok()?
+    } else {
+        value.parse::<i128>().ok()?
+    };
+    Some(number.to_le_bytes()[..width].to_vec())
+}
+
+fn check_bytes(field: &str, value: &str, capacity: Option<&usize>, width: Option<&usize>, line: usize) -> Result<bool, String> {
+    let Some(digits) = value.strip_prefix("0x").or_else(|| value.strip_prefix("0X")) else {
+        if capacity.is_some() { return Err(format!("line {line}: {field} requires hex bytes")); }
+        return Ok(false);
+    };
+    if !digits.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(format!("line {line}: {field} invalid hex bytes {value:?}"));
+    }
+    if digits.len() % 2 != 0 {
+        return Err(format!("line {line}: {field} invalid hex bytes {value:?}"));
+    }
+    let count = digits.len() / 2;
+    if let Some(&expected) = width {
+        if count != expected {
+            return Err(format!("line {line}: {field} raw bytes {count} require ABI width {expected}"));
+        }
+    }
+    if let Some(&capacity) = capacity {
+        if count > capacity { return Err(format!("line {line}: {field} bytes {count} exceed {capacity}")); }
+        return Ok(true);
+    }
+    Ok(count > 0)
 }
 
 fn check_numeric_domain(field: &str, value: &str, bounds: Option<&(i128, i128)>, line: usize) -> Result<(), String> {
@@ -65,10 +213,24 @@ fn check_numeric_domain(field: &str, value: &str, bounds: Option<&(i128, i128)>,
 
 fn check_string_domain(field: &str, value: &str, max_length: Option<&usize>, wide: bool, line: usize) -> Result<(), String> {
     let Some(&max_length) = max_length else { return Ok(()); };
+    if let Some(count) = hex_bytes(value).map_err(|error| format!("line {line}: {field} {error}"))? {
+        let unit = if wide { 2 } else { 1 };
+        // Text values use at most N payload units. Raw values describe the
+        // complete ABI object and may occupy the N+1 terminator slot.
+        let capacity = if value.strip_prefix("0x").is_some() || value.strip_prefix("0X").is_some() {
+            (max_length + 1) * unit
+        } else {
+            max_length * unit
+        };
+        if count % unit != 0 || count > capacity {
+            return Err(format!("line {line}: {field} string bytes {count} exceed capacity or split a unit"));
+        }
+        return Ok(());
+    }
     let length = if wide {
         value.encode_utf16().count()
     } else {
-        value.chars().count()
+        value.as_bytes().len()
     };
     if length > max_length {
         return Err(format!(
@@ -158,11 +320,12 @@ pub fn parse_testcase(text: &str, schema: &FrameSchema) -> Result<TestCase, Stri
                     }
                 }
             }
-            check_numeric_domain(&canonical, value, schema.shared_bounds.get(&canonical), line_number + 1)?;
+            let raw = check_bytes(&canonical, value, schema.shared_byte_capacity.get(&canonical), schema.shared_scalar_width.get(&canonical), line_number + 1)?;
+            if !raw { check_numeric_domain(&canonical, value, schema.shared_bounds.get(&canonical), line_number + 1)?; }
             check_string_domain(&canonical, value, schema.shared_string_lengths.get(&canonical),
                                 schema.shared_string_wide.get(&canonical).copied().unwrap_or(false),
                                 line_number + 1)?;
-            case.shared.insert(canonical, value.to_string());
+            case.shared.insert(canonical, if value.starts_with("0x") || value.starts_with("0X") { value.to_ascii_lowercase() } else { value.to_string() });
             continue;
         };
         let same_frame = case.frames.last().map(|frame| frame.index) == Some(cycle);
@@ -178,7 +341,7 @@ pub fn parse_testcase(text: &str, schema: &FrameSchema) -> Result<TestCase, Stri
                 values.entry(key.clone()).or_insert_with(||
                     default_for_type(schema.frame_types.get(key).map(String::as_str).unwrap_or("")));
             }
-            case.frames.push(Frame { index: cycle, values, dt_ns: None });
+            case.frames.push(Frame::new(cycle, values, None));
             explicit_fields.push(std::collections::HashSet::new());
             expected_index = cycle + 1;
         }
@@ -212,12 +375,17 @@ pub fn parse_testcase(text: &str, schema: &FrameSchema) -> Result<TestCase, Stri
                 }
             }
         }
-        check_numeric_domain(&canonical, value, schema.frame_bounds.get(&canonical), line_number + 1)?;
+        let raw = check_bytes(&canonical, value, schema.frame_byte_capacity.get(&canonical), schema.frame_scalar_width.get(&canonical), line_number + 1)?;
+        if !raw { check_numeric_domain(&canonical, value, schema.frame_bounds.get(&canonical), line_number + 1)?; }
         check_string_domain(&canonical, value, schema.frame_string_lengths.get(&canonical),
                             schema.frame_string_wide.get(&canonical).copied().unwrap_or(false),
                             line_number + 1)?;
         let frame = case.frames.last_mut().expect("frame");
-        frame.values.insert(canonical.clone(), value.to_string());
+        frame.values.insert(canonical.clone(), if value.starts_with("0x") || value.starts_with("0X") { value.to_ascii_lowercase() } else { value.to_string() });
+        frame.raw_values.remove(&canonical);
+        if let Some(bytes) = raw_hex_bytes(value) {
+            frame.raw_values.insert(canonical.clone(), bytes);
+        }
         explicit_fields[cycle as usize].insert(canonical);
         if field.eq_ignore_ascii_case(RESERVED_DT) {
             frame.dt_ns = Some(value.parse::<u64>().unwrap_or(0));
@@ -246,6 +414,7 @@ pub fn parse_testcase(text: &str, schema: &FrameSchema) -> Result<TestCase, Stri
                 default_for_type(schema.frame_types.get(key).map(String::as_str).unwrap_or("")));
         }
         frame.values = values;
+        frame.refresh_raw_values_with_schema(schema);
         inherited = frame.values.clone();
     }
     for frame in &case.frames {
@@ -430,6 +599,49 @@ mod frames_tests {
         schema.frame_string_lengths.insert("Text".into(), 3);
         assert!(parse_testcase("0.Text,STRING,ABC\n", &schema).is_ok());
         assert!(parse_testcase("0.Text,STRING,ABCD\n", &schema).is_err());
+    }
+
+    #[test]
+    fn raw_field_bytes_preserve_storage_and_validate_decoded_length() {
+        let mut schema = FrameSchema::default();
+        schema.frame_defaults.insert("B".into(), "0".into());
+        schema.frame_types.insert("B".into(), "BOOL".into());
+        schema.frame_bounds.insert("B".into(), (0, 1));
+        schema.frame_scalar_width.insert("B".into(), 1);
+        schema.frame_defaults.insert("S".into(), "A".into());
+        schema.frame_types.insert("S".into(), "STRING".into());
+        schema.frame_string_lengths.insert("S".into(), 2);
+        let case = parse_testcase("0.B,BOOL,0X03\n0.S,STRING,0x80ff\n", &schema).unwrap();
+        assert_eq!(case.frames[0].values["B"], "0x03");
+        assert_eq!(case.frames[0].values["S"], "0x80ff");
+        assert_eq!(case.frames[0].cached_raw_bytes("B", "0x03"), Some([0x03].as_slice()));
+        assert_eq!(case.frames[0].cached_raw_bytes("S", "0x80ff"), Some([0x80, 0xff].as_slice()));
+        assert_eq!(case.frames[0].cached_raw_bytes("S", "0x00"), Some([0x80, 0xff].as_slice()));
+        assert!(parse_testcase("0.B,BOOL,0x3\n", &schema).is_err());
+        assert!(parse_testcase("0.S,STRING,0x80ff01\n", &schema).is_ok());
+        assert!(parse_testcase("0.S,STRING,0x8\n", &schema).is_err());
+    }
+
+    #[test]
+    fn semantic_text_is_decoded_once_into_the_frame_byte_cache() {
+        let mut schema = FrameSchema::default();
+        schema.frame_defaults.insert("Text".into(), "A".into());
+        schema.frame_types.insert("Text".into(), "STRING".into());
+        schema.frame_string_lengths.insert("Text".into(), 4);
+        schema.frame_defaults.insert("Wide".into(), "A".into());
+        schema.frame_types.insert("Wide".into(), "WSTRING".into());
+        schema.frame_string_lengths.insert("Wide".into(), 4);
+        schema.frame_string_wide.insert("Wide".into(), true);
+        schema.frame_defaults.insert("Count".into(), "0".into());
+        schema.frame_types.insert("Count".into(), "UINT".into());
+        schema.frame_scalar_width.insert("Count".into(), 2);
+        let case = parse_testcase(
+            "0.Text,STRING,Hi\n0.Wide,WSTRING,\u{1f600}\n0.Count,UINT,258\n",
+            &schema,
+        ).unwrap();
+        assert_eq!(case.frames[0].cached_raw_bytes("Text", "Hi"), Some(b"Hi".as_slice()));
+        assert_eq!(case.frames[0].cached_raw_bytes("Wide", "\u{1f600}"), Some([0x3d, 0xd8, 0x00, 0xde].as_slice()));
+        assert_eq!(case.frames[0].cached_raw_bytes("Count", "258"), Some([0x02, 0x01].as_slice()));
     }
 
     #[test]

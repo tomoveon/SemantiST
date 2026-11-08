@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 import re
+import struct
 from typing import Any
 
 from compiler.harness.abi import TargetAbi, frame_action_params
-from fuzzer.corpus.frames import default_for_spec
+from compiler.harness.contract import POINTER_STORAGE_CAPACITY
+from fuzzer.corpus.frames import default_for_spec, structured_default_for_spec
 
 OPS = {"set", "pulse", "hold", "wait", "repeat"}
 INT_TYPES = {"SINT", "USINT", "BYTE", "CHAR", "INT", "UINT", "WORD", "WCHAR", "DINT", "UDINT", "DWORD",
@@ -17,7 +19,9 @@ MAX_REPEAT_DEPTH = 8
 PLAN_KEYS = {
     "plan", "steps", "sequence", "actions", "plan_id", "task_id", "contract_id", "intent",
     "evidence_refs", "start_from", "suggested_symbolic_fields", "priority", "prompt_version",
+    "solver_triggers",
 }
+SOLVER_TRIGGERS = {"task_distance_improved", "native_hazard_reach", "state_frontier", "task_stagnation"}
 
 
 class PlanRejected(ValueError):
@@ -131,16 +135,149 @@ def _field_map(abi: dict[str, Any] | TargetAbi) -> dict[str, dict[str, Any]]:
     seen = {entry.get("name") for entry in entries}
     entries.extend(entry for entry in abi.get("shared_fields", [])
                    if entry.get("block_kind") == "VAR_IN_OUT" and entry.get("name") not in seen)
-    return {entry["name"]: entry for entry in entries if isinstance(entry, dict) and entry.get("name")}
+    result = {entry["name"]: entry for entry in entries
+              if isinstance(entry, dict) and entry.get("name")}
+    for entry in list(result.values()):
+        spec = entry.get("spec") or {}
+        _add_member_fields(result, entry["name"], spec)
+    return result
+
+
+def _add_member_fields(result: dict[str, dict[str, Any]], prefix: str,
+                       spec: dict[str, Any], base_offset: int = 0) -> None:
+    """Expose opaque members as plan fields while retaining the parent ABI field."""
+    for member in spec.get("members") or []:
+        name = str(member.get("name") or "")
+        child = member.get("spec") or {}
+        if not name or not isinstance(child, dict):
+            continue
+        path = f"{prefix}.{name}"
+        offset = base_offset + int(member.get("offset") or 0)
+        result[path] = {"name": path, "spec": child,
+                        "_parent": prefix.split(".", 1)[0],
+                        "_offset": offset}
+        _add_member_fields(result, path, child, offset)
+
+
+def _aggregate_member_layout(abi: dict[str, Any]) -> dict[str, tuple[str, int, dict[str, Any]]]:
+    fields = _field_map(abi)
+    return {
+        name: (entry["_parent"], int(entry["_offset"]), entry["spec"])
+        for name, entry in fields.items() if "_parent" in entry
+    }
+
+
+def _scalar_signed(spec: dict[str, Any]) -> bool:
+    name = str(spec.get("name") or "")
+    c_type = str(spec.get("c_type") or "")
+    return not (c_type.startswith("u") or name in {
+        "USINT", "BYTE", "CHAR", "UINT", "WORD", "WCHAR",
+        "UDINT", "DWORD", "ULINT", "LWORD",
+    })
+
+
+def _member_bytes(spec: dict[str, Any], value: Any) -> bytes:
+    kind = spec.get("kind")
+    size = int(spec.get("byte_size") or spec.get("size") or 0)
+    if isinstance(value, str) and value.lower().startswith("0x"):
+        digits = value[2:]
+        if len(digits) % 2 or re.fullmatch(r"[0-9a-fA-F]*", digits) is None:
+            raise PlanRejected("aggregate member has invalid hexadecimal bytes")
+        data = bytes.fromhex(digits)
+    elif kind == "scalar":
+        if spec.get("name") in {"REAL", "LREAL"}:
+            data = struct.pack("<f" if spec.get("name") == "REAL" else "<d", float(value))
+        else:
+            number = int(value)
+            data = number.to_bytes(size, "little", signed=_scalar_signed(spec))
+    elif kind == "string":
+        text = str(value)
+        data = (text.encode("utf-16-le") if spec.get("name") == "WSTRING"
+                else text.encode("utf-8"))
+    else:
+        raise PlanRejected(f"aggregate member {spec.get('name') or kind!r} requires 0x bytes")
+    if size and len(data) > size:
+        raise PlanRejected(f"aggregate member bytes exceed {size}")
+    return data + b"\x00" * max(0, size - len(data))
+
+
+def _expand_aggregate_inputs(inputs: dict[str, Any], abi: dict[str, Any]) -> dict[str, Any]:
+    """Merge member assignments into fixed-size parent raw-byte fields."""
+    layout = _aggregate_member_layout(abi)
+    if not layout:
+        return dict(inputs)
+    top_specs = {entry["name"]: entry.get("spec") or {}
+                 for entry in list(abi.get("frame_fields", [])) + list(abi.get("shared_fields", []))
+                 if isinstance(entry, dict) and entry.get("name")}
+    expanded = dict(inputs)
+    buffers: dict[str, bytearray] = {}
+    for parent, spec in top_specs.items():
+        if not (spec.get("kind") in {"opaque", "array"} and spec.get("byte_size")):
+            continue
+        raw = inputs.get(parent)
+        if isinstance(raw, str) and raw.lower().startswith("0x"):
+            digits = raw[2:]
+            if len(digits) % 2 or re.fullmatch(r"[0-9a-fA-F]*", digits) is None:
+                raise PlanRejected(f"{parent} has invalid hexadecimal bytes")
+            initial = bytes.fromhex(digits)
+        else:
+            # A member-only plan gets a structural starting state so
+            # protocol guards remain reachable. An explicit parent value,
+            # including 0x00, still has exact precedence.
+            seeded = structured_default_for_spec(parent, spec)
+            initial = bytes.fromhex(seeded[2:]) if seeded.lower().startswith("0x") else b""
+        capacity = int(spec.get("byte_size") or spec.get("size") or 0)
+        if len(initial) > capacity:
+            raise PlanRejected(f"{parent} bytes exceed {capacity}")
+        buffers[parent] = bytearray(initial + b"\x00" * (capacity - len(initial)))
+    for name, value in inputs.items():
+        if name not in layout:
+            continue
+        parent, offset, spec = layout[name]
+        # XML_CONTROL starts a parse cycle only when COMMAND bit 15 is set.
+        # Preserve the planner's command bits while carrying that structural
+        # enable bit into the aggregate bytes; later raw mutation may clear or
+        # flip it deliberately.
+        if (name.upper().startswith("CTRL.") and name.upper().endswith(".COMMAND")
+                and spec.get("kind") == "scalar" and not (
+                    isinstance(value, str) and value.lower().startswith("0x"))):
+            value = int(value) | 0x8000
+        data = _member_bytes(spec, value)
+        buffer = buffers.get(parent)
+        if buffer is None or offset + len(data) > len(buffer):
+            raise PlanRejected(f"aggregate member {name!r} exceeds parent storage")
+        buffer[offset:offset + len(data)] = data
+    for parent, buffer in buffers.items():
+        if any(name == parent or name.startswith(parent + ".") for name in inputs):
+            expanded[parent] = "0x" + bytes(buffer).hex()
+    for name in list(expanded):
+        if name in layout:
+            expanded.pop(name, None)
+    return expanded
 
 
 def _value_ok(spec: dict[str, Any], value: Any) -> bool:
     kind = spec.get("kind")
+    if isinstance(value, str) and value.startswith(("0x", "0X")):
+        digits = value[2:]
+        if len(digits) % 2 or re.fullmatch(r"[0-9a-fA-F]*", digits) is None:
+            return False
+        count = len(digits) // 2
+        if kind == "string":
+            unit = 2 if spec.get("name") == "WSTRING" else 1
+            capacity = spec.get("length") or spec.get("capacity")
+            return count % unit == 0 and (capacity is None or count <= int(capacity) * unit)
+        if kind == "scalar" and count == int(spec.get("size") or 1):
+            return True
+        if kind in {"array", "pointer", "opaque"}:
+            capacity = POINTER_STORAGE_CAPACITY if kind == "pointer" else int(spec.get("byte_size") or spec.get("size") or 0)
+            return not capacity or count <= capacity
     if kind == "string":
         if not isinstance(value, str):
             return False
         capacity = spec.get("length") or spec.get("capacity")
-        return capacity is None or len(value) <= int(capacity)
+        units = len(value.encode("utf-16le")) // 2 if spec.get("name") == "WSTRING" else len(value.encode("utf-8"))
+        return capacity is None or units <= int(capacity)
     if kind == "pointer":
         return isinstance(value, str) and (value == "" or value.startswith(("0x", "0X")))
     if kind == "array":
@@ -205,6 +342,12 @@ def validate_plan(
     priority = plan.get("priority")
     if priority is not None and (type(priority) is not int or not 1 <= priority <= 100):
         reasons.append("priority must be an integer in 1..100")
+    triggers = plan.get("solver_triggers", [])
+    if (not isinstance(triggers, list) or len(triggers) > len(SOLVER_TRIGGERS)
+            or any(not isinstance(item, str) or item not in SOLVER_TRIGGERS
+                   for item in triggers)
+            or any(triggers.count(item) > 1 for item in triggers if isinstance(item, str))):
+        reasons.append("solver_triggers must be distinct supported native events")
     fields = _field_map(abi)
     output_evidence_refs = plan.get("evidence_refs", [])
     if output_evidence_refs is not None and (not isinstance(output_evidence_refs, list)
@@ -252,6 +395,10 @@ def validate_plan(
                     reasons.append(f"unknown input {name!r}")
                 elif not _value_ok(entry["spec"], value):
                     reasons.append(f"{name} value outside its type domain")
+            try:
+                _expand_aggregate_inputs(inputs, abi)
+            except PlanRejected as error:
+                reasons.append(str(error))
             if op == "set":
                 if action.get("frames", 1) != 1:
                     reasons.append("set frames must be 1")
@@ -366,11 +513,13 @@ def expand_plan(
 ) -> list[dict[str, str]]:
     plan = normalize_plan(plan)
     fields = _field_map(abi)
-    defaults = {name: default_for_spec(entry["spec"]) for name, entry in fields.items()}
+    defaults = {name: default_for_spec(entry["spec"]) for name, entry in fields.items()
+                if "." not in name}
     frames: list[dict[str, str]] = []
     current = {**defaults, **base_frame}
 
     def apply(inputs: dict[str, Any]) -> None:
+        inputs = _expand_aggregate_inputs(inputs, abi)
         for name, value in inputs.items():
             if isinstance(value, bool):
                 value = 1 if value else 0

@@ -16,7 +16,7 @@ htmlcov/
 /dist/
 
 # Local research and design notes; runtime prompts live in source code.
-/docs/
+/docs/*
 
 # Local environment/config
 .env

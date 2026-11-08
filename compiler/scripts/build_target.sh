@@ -158,6 +158,57 @@ CONTRACT_DEFINES=(
 )
 "$LLVM_CLANG" -g -O1 "${CONTRACT_DEFINES[@]}" "${AFL_COVERAGE_FLAGS[@]}" "${TARGET_SANITIZER_FLAGS[@]}" "${LINK_OBJECTS[@]}" -ldl -lpthread -lm -o "$OUT_BIN"
 
+# Build the baseline artifact from a semantic-off compile.  The SemantiST
+# binary above remains the canonical semantic build; this sibling contains
+# only the neutral Common PLC Harness, ordinary coverage and sanitizers.
+if [[ "${SEMANTIST_BUILD_COMMON:-0}" == "1" ]]; then
+  COMMON_STDLIB_LIB="${SEMANTIST_RUSTY_STDLIB_LIB:-${CARGO_TARGET_DIR:-${SEMANTIST_ARTIFACT_DIR}/cargo-target}/release/libiec61131std.a}"
+  if [[ ! -r "$COMMON_STDLIB_LIB" ]]; then
+    echo "[build_target] missing ordinary RuSTy standard library: $COMMON_STDLIB_LIB" >&2
+    exit 1
+  fi
+  COMMON_DIR="${COMMON_BUILD_DIR:-$(dirname "$OUT_BIN")/common}"
+  COMMON_LL="${COMMON_LL:-$COMMON_DIR/target.ll}"
+  COMMON_PREPARED_LL="${COMMON_PREPARED_LL:-$COMMON_DIR/target.prepared.ll}"
+  COMMON_LOOPS_LL="${COMMON_LOOPS_LL:-$COMMON_DIR/target.loops.ll}"
+  COMMON_OBJ="${COMMON_OBJ:-$COMMON_DIR/target.o}"
+  COMMON_HARNESS="${COMMON_HARNESS:-$COMMON_DIR/harness.c}"
+  COMMON_LAYOUT="${COMMON_LAYOUT:-$COMMON_DIR/input-layout.json}"
+  COMMON_BIN="${COMMON_BIN:-$COMMON_DIR/fuzz_target}"
+  mkdir -p "$COMMON_DIR"
+
+  SEMANTIST_SEMANTIC_INSTRUMENTATION=off OUT_LL="$COMMON_LL" \
+    SEMANTIST_BUILD_ARTIFACT_DIR="$COMMON_DIR" \
+    SEMANTIST_COMPATIBILITY_BUILD_DIR="${SEMANTIST_COMPATIBILITY_BUILD_DIR:-$(dirname "$OUT_BIN")/../../compatibility/$TARGET_NAME}" \
+    ./compiler/scripts/compile_st.sh "$ST_FILE" "$ST_FUNCTION"
+  python3 -m compiler.scripts.prepare_target_ir "$COMMON_LL" "$ST_FUNCTION" \
+    --output-ll "$COMMON_PREPARED_LL" --llvm-bin "$SEMANTIST_LLVM_BIN"
+  python3 -m compiler.instrumentation.loop_budget "$COMMON_PREPARED_LL" \
+    --output "$COMMON_LOOPS_LL" --symbol __common_loop_tick
+  "$LLVM_CLANG" -g -O1 "${AFL_COVERAGE_FLAGS[@]}" "${TARGET_SANITIZER_FLAGS[@]}" \
+    -c "$COMMON_LOOPS_LL" -o "$COMMON_OBJ"
+  python3 -m compiler.harness.common "$ST_FUNCTION" --ir "$COMMON_LL" \
+    --stg-model "$STG_MODEL" --out "$COMMON_HARNESS" \
+    --layout-out "$COMMON_LAYOUT"
+  COMMON_HARNESS_OBJ="$COMMON_DIR/harness.o"
+  "$LLVM_CLANG" -g -O1 "${CONTRACT_DEFINES[@]}" \
+    "${AFL_COVERAGE_FLAGS[@]}" "${TARGET_SANITIZER_FLAGS[@]}" \
+    -c "$COMMON_HARNESS" -o "$COMMON_HARNESS_OBJ"
+  COMMON_LINK_OBJECTS=(
+    "$COMMON_HARNESS_OBJ"
+    "$COMMON_OBJ"
+    "$AFL_RUNTIME"
+    "$COMMON_STDLIB_LIB"
+  )
+  if [[ -n "${SEMANTIST_COMPATIBILITY_MANIFEST:-}" ]]; then
+    COMMON_LINK_OBJECTS+=("${COMPATIBILITY_LINK_INPUTS[@]}")
+  fi
+  "$LLVM_CLANG" -g -O1 "${CONTRACT_DEFINES[@]}" \
+    "${AFL_COVERAGE_FLAGS[@]}" "${TARGET_SANITIZER_FLAGS[@]}" \
+    "${COMMON_LINK_OBJECTS[@]}" -ldl -lpthread -lm -o "$COMMON_BIN"
+  echo "[build_target] wrote common baseline $COMMON_BIN"
+fi
+
 # The in-process fuzzer links the same harness, target object and libraries
 # with the engine library instead of the AFL++ runtime; the engine provides
 # coverage guards and the semantic buffers (see fuzzer/engine/src/inprocess.rs).

@@ -145,6 +145,24 @@ class LlmTests(unittest.TestCase):
         self.assertEqual(frames[-1]["Start"], "1")
         self.assertGreaterEqual(len(frames), 4)
 
+    def test_member_plan_keeps_protocol_controls_in_aggregate_parent(self):
+        abi = {"frame_fields": [{
+            "name": "CTRL", "spec": {
+                "kind": "opaque", "name": "XML_CONTROL", "byte_size": 8,
+                "members": [
+                    {"name": "COMMAND", "offset": 0, "size": 2,
+                     "spec": {"kind": "scalar", "name": "WORD", "size": 2}},
+                    {"name": "STOP_POS", "offset": 2, "size": 2,
+                     "spec": {"kind": "scalar", "name": "UINT", "size": 2}},
+                ],
+            },
+        }], "shared_fields": []}
+        plan = {"plan_id": "member", "actions": [{"op": "set", "inputs": {"CTRL.COMMAND": 1}}]}
+        validate_plan(plan, abi=abi, contract_id=None)
+        frames = expand_plan(plan, {}, abi)
+        raw = bytes.fromhex(frames[0]["CTRL"][2:])
+        self.assertEqual(raw[:4], b"\x01\x80\x03\x00")
+
     def test_unknown_input_is_rejected(self):
         with self.assertRaises(PlanRejected):
             validate_plan({"actions": [{"op": "set", "inputs": {"Nope": 1}}]}, abi=ABI, contract_id=None)

@@ -5,7 +5,10 @@
   "profiles": [],
   "library": {
     "normalized_sources": ["../../oscat_basic/source/oscat.st", "network_types.st"],
-    "compatibility_sources": ["../../oscat_basic/source/stubs.st", "network_fallbacks.st"]
+    "compatibility_sources": [
+      "../../oscat_basic/source/stubs.st",
+      "network_fallbacks.st"
+    ]
   },
   "native": {
     "sources": [],

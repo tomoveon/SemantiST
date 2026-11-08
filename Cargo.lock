@@ -2542,8 +2542,10 @@ dependencies = [
 name = "semantist"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "libafl",
  "libafl_bolts",
+ "libc",
  "serde",
  "serde_json",
  "sha2",

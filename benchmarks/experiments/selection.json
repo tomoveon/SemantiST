@@ -1,0 +1,26 @@
+{
+  "schema_version": "semantist.paper-selection/1",
+  "selection_rule": "First 16 Basic, first 2 Network, and first 2 Building FUNCTION_BLOCK entries in the frozen OSCAT manifest order. Selection uses no search outcomes.",
+  "focus_targets": [
+    "oscat_basic_scheduler_2",
+    "oscat_basic_delay",
+    "oscat_basic_sh_2",
+    "oscat_basic_sequence_64",
+    "oscat_basic_holiday",
+    "oscat_basic_alarm_2",
+    "oscat_basic_bar_graph",
+    "oscat_basic_calibrate",
+    "oscat_basic_control_set1",
+    "oscat_basic_count_dr",
+    "oscat_basic_driver_1",
+    "oscat_basic_fifo_16",
+    "oscat_basic_filter_i",
+    "oscat_basic_filter_mav_dw",
+    "oscat_basic_flow_control",
+    "oscat_basic_flow_meter",
+    "oscat_network_net_var_buffer",
+    "oscat_network_irtrans_decode",
+    "oscat_building_timer_p4",
+    "oscat_building_actuator_coil"
+  ]
+}

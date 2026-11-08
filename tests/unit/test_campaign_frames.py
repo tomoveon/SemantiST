@@ -1,6 +1,8 @@
 import unittest
 
 from compiler.harness.abi import Param, TargetAbi, TypeSpec, scalar_spec
+from compiler.harness.semantist_adapter import testcase_to_raw as encode_raw_frame
+from fuzzer.pipeline.model import _SpecView
 from fuzzer.corpus.frames import (
     FrameFormatError,
     build_testcase,
@@ -8,6 +10,7 @@ from fuzzer.corpus.frames import (
     fnv1a64,
     parse_testcase,
     parse_time_literal,
+    structured_default_for_spec,
 )
 
 
@@ -126,6 +129,107 @@ class FrameTests(unittest.TestCase):
         self.assertEqual(parse_testcase("0.Wide,WSTRING,AB\n", target).frames[0].values["Wide"], "AB")
         with self.assertRaises(FrameFormatError):
             build_testcase(target, [{"Wide": "\U0001f600A"}])
+
+    def test_raw_bool_storage_byte_and_legacy_hex_integer(self):
+        target = abi()
+        case = parse_testcase("0.Enable,BOOL,0X03\n0.Value,INT,0x0100\n", target)
+        self.assertEqual(case.frames[0].values, {"Enable": "0x03", "Value": "0x0100"})
+        self.assertIn("0.Enable,BOOL,0x03", case.canonical())
+        raw = encode_raw_frame(case, target)
+        self.assertEqual(raw[0], 3)
+        self.assertEqual(raw[2:4], b"\x01\x00")
+        with self.assertRaises(FrameFormatError):
+            parse_testcase("0.Value,INT,0x1\n", target)
+
+    def test_string_hex_uses_decoded_capacity_and_zero_terminator(self):
+        field = Param("Text", TypeSpec("string", "STRING", c_type="char", size=1, length=3),
+                      "VAR_INPUT", offset=8, index=1)
+        target = TargetAbi("FUNCTION", "F", [field], state_fields=[field], instance_size=16)
+        case = parse_testcase("0.Text,STRING,0x80ff41\n", target)
+        self.assertEqual(encode_raw_frame(case, target)[:4], b"\x80\xffA\x00")
+        case = parse_testcase("0.Text,STRING,0x80ff4142\n", target)
+        self.assertEqual(encode_raw_frame(case, target)[:4], b"\x80\xffAB")
+        for value in ("0x80ff414243", "0xabc", "0xzz"):
+            with self.subTest(value=value), self.assertRaises(FrameFormatError):
+                parse_testcase(f"0.Text,STRING,{value}\n", target)
+
+    def test_wstring_hex_counts_two_byte_units(self):
+        field = Param("Wide", TypeSpec("string", "WSTRING", c_type="uint16_t", size=2, length=2),
+                      "VAR_INPUT", offset=8, index=1)
+        target = TargetAbi("FUNCTION", "F", [field], state_fields=[field], instance_size=16)
+        case = parse_testcase("0.Wide,WSTRING,0x00d841dc\n", target)
+        self.assertEqual(encode_raw_frame(case, target)[:6], b"\x00\xd8\x41\xdc\x00\x00")
+        case = parse_testcase("0.Wide,WSTRING,0x00d841dc0000\n", target)
+        self.assertEqual(encode_raw_frame(case, target)[:6], b"\x00\xd8\x41\xdc\x00\x00")
+        with self.assertRaises(FrameFormatError):
+            parse_testcase("0.Wide,WSTRING,0x00d841dc00000000\n", target)
+
+    def test_structured_defaults_prime_protocol_controls_without_truncation(self):
+        spec = {
+            "kind": "opaque", "name": "XML_CONTROL", "byte_size": 24,
+            "members": [
+                {"name": "COMMAND", "offset": 0, "size": 2,
+                 "spec": {"kind": "scalar", "name": "WORD", "size": 2}},
+                {"name": "START_POS", "offset": 2, "size": 2,
+                 "spec": {"kind": "scalar", "name": "UINT", "size": 2}},
+                {"name": "STOP_POS", "offset": 4, "size": 2,
+                 "spec": {"kind": "scalar", "name": "UINT", "size": 2}},
+            ],
+        }
+        value = structured_default_for_spec("CTRL", spec)
+        self.assertEqual(bytes.fromhex(value[2:])[:6], b"\x01\x80\x00\x00\x03\x00")
+        self.assertEqual(len(bytes.fromhex(value[2:])), 24)
+
+    def test_structured_defaults_seed_network_read_and_short_buffer_shape(self):
+        short = {
+            "kind": "opaque", "name": "NETWORK_BUFFER_SHORT", "byte_size": 10,
+            "members": [
+                {"name": "SIZE", "offset": 0, "size": 2,
+                 "spec": {"kind": "scalar", "name": "UINT", "size": 2}},
+                {"name": "BUFFER", "offset": 2, "size": 8,
+                 "spec": {"kind": "array", "name": "ARRAY OF BYTE", "byte_size": 8}},
+            ],
+        }
+        value = bytes.fromhex(structured_default_for_spec("R_BUF", short)[2:])
+        self.assertEqual(value[:2], b"\x05\x00")
+        self.assertEqual(value[2:7], b"A,A\r\n")
+
+        nested = {
+            "kind": "opaque", "name": "NET_VAR_DATA", "byte_size": 16,
+            "members": [{"name": "R_BUF", "offset": 0, "size": 16,
+                         "spec": {"kind": "opaque", "name": "NETWORK_BUFFER", "byte_size": 16,
+                                  "members": [
+                                      {"name": "SIZE", "offset": 0, "size": 2,
+                                       "spec": {"kind": "scalar", "name": "UINT", "size": 2}},
+                                      {"name": "BUFFER", "offset": 2, "size": 14,
+                                       "spec": {"kind": "array", "name": "ARRAY OF BYTE", "byte_size": 14}},
+                                  ]}}],
+        }
+        nested_bytes = bytes.fromhex(structured_default_for_spec("X", nested)[2:])
+        self.assertEqual(nested_bytes[:5], b"\x41\x00\x01\x20\x41")
+
+        net = {
+            "kind": "opaque", "name": "NET_VAR_DATA", "byte_size": 8,
+            "members": [
+                {"name": "STATE", "offset": 0, "size": 1,
+                 "spec": {"kind": "scalar", "name": "BYTE", "size": 1}},
+                {"name": "ERROR_ID", "offset": 1, "size": 1,
+                 "spec": {"kind": "scalar", "name": "BYTE", "size": 1}},
+                {"name": "BUF_SIZE", "offset": 2, "size": 2,
+                 "spec": {"kind": "scalar", "name": "UINT", "size": 2}},
+            ],
+        }
+        net_bytes = bytes.fromhex(structured_default_for_spec("X", net)[2:])
+        self.assertEqual(net_bytes[:4], b"\x02\x00\x80\x00")
+
+    def test_pointer_backing_bytes_accept_planner_spec_view(self):
+        pointer = Param("P", _SpecView({"kind": "pointer", "name": "POINTER", "size": 8, "byte_size": 8}),
+                        "VAR_INPUT", offset=8, index=1)
+        target = TargetAbi("FUNCTION_BLOCK", "FB", [pointer], state_fields=[pointer], instance_size=16)
+        self.assertIn(b"0.P,POINTER,0x" + b"ab" * 64,
+                      build_testcase(target, [{"P": "0x" + "ab" * 64}]))
+        with self.assertRaises(FrameFormatError):
+            build_testcase(target, [{"P": "0x" + "ab" * 4097}])
 
 
 if __name__ == "__main__":

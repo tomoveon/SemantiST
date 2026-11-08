@@ -156,6 +156,7 @@ def build_targets(args: argparse.Namespace, layout: Layout) -> Path:
             "HARNESS_OUT": str(layout.build / "harness.c"),
             "GENERATED_SEED_DIR": str(layout.generated_seeds),
             "SEMANTIST_SEMANTIC_INSTRUMENTATION": "ir",
+            "SEMANTIST_BUILD_COMMON": os.environ.get("SEMANTIST_BUILD_COMMON", "0"),
             "SEMANTIST_INPROCESS_REQUIRED": "1",
         }
     )

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from compiler.harness.generator import type_token
+from compiler.harness.contract import POINTER_STORAGE_CAPACITY
 
 DEFAULT_ST_STRING_LENGTH = int(os.environ.get("STFUZZER_STRING_LENGTH", "250"))
 DEFAULT_BOOTSTRAP_MAX_POINTER_BYTES = int(os.environ.get("STFUZZER_BOOTSTRAP_MAX_POINTER_BYTES", "64"))
@@ -88,7 +89,25 @@ def normalize_seed(data: bytes) -> bytes:
         parts = raw_line.split(",", 2)
         if len(parts) != 3 or not parts[0].strip() or not parts[1].strip():
             raise ValueError(f"invalid structured seed line: {raw_line!r}")
-        records.append(",".join((parts[0].strip(), parts[1].strip().upper(), parts[2].strip())))
+        name = parts[0].strip()
+        type_name = parts[1].strip().upper()
+        value = parts[2].strip()
+        if name.upper().endswith(".__DT") or name.upper() == "__DT":
+            try:
+                int(value, 0)
+            except ValueError as error:
+                raise ValueError(f"invalid frame time: {value!r}") from error
+        elif name.upper() == "__INIT":
+            if type_name != "ENUM" or value != "cold":
+                raise ValueError("only cold __INIT is supported")
+        else:
+            if not value.lower().startswith("0x"):
+                raise ValueError(f"seed values must use canonical 0x bytes: {value!r}")
+            digits = value[2:]
+            if len(digits) % 2 or not re.fullmatch(r"[0-9a-fA-F]*", digits):
+                raise ValueError(f"invalid canonical hex bytes: {value!r}")
+            value = "0x" + digits.lower()
+        records.append(",".join((name, type_name, value)))
     if not records:
         raise ValueError("structured seed contains no records")
     return ("\n".join(records) + "\n").encode("utf-8")
@@ -255,6 +274,25 @@ def validate_seed_for_params(seed: bytes, params: Iterable[Any]) -> bytes:
         expected_type = type_token(spec)
         if ty != expected_type:
             raise ValueError(f"{name} has type {ty}, expected {expected_type}")
+        if value.lower().startswith("0x"):
+            digits = value[2:]
+            raw = bytes.fromhex(digits)
+            if spec.kind == "scalar":
+                if len(raw) != spec.size:
+                    raise ValueError(f"{name} raw scalar requires ABI width {spec.size}")
+                # Raw scalar storage deliberately bypasses the normal value
+                # domain, including BOOL bytes such as 03, 80, and ff.
+                continue
+            if spec.kind == "string":
+                if len(raw) > spec.byte_size() or len(raw) % spec.size:
+                    raise ValueError(f"{name} raw string exceeds ABI storage")
+                continue
+            if spec.kind in ("array", "opaque", "pointer"):
+                capacity = (POINTER_STORAGE_CAPACITY if spec.kind == "pointer"
+                            else spec.byte_size())
+                if len(raw) > capacity:
+                    raise ValueError(f"{name} raw bytes exceed ABI storage")
+                continue
         if spec.kind == "scalar":
             if spec.name in ("REAL", "LREAL"):
                 float(value)
@@ -264,9 +302,9 @@ def validate_seed_for_params(seed: bytes, params: Iterable[Any]) -> bytes:
                 if bounds and not (bounds[0] <= parsed <= bounds[1]):
                     raise ValueError(f"{name}={parsed} is outside {spec.name} range")
         elif spec.kind == "string":
-            if len(value.encode("utf-8")) > (spec.length or DEFAULT_ST_STRING_LENGTH):
+            if len(value.encode("utf-16-le" if spec.size == 2 else "utf-8")) // spec.size > (spec.length or DEFAULT_ST_STRING_LENGTH):
                 raise ValueError(f"{name} string exceeds declared length")
-        elif spec.kind in ("array", "pointer"):
+        elif spec.kind in ("array", "opaque", "pointer"):
             if value.startswith(("0x", "0X")):
                 raw_hex = value[2:]
                 if len(raw_hex) % 2 != 0:
@@ -278,8 +316,11 @@ def validate_seed_for_params(seed: bytes, params: Iterable[Any]) -> bytes:
                 byte_len = len(value.encode("utf-8"))
             if byte_len <= 0:
                 raise ValueError(f"{name} must describe at least one byte")
-            if byte_len > DEFAULT_BOOTSTRAP_MAX_POINTER_BYTES:
-                raise ValueError(f"{name} describes {byte_len} bytes, max bootstrap capacity is {DEFAULT_BOOTSTRAP_MAX_POINTER_BYTES}")
+            capacity = (POINTER_STORAGE_CAPACITY if spec.kind == "pointer"
+                        else spec.byte_size() if hasattr(spec, "byte_size")
+                        else DEFAULT_BOOTSTRAP_MAX_POINTER_BYTES)
+            if byte_len > capacity:
+                raise ValueError(f"{name} describes {byte_len} bytes, max ABI capacity is {capacity}")
     seen_base = {field_name_without_cycle(name).upper() for name, _ty, _value in parse_seed_lines(normalized)}
     missing = [param.name for param in params if param.name.upper() not in seen_base]
     if missing:

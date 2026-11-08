@@ -1,0 +1,13 @@
+FROM localhost/semantist-icsquartz-env:8021bd4 AS icsquartz
+COPY benchmarks/experiments/icsquartz_native_sequence.patch /tmp/native-sequence.patch
+COPY benchmarks/experiments/icsquartz_native_sequence.rs /opt/icsquartz/src/scan_cycle/native_sequence.rs
+RUN cd /opt/icsquartz && patch -p1 < /tmp/native-sequence.patch
+RUN cp /opt/icsquartz/target/release/liblibfuzzer_icsquartz.a /opt/icsquartz/liblibfuzzer_icsquartz_single.a \
+    && cd /opt/icsquartz \
+    && RUSTFLAGS='--cap-lints allow' cargo build --release --locked --lib --features scan_cycle,scan_cycle_mutations \
+    && cp /opt/icsquartz/target/release/liblibfuzzer_icsquartz.a /opt/icsquartz/liblibfuzzer_icsquartz_scan_cycle.a
+
+FROM localhost/semantist:exp1
+COPY --from=icsquartz /opt/icsquartz/liblibfuzzer_icsquartz_single.a /opt/icsquartz/liblibfuzzer_icsquartz_single.a
+COPY --from=icsquartz /opt/icsquartz/liblibfuzzer_icsquartz_scan_cycle.a /opt/icsquartz/liblibfuzzer_icsquartz_scan_cycle.a
+LABEL org.opencontainers.image.title="SemantiST experiment environment"

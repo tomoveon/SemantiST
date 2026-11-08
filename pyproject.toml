@@ -20,9 +20,11 @@ semantist-compile = "compiler.instrumentation.compile:compile_st_project_main"
 semantist-prepare-ir = "compiler.instrumentation.compile:prepare_target_ir_main"
 semantist-harness = "compiler.harness.generator:main"
 semantist-batch = "fuzzer.cli.batch:main"
+semantist-experiment = "fuzzer.cli.experiment:main"
 semantist-replay = "fuzzer.pipeline.replay:main"
 semantist-llm-check = "fuzzer.llm.check:main"
 semantist-timer-probe = "fuzzer.cli.timer_probe:main"
+semantist-mutation-short = "fuzzer.cli.mutation_short:main"
 
 [tool.setuptools.packages.find]
 include = ["compiler*", "fuzzer*"]

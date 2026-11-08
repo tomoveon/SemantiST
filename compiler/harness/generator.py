@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""C fuzz harness and seed generation from the compiled target ABI.
+"""SemantiST sequence adapter and harness generation from the compiled ABI.
 
-The harness never re-parses ST declarations: every type, size and offset comes
+This module is the SemantiST-owned adapter: its text frame parser and sequence
+execution are intentionally separate from ``compiler.harness.common``.  The
+harness never re-parses ST declarations: every type, size and offset comes
 from ``compiler.harness.abi`` (STG model + LLVM IR). FUNCTION_BLOCK instance
 structs carry static assertions for the IR offsets, so a stale harness cannot
 compile against a different layout.
@@ -12,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import struct
 import sys
 from pathlib import Path
 
@@ -46,6 +49,28 @@ def default_value(param: Param) -> str:
     if param.spec.kind == "scalar" and param.spec.name in ("REAL", "LREAL"):
         return "0.0"
     return "0"
+
+
+def canonical_seed_value(param: Param, value: str) -> str:
+    """Encode generated seeds as one canonical raw ABI object per field."""
+    spec = param.spec
+    if spec.kind == "scalar":
+        if spec.name == "REAL":
+            raw = struct.pack("<f", float(value))
+        elif spec.name == "LREAL":
+            raw = struct.pack("<d", float(value))
+        else:
+            signed = not spec.c_type.startswith("uint")
+            integer = int(value, 0) if "#" not in value else int(value.split("#", 1)[1], int(value.split("#", 1)[0]))
+            raw = integer.to_bytes(spec.size, "little", signed=signed)
+    elif spec.kind == "string":
+        raw = value.encode("utf-16-le" if spec.size == 2 else "utf-8")
+        raw = raw[:spec.length * spec.size] + bytes(spec.size)
+    elif spec.kind == "pointer":
+        raw = bytes(spec.pointee_bytes())
+    else:
+        raw = bytes(spec.byte_size())
+    return "0x" + raw.hex()
 
 
 def _align_attribute(spec: TypeSpec) -> str:
@@ -245,6 +270,40 @@ static void fill_hex_or_text(void *dst, size_t dst_len, const char *value) {
     }
 }
 
+static int semantist_fill_bytes_checked(void *dst, size_t dst_len, const char *value,
+                                        size_t unit, int terminated) {
+    if (!value || !unit || dst_len < (terminated ? unit : 0)) return 0;
+    uint8_t *out = (uint8_t *)dst;
+    /* Text values reserve one code unit for an automatic terminator. Raw
+     * storage values describe the complete ABI object, so they may fill that
+     * final slot and deliberately omit termination. */
+    size_t capacity = dst_len;
+    if (terminated && !(value[0] == '0' && (value[1] == 'x' || value[1] == 'X'))) {
+        capacity -= unit;
+    }
+    size_t count;
+    if (value[0] == '0' && (value[1] == 'x' || value[1] == 'X')) {
+        const char *digits = value + 2;
+        size_t chars = strlen(digits);
+        if (chars % 2) return 0;
+        count = chars / 2;
+        if (count > capacity || count % unit) return 0;
+        for (size_t i = 0; i < count; i++) {
+            if (digit_value(digits[2*i]) < 0 || digit_value(digits[2*i+1]) < 0) return 0;
+        }
+        memset(dst, 0, dst_len);
+        for (size_t i = 0; i < count; i++) {
+            out[i] = (uint8_t)((digit_value(digits[2*i]) << 4) | digit_value(digits[2*i+1]));
+        }
+        return 1;
+    }
+    count = strlen(value);
+    if (count > capacity || count % unit) return 0;
+    memset(dst, 0, dst_len);
+    memcpy(dst, value, count);
+    return 1;
+}
+
 /* A pointer input points at one object of its declared pointee type; longer
  * seed values extend the object, shorter ones are zero-filled. */
 static void fill_pointer_value(uint8_t **storage, size_t *capacity, const char *value, size_t min_capacity) {
@@ -332,6 +391,28 @@ static void fill_wstring_value(uint16_t *dst, size_t dst_len, const char *value)
         }
     }
     dst[out] = 0;
+}
+
+static int semantist_fill_wstring_checked(void *dst, size_t dst_len, const char *value) {
+    if (!value || dst_len < sizeof(uint16_t)) return 0;
+    if (value[0] == '0' && (value[1] == 'x' || value[1] == 'X')) {
+        return semantist_fill_bytes_checked(dst, dst_len, value, sizeof(uint16_t), 1);
+    }
+    size_t units = 0;
+    const unsigned char *p = (const unsigned char *)value;
+    while (*p) {
+        if (*p < 0x80) { p++; units++; }
+        else if ((*p & 0xe0) == 0xc0 && (p[1] & 0xc0) == 0x80) { p += 2; units++; }
+        else if ((*p & 0xf0) == 0xe0 && p[1] && p[2]
+                 && (p[1] & 0xc0) == 0x80 && (p[2] & 0xc0) == 0x80) { p += 3; units++; }
+        else if ((*p & 0xf8) == 0xf0 && p[1] && p[2] && p[3]
+                 && (p[1] & 0xc0) == 0x80 && (p[2] & 0xc0) == 0x80
+                 && (p[3] & 0xc0) == 0x80) { p += 4; units += 2; }
+        else return 0;
+        if (units > dst_len / sizeof(uint16_t) - 1) return 0;
+    }
+    fill_wstring_value((uint16_t *)dst, dst_len / sizeof(uint16_t), value);
+    return 1;
 }
 
 SEMANTIST_DRIVER static uint64_t semantist_parse_env_u64(const char *name, uint64_t default_value) {
@@ -1157,9 +1238,11 @@ def generate_seed(abi: TargetAbi) -> str:
         names = {param.name.upper() for param in abi.params}
         if {"X", "D", "L", "U"} <= names:
             values.update({"X": "0", "D": "0", "L": "1", "U": "1"})
+        if abi.name.upper() in {"FSTRING_TO_BYTE", "FSTRING_TO_DWORD"}:
+            values["IN"] = "2#1"
     for param in abi.params:
         if (param.block_kind == "VAR_INPUT" and param.constant) or param.block_kind == "VAR_IN_OUT":
-            lines.append(f"{param.name},{type_token(param.spec)},{default_value(param)}")
+            lines.append(f"{param.name},{type_token(param.spec)},{canonical_seed_value(param, default_value(param))}")
     for cycle in range(1 if abi.kind == "FUNCTION" else 2):
         for param in abi.params:
             if not (param.block_kind == "VAR_INPUT" and not param.constant):
@@ -1169,7 +1252,7 @@ def generate_seed(abi: TargetAbi) -> str:
                 value = "1.0" if cycle else "0.0"
             elif abi.kind != "FUNCTION" and param.spec.kind == "scalar" and param.spec.name == "BOOL":
                 value = "1" if cycle else "0"
-            lines.append(f"{cycle}.{param.name},{type_token(param.spec)},{value}")
+            lines.append(f"{cycle}.{param.name},{type_token(param.spec)},{canonical_seed_value(param, value)}")
     return "\n".join(lines) + "\n"
 
 

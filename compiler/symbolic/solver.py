@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import resource
 import signal
 import shutil
 import struct
@@ -174,6 +175,8 @@ def run_query(
     memory_mb: int = 2048,
 ) -> dict[str, Any]:
     started = time.monotonic()
+    child_cpu_start = resource.getrusage(resource.RUSAGE_CHILDREN)
+    phase_wall_s: dict[str, float] = {}
     deadline = started + max(0.0, time_budget_s)
     actual_symbolic, concretized = symbolic_scope(abi, symbolic_fields)
     prefix_count = len(prefix_frames or [])
@@ -228,16 +231,28 @@ def run_query(
     scope["contract_approximate"] = contract_approximate
 
     def query_result(status: str, **fields: Any) -> dict[str, Any]:
+        child_cpu_end = resource.getrusage(resource.RUSAGE_CHILDREN)
+        child_cpu_s = (child_cpu_end.ru_utime + child_cpu_end.ru_stime
+                       - child_cpu_start.ru_utime - child_cpu_start.ru_stime)
         return {"status": status, "query_id": query_id, "task_id": task_id,
                 "solver_scope": scope,
                 "model_scope": scope,
-                "stats": {"wall_s": round(time.monotonic() - started, 3)}, **fields}
+                "stats": {"wall_s": round(time.monotonic() - started, 3),
+                          "child_cpu_s": round(max(0.0, child_cpu_s), 3),
+                          "phase_wall_s": dict(phase_wall_s)}, **fields}
 
     def remaining(phase: str) -> float:
         left = deadline - time.monotonic()
         if left <= 0:
             raise TimeoutError(f"query deadline expired before {phase}")
         return left
+
+    def run_phase(phase: str, command: list[str]) -> subprocess.CompletedProcess[str]:
+        phase_started = time.monotonic()
+        try:
+            return _run_with_deadline(command, timeout=remaining(phase))
+        finally:
+            phase_wall_s[phase] = round(time.monotonic() - phase_started, 3)
 
     klee_dir = bundle / "klee"
     manifest_path = klee_dir / "manifest.json"
@@ -312,10 +327,8 @@ def run_query(
     for stale in (driver_bc, driver_tmp, linked, linked_tmp):
         stale.unlink(missing_ok=True)
     try:
-        result = _run_with_deadline(
-            [clang, "-I", klee_include, "-O0", "-emit-llvm", "-c", str(driver), "-o", str(driver_tmp)],
-            timeout=remaining("driver compile"),
-        )
+        result = run_phase("driver compile",
+            [clang, "-I", klee_include, "-O0", "-emit-llvm", "-c", str(driver), "-o", str(driver_tmp)])
     except FileNotFoundError as error:
         return query_result("UNSUPPORTED", reason=f"driver compiler unavailable: {error.filename}")
     except OSError as error:
@@ -331,10 +344,8 @@ def run_query(
     os.replace(driver_tmp, driver_bc)
     llvm_link = os.environ.get("SEMANTIST_LLVM_LINK16", "/usr/lib/llvm-18/bin/llvm-link")
     try:
-        result = _run_with_deadline(
-            [llvm_link, str(klee_dir / "bundle.bc"), str(driver_bc), "-o", str(linked_tmp)],
-            timeout=remaining("llvm-link"),
-        )
+        result = run_phase("llvm-link",
+            [llvm_link, str(klee_dir / "bundle.bc"), str(driver_bc), "-o", str(linked_tmp)])
     except FileNotFoundError as error:
         return query_result("UNSUPPORTED", reason=f"llvm-link unavailable: {error.filename}")
     except OSError as error:
@@ -418,7 +429,7 @@ def run_query(
         str(linked),
     ]
     try:
-        completed = _run_with_deadline(command, timeout=remaining("KLEE"))
+        completed = run_phase("KLEE", command)
         stderr = completed.stderr
     except FileNotFoundError as error:
         return query_result("UNSUPPORTED", reason=f"KLEE unavailable: {error.filename}")

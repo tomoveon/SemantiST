@@ -3,6 +3,7 @@
 //! shares every engine source with the forkserver binary (main.rs) through
 //! campaign.rs, so code only the other entry point uses is not dead.
 #![allow(dead_code)]
+#![recursion_limit = "512"]
 
 include!("campaign.rs");
 include!("inprocess.rs");

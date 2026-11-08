@@ -171,6 +171,7 @@ def _campaign(tmp_path: Path) -> Campaign:
     campaign.bundle = tmp_path / "bundle"
     campaign.bundle.mkdir()
     campaign.metrics = Metrics(tmp_path)
+    campaign.config = {"ablations": {}}
     campaign.model = SimpleNamespace(runtime_index={})
     campaign.max_evaluations = 2
     campaign._abi_like = lambda: TargetAbi(
@@ -210,6 +211,8 @@ def test_solver_budget_shared_and_prefix_requires_native_task_progress(tmp_path)
               "task_unresolved": True, "native_execution": 12}
     assert solver_prefix_skip_reason(record, task) is None
     assert solver_prefix_skip_reason({**record, "trigger": "native_hazard_reach"}, task) is None
+    assert solver_prefix_skip_reason({**record, "trigger": "state_frontier"}, task) is None
+    assert solver_prefix_skip_reason({**record, "trigger": "task_stagnation"}, task) is None
     assert solver_prefix_skip_reason({**record, "task_id": "other"}, task) == "unrelated_task"
     assert solver_prefix_skip_reason({**record, "native_execution": None}, task) == "missing_native_task_progress"
     assert solver_prefix_skip_reason(record, task, single_cycle=True) == "single_cycle_uses_cold_queries"
@@ -220,9 +223,12 @@ def test_solver_prefix_priority_prefers_reached_frontiers_and_stagnation():
                 "consecutive_no_progress": 2}
     stalled = {**ordinary, "consecutive_no_progress": 9}
     frontier = {**ordinary, "distance": 0.0}
+    state_frontier = {**ordinary, "trigger": "state_frontier"}
     reach = {**ordinary, "trigger": "native_hazard_reach", "distance": None}
-    assert sorted([ordinary, stalled, frontier, reach],
-                  key=solver_prefix_priority, reverse=True) == [reach, frontier, stalled, ordinary]
+    stagnation = {**stalled, "trigger": "task_stagnation"}
+    assert sorted([ordinary, stalled, frontier, state_frontier, reach, stagnation],
+                  key=solver_prefix_priority, reverse=True) == [
+                      reach, state_frontier, frontier, stalled, ordinary, stagnation]
 
 
 def test_feedback_cutoff_uses_recent_query_and_replay_cost_without_losing_minimum():

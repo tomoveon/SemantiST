@@ -1,3 +1,5 @@
+#![recursion_limit = "512"]
+
 include!("campaign.rs");
 use libafl::{
     events::SimpleEventManager,

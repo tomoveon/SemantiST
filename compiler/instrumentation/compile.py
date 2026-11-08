@@ -350,6 +350,47 @@ def make_llvm16_compatible(text: str) -> str:
     return text
 
 
+def pad_rusty_string_storage(text: str) -> str:
+    """Keep RuSTy's fixed-width string reads inside short LLVM storage."""
+    capacity = 256
+    literal = re.compile(
+        r'(?m)^(@utf08_literal_[\w.]+\s*=\s*[^\n]*?constant )\[(\d+) x i8\]( c"([^"\n]*)")'
+    )
+
+    def expand_literal(match: re.Match[str]) -> str:
+        size = int(match.group(2))
+        if size >= capacity:
+            return match.group(0)
+        return (f'{match.group(1)}[{capacity} x i8] c"'
+                f'{match.group(4)}' + r'\00' * (capacity - size) + '"')
+
+    text = literal.sub(expand_literal, text)
+    alloca = re.compile(r'(?m)^(\s*)(%[-\w.$]+) = alloca \[(\d+) x i8\](, align \d+)$')
+    fixed_width_call = re.compile(r'call [^\n]*@STRING_TO_[A-Z0-9_]+\([^\n]*ptr (%[-\w.$]+)')
+
+    def expand_function(match: re.Match[str]) -> str:
+        body = match.group(0)
+        operands = set(fixed_width_call.findall(body))
+        padded: dict[str, int] = {}
+
+        def expand_alloca(entry: re.Match[str]) -> str:
+            name, size = entry.group(2), int(entry.group(3))
+            if name not in operands or size >= capacity:
+                return entry.group(0)
+            padded[name] = size
+            return f'{entry.group(1)}{name} = alloca [{capacity} x i8]{entry.group(4)}'
+
+        body = alloca.sub(expand_alloca, body)
+        for name, size in padded.items():
+            body = re.sub(
+                rf'(@llvm\.memset\.p0\.i64\(ptr align \d+ {re.escape(name)}, i8 0, i64 ){size}(,)',
+                rf'\g<1>{capacity}\2', body,
+            )
+        return body
+
+    return re.sub(r'(?ms)^define [^\n]+\{.*?^\}', expand_function, text)
+
+
 def public_api_list(source: str, function: str) -> str:
     symbols = [function]
     ctor = f"{function}__ctor"
@@ -684,6 +725,8 @@ def prepare_target_ir_main() -> int:
         if instrument_memory_primitive_bounds(output_ll, checked_ll):
             shutil.move(checked_ll, output_ll)
             print("[prepare_target_ir] instrumented CODESYS memory primitive bounds")
+    padded_source = pad_rusty_string_storage(output_ll.read_text(encoding="utf-8"))
+    output_ll.write_text(padded_source, encoding="utf-8")
     # Match build_target.sh's default (including an explicitly empty variable).
     # This is independent of semantic instrumentation: semantic-off targets
     # need the same oracle.

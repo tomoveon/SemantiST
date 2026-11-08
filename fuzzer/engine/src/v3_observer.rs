@@ -84,6 +84,9 @@ impl GoalStateObserver {
 
     pub fn observe_trace_with_frames(&mut self, outcome: &ExecOutcome,
                                      frames: &[Frame], input_fields: &[V3Field]) {
+        if !outcome.final_state.is_empty() {
+            self.state.clone_from(&outcome.final_state);
+        }
         self.distances.clear();
         self.abstractions.clear();
         self.best_frames.clear();
@@ -333,8 +336,28 @@ mod v3_observer_tests {
             active: true,
         };
         let field = StateSlice { name: "Counter".into(), region: "state".into(), offset: Some(0),
-                                 ctype: Some("uint64_t".into()) };
+                                 ctype: Some("uint64_t".into()), block_kind: None };
         assert_eq!(observer.read_field(&field), Some(u64::MAX as i128));
+    }
+
+    #[test]
+    fn isolated_trace_uses_worker_final_state() {
+        let mut observer = GoalStateObserver {
+            name: Cow::Borrowed("test"),
+            tasks: V3Tasks { schema_version: "x".into(), contract_id: None, target: None,
+                             single_cycle: false, unknown_cycle_effects: false, tasks: vec![] },
+            layout: V3Layout { total_size: 4, snapshot_schema_version: 1, harness_region_index: None,
+                               regions: vec![V3Region { index: 0, name: "state".into(), size: 4,
+                                                        source: "target".into(), fields: vec![], pointer_offsets: vec![] }] },
+            state: 0i32.to_le_bytes().to_vec(),
+            distances: HashMap::new(), abstractions: HashMap::new(),
+            best_frames: HashMap::new(), frame_feedback: Vec::new(), active: true,
+        };
+        let outcome = ExecOutcome { final_state: 7i32.to_le_bytes().to_vec(), ..ExecOutcome::default() };
+        observer.observe_trace_with_frames(&outcome, &[], &[]);
+        let field = StateSlice { name: "X".into(), region: "state".into(), offset: Some(0),
+                                 ctype: Some("int32_t".into()), block_kind: None };
+        assert_eq!(observer.read_field(&field), Some(7));
     }
 
     #[test]
@@ -428,7 +451,7 @@ mod v3_observer_tests {
         let field: V3Field = serde_json::from_value(serde_json::json!({
             "name": "N", "block_kind": "VAR_INPUT", "spec": {"kind": "scalar", "name": "INT"}
         })).unwrap();
-        let frame = Frame { index: 0, values: [("N".into(), "3".into())].into(), dt_ns: None };
+        let frame = Frame::new(0, [("N".into(), "3".into())].into(), None);
         observer.observe_trace_with_frames(&outcome, &[frame], &[field]);
         assert_eq!(observer.distance("renamed"), 0.0);
         assert_eq!(observer.best_frame("renamed"), Some(0));
