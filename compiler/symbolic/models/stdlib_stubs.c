@@ -220,6 +220,68 @@ uint32_t ROL__DWORD(uint32_t value, uint32_t count) {
     return count == 0 ? value : (value << count) | (value >> (32u - count));
 }
 
+uint8_t ROL__BYTE(uint8_t value, uint32_t count) {
+    count &= 7u;
+    return count == 0 ? value : (uint8_t)((value << count) | (value >> (8u - count)));
+}
+
+uint8_t ROR__BYTE(uint8_t value, uint32_t count) {
+    count &= 7u;
+    return count == 0 ? value : (uint8_t)((value >> count) | (value << (8u - count)));
+}
+
+int64_t MAX__TIME(uint32_t count, const int64_t *values) {
+    if (!values || count == 0) {
+        klee_report_error(__FILE__, __LINE__, "MAX__TIME invalid input", "model");
+    }
+    int64_t maximum = values[0];
+    for (uint32_t index = 1; index < count; index++) {
+        if (values[index] > maximum) maximum = values[index];
+    }
+    return maximum;
+}
+
+static int string_digit(uint8_t value) {
+    if (value >= '0' && value <= '9') return value - '0';
+    if (value >= 'a' && value <= 'f') return value - 'a' + 10;
+    if (value >= 'A' && value <= 'F') return value - 'A' + 10;
+    return -1;
+}
+
+int32_t STRING_TO_DINT(const uint8_t *text) {
+    if (!text) klee_report_error(__FILE__, __LINE__, "STRING_TO_DINT null", "model");
+    unsigned base = 10;
+    if (text[0] == '1' && text[1] == '6' && text[2] == '#') {
+        base = 16;
+        text += 3;
+    } else if (text[0] == '0' && (text[1] == 'x' || text[1] == 'X')) {
+        base = 16;
+        text += 2;
+    } else if (text[0] == '8' && text[1] == '#') {
+        base = 8;
+        text += 2;
+    } else if ((text[0] == '2' && text[1] == '#')
+               || (text[0] == '0' && (text[1] == 'b' || text[1] == 'B'))) {
+        base = 2;
+        text += 2;
+    }
+    int negative = *text == '-';
+    if (*text == '-' || *text == '+') text++;
+    if (!*text) klee_report_error(__FILE__, __LINE__, "STRING_TO_DINT empty", "model");
+    uint32_t limit = negative ? 2147483648u : 2147483647u;
+    uint32_t value = 0;
+    for (; *text; text++) {
+        int digit = string_digit(*text);
+        if (digit < 0 || (unsigned)digit >= base
+                || value > (limit - (unsigned)digit) / base) {
+            klee_report_error(__FILE__, __LINE__, "STRING_TO_DINT invalid", "model");
+        }
+        value = value * base + (unsigned)digit;
+    }
+    if (negative && value == 2147483648u) return INT32_MIN;
+    return negative ? -(int32_t)value : (int32_t)value;
+}
+
 int32_t LIMIT__DINT(int32_t low, int32_t value, int32_t high) {
     if (value < low) return low;
     if (value > high) return high;

@@ -2,6 +2,20 @@ use std::collections::BTreeSet;
 use std::collections::VecDeque;
 use std::time::Instant;
 
+/// Default mixed search policy: semantic structure selects the path, while
+/// raw payload mutation gets the larger share of executions.
+pub const DEFAULT_SEMANTIC_MUTATION_RATIO: f64 = 0.30;
+
+pub fn semantic_mutation_ratio() -> f64 {
+    let ratio = std::env::var("SEMANTIST_SEMANTIC_RATIO")
+        .ok()
+        .and_then(|value| value.trim().parse::<f64>().ok())
+        .map(|value| if value > 1.0 { value / 100.0 } else { value });
+    ratio
+        .filter(|value| value.is_finite() && (0.0..=1.0).contains(value))
+        .unwrap_or(DEFAULT_SEMANTIC_MUTATION_RATIO)
+}
+
 // Rust goal-directed stage.  It plans canonical frame sequences, submits them
 // to the LibAFL executor through PrefixCachingExecutor, and records goal hits.
 // All constants come from the execution bundle (STG literals, task thresholds,
@@ -129,10 +143,15 @@ pub struct V3GoalStage {
     no_adaptive_reset: bool,
     no_tail_guidance: bool,
     mutation_mode: u8,
+    semantic_share: f64,
     current_mutation_raw: bool,
     mutation_operator_locked: bool,
     seen_native_edges: HashSet<usize>,
     current_new_edge: bool,
+    // Like ICSQuartz's crash objective, keep this history separate from corpus coverage.
+    crash_edge_max: Vec<u8>,
+    current_new_crash_coverage: bool,
+    unmapped_crash_recorded: bool,
     pub active_cache: Vec<u8>,
     active_task_id: Option<String>,
     task_cursor: usize,
@@ -192,12 +211,6 @@ impl V3GoalStage {
                 0
             }
         };
-        let pure_function = bundle.abi.target.kind == "FUNCTION"
-            && bundle.abi.target.instance_size == 0
-            && bundle.abi.shared_fields.is_empty();
-        if pure_function && std::env::var("SEMANTIST_EXPERIMENT_NO_FUNCTION_FAST").as_deref() != Ok("1") {
-            bundle.tasks.single_cycle = true;
-        }
         if std::env::var("SEMANTIST_EXPERIMENT_SINGLE_FRAME").as_deref() == Ok("1") {
             bundle.tasks.single_cycle = true;
         }
@@ -274,6 +287,7 @@ impl V3GoalStage {
             bundle,
             stats: StageStats::default(),
             mutation_mode,
+            semantic_share: semantic_mutation_ratio(),
             current_mutation_raw: false,
             mutation_operator_locked: false,
             literals: if no_stg_guidance { Vec::new() } else { literals },
@@ -291,6 +305,9 @@ impl V3GoalStage {
             no_tail_guidance: std::env::var("SEMANTIST_EXPERIMENT_NO_TAIL_GUIDANCE").as_deref() == Ok("1"),
             seen_native_edges: HashSet::new(),
             current_new_edge: false,
+            crash_edge_max: Vec::new(),
+            current_new_crash_coverage: false,
+            unmapped_crash_recorded: false,
             active_cache: Vec::new(),
             active_task_id: None,
             task_cursor: 0,
@@ -338,7 +355,7 @@ impl V3GoalStage {
         let selected = match self.mutation_mode {
             1 => false,
             2 => true,
-            _ => self.below(100) >= (semantic_mutation_ratio() * 100.0) as u64,
+            _ => self.below(100) >= (self.semantic_share * 100.0) as u64,
         };
         self.current_mutation_raw = selected;
         self.mutation_operator_locked = true;
@@ -352,6 +369,10 @@ impl V3GoalStage {
 
     pub fn elapsed(&self) -> Duration {
         self.started.elapsed()
+    }
+
+    pub fn set_online_start(&mut self, started: Instant) {
+        self.started = started;
     }
 
     pub fn current_bytes(&self) -> &[u8] {
@@ -504,7 +525,7 @@ impl V3GoalStage {
         let mut actions = vec!["mutate", "extend", "pulse", "pulse_train", "hold", "wait", "duplicate", "delete", "splice", "sweep"];
         self.raw_operator_selected();
         if self.current_mutation_raw {
-            actions = vec!["mutate", "mutate", "extend", "duplicate", "delete", "splice"];
+            actions = vec!["mutate"];
         }
         if let Some(task_id) = self.active_task_id.as_ref() {
             let stagnant = self.task_stagnation.get(task_id).copied().unwrap_or(0);
@@ -656,13 +677,27 @@ impl V3GoalStage {
         self.current.as_ref().map(|input| input.frames.as_slice())
     }
 
-    pub fn record_native_edges(&mut self, edges: &[u8]) {
+    pub fn record_native_edges(&mut self, edges: &[u8], crashed: bool) {
         self.current_new_edge = false;
+        self.current_new_crash_coverage = false;
+        if crashed && self.crash_edge_max.len() < edges.len() {
+            self.crash_edge_max.resize(edges.len(), 0);
+        }
         for (index, value) in edges.iter().enumerate() {
             if *value != 0 && self.seen_native_edges.insert(index) {
                 self.current_new_edge = true;
                 self.stats.native_edge_novelty += 1;
             }
+            if crashed && *value > self.crash_edge_max[index] {
+                self.crash_edge_max[index] = *value;
+                self.current_new_crash_coverage = true;
+            }
+        }
+        if crashed && !self.current_new_crash_coverage && !self.unmapped_crash_recorded
+            && !self.current_path.is_empty() && edges.iter().all(|value| *value == 0) {
+            // A signal-killed worker cannot return its private coverage map.
+            self.current_new_crash_coverage = true;
+            self.unmapped_crash_recorded = true;
         }
     }
 
@@ -1096,7 +1131,11 @@ impl V3GoalStage {
         if frames.is_empty() {
             return;
         }
-        let index = self.below(frames.len() as u64) as usize;
+        let index = if self.raw_operator_selected() {
+            frames.len() - 1
+        } else {
+            self.below(frames.len() as u64) as usize
+        };
         self.mutate_frame(&mut frames[index]);
     }
 
@@ -1263,7 +1302,7 @@ impl V3GoalStage {
             // fill all N+1 units and omit the terminator.
             spec.length.map_or(0, |length| length as usize + 1) * unit
         } else if spec.kind == "pointer" {
-            4096
+            MAX_POINTER_FIELD_BYTES
         } else {
             // Opaque structures and fixed arrays are real ABI objects. Do not
             // cap them at the pointer mutation limit: NET_VAR_DATA.X is 8204
@@ -1340,6 +1379,7 @@ impl V3GoalStage {
             .or(spec.byte_size.or(spec.size))
             .unwrap_or(1)
             .max(1) as usize;
+        let byte_size = byte_size.min(MAX_POINTER_FIELD_BYTES);
         let mut bytes = decode_hex_bytes(current, byte_size);
         match self.below(4) {
             0 => bytes.fill(0),
@@ -1514,7 +1554,8 @@ impl V3GoalStage {
             self.stats.worker_launch_ns += executed.worker_launch_ns;
         }
         if matches!(exit_kind, libafl::executors::ExitKind::Crash | libafl::executors::ExitKind::Timeout) {
-            if matches!(exit_kind, libafl::executors::ExitKind::Crash) && !self.current_path.is_empty() {
+            if matches!(exit_kind, libafl::executors::ExitKind::Crash)
+                && self.current_new_crash_coverage && !self.current_path.is_empty() {
                 write_candidate(&self.run_dir, &self.current_path, "crash", None, None)
                     .map_err(|error| error.to_string())?;
                 self.stats.candidates += 1;
@@ -1533,6 +1574,7 @@ impl V3GoalStage {
             self.current_solver_query_id = None;
             self.active_cache.clear();
             self.current_new_edge = false;
+            self.current_new_crash_coverage = false;
             return Ok(());
         }
         self.last_state = state_values.clone();
@@ -1799,7 +1841,7 @@ impl V3GoalStage {
                 2 => "byte-only",
                 _ => "combined",
             },
-            "semantic_ratio": semantic_mutation_ratio(),
+            "semantic_ratio": self.semantic_share,
             "parse_ns": self.stats.parse_ns,
             "abi_ns": self.stats.abi_ns,
             "native_step_ns": self.stats.native_step_ns,
@@ -2243,8 +2285,13 @@ pub fn append_event(path: &Path, value: serde_json::Value) -> Result<(), String>
 pub fn collect_literals(bundle: &V3Bundle) -> (Vec<i64>, Vec<f64>) {
     let mut ints = BTreeSet::new();
     let mut floats = BTreeSet::new();
-    if let Ok(value) = serde_json::to_value(&bundle.tasks) {
-        collect_numbers(&value, &mut ints, &mut floats);
+    for task in &bundle.tasks.tasks {
+        for literal in &task.literals {
+            collect_numbers(literal, &mut ints, &mut floats);
+        }
+        for entry in &task.abstraction {
+            ints.extend(entry.thresholds.iter().copied());
+        }
     }
     (ints.into_iter().collect(), floats.into_iter().map(f64::from_bits).collect())
 }
@@ -2355,7 +2402,7 @@ mod v3_stage_tests {
     }
 
     #[test]
-    fn stateless_function_uses_one_frame_even_with_unknown_cycle_effects() {
+    fn function_respects_build_time_cycle_decision() {
         let mut target = bundle();
         target.abi.target.kind = "FUNCTION".into();
         target.tasks.unknown_cycle_effects = true;
@@ -2363,18 +2410,18 @@ mod v3_stage_tests {
         fs::create_dir_all(&dir).unwrap();
         let stage = V3GoalStage::new(target, dir.clone(), &dir, vec![], vec![], 7,
                                      false, false, false, false, false);
-        assert!(stage.bundle.tasks.single_cycle);
-        assert_eq!(stage.max_depth, 1);
+        assert!(!stage.bundle.tasks.single_cycle);
+        assert_eq!(stage.max_depth, 4);
         fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
     fn native_edge_feedback_counts_each_edge_once() {
         let mut stage = stage(false, false);
-        stage.record_native_edges(&[0, 1, 0, 1]);
+        stage.record_native_edges(&[0, 1, 0, 1], false);
         assert!(stage.current_new_edge);
         assert_eq!(stage.stats.native_edge_novelty, 2);
-        stage.record_native_edges(&[0, 2, 0, 1]);
+        stage.record_native_edges(&[0, 2, 0, 1], false);
         assert!(!stage.current_new_edge);
         assert_eq!(stage.stats.native_edge_novelty, 2);
         fs::remove_dir_all(stage.run_dir).unwrap();
@@ -2431,6 +2478,7 @@ mod v3_stage_tests {
         for exit_kind in [libafl::executors::ExitKind::Crash, libafl::executors::ExitKind::Timeout] {
             let mut stage = stage(false, false);
             stage.next_input();
+            stage.record_native_edges(&[0, 1], matches!(exit_kind, libafl::executors::ExitKind::Crash));
             stage.last_state.insert("B".into(), 7);
             stage.active_cache.push(1);
             let original_prefixes = stage.prefixes.len();
@@ -2443,6 +2491,38 @@ mod v3_stage_tests {
             assert_eq!(stage.stats.executions, 1);
             assert_eq!(stage.stats.candidates, if matches!(exit_kind, libafl::executors::ExitKind::Crash) { 1 } else { 0 });
         }
+    }
+
+    #[test]
+    fn crash_candidates_require_new_crash_coverage() {
+        let mut stage = stage(false, false);
+        stage.record_native_edges(&[0, 1, 0], false);
+        for (edges, expected) in [
+            ([0, 1, 0], 1),
+            ([0, 1, 0], 1),
+            ([0, 2, 0], 2),
+            ([0, 2, 1], 3),
+        ] {
+            stage.next_input();
+            stage.record_native_edges(&edges, true);
+            stage.on_result(&libafl::executors::ExitKind::Crash, &[], 0.0, None,
+                None, BTreeMap::new(), None, &[]).unwrap();
+            assert_eq!(stage.stats.candidates, expected);
+        }
+        fs::remove_dir_all(stage.run_dir).unwrap();
+    }
+
+    #[test]
+    fn crash_without_worker_coverage_retains_one_replay() {
+        let mut stage = stage(false, false);
+        for _ in 0..2 {
+            stage.next_input();
+            stage.record_native_edges(&[0, 0], true);
+            stage.on_result(&libafl::executors::ExitKind::Crash, &[], 0.0, None,
+                None, BTreeMap::new(), None, &[]).unwrap();
+        }
+        assert_eq!(stage.stats.candidates, 1);
+        fs::remove_dir_all(stage.run_dir).unwrap();
     }
 
     #[test]
@@ -3001,6 +3081,42 @@ mod v3_stage_tests {
     }
 
     #[test]
+    fn raw_mutation_keeps_cycle_structure_and_prior_frames() {
+        let mut stage = stage(false, false);
+        stage.mutation_mode = 2;
+        let mut frames = vec![stage.default_frame(); 3];
+        frames[0].values.insert("B".into(), "111".into());
+        frames[1].values.insert("B".into(), "222".into());
+        let prior = frames[..2].to_vec();
+        for _ in 0..16 {
+            stage.mutation_operator_locked = false;
+            stage.mutate_field(&mut frames);
+            assert_eq!(frames[..2], prior);
+        }
+        for _ in 0..32 {
+            stage.next_input();
+        }
+        for action in ["extend", "duplicate", "delete", "splice", "pulse", "wait"] {
+            assert!(!stage.stats.action_counts.contains_key(action));
+        }
+        fs::remove_dir_all(stage.run_dir).unwrap();
+    }
+
+    #[test]
+    fn literal_collection_reads_values_and_thresholds_without_task_metadata() {
+        let mut target = bundle();
+        target.tasks.tasks.push(serde_json::from_value(serde_json::json!({
+            "task_id": "example", "goal": {"runtime_id": 999},
+            "literals": [7, 2.5],
+            "abstraction": [{"field": "B", "thresholds": [11]}],
+            "control_obligations": [{"irrelevant": 9999}],
+        })).unwrap());
+        let (ints, floats) = collect_literals(&target);
+        assert_eq!(ints, vec![7, 11]);
+        assert_eq!(floats, vec![2.5]);
+    }
+
+    #[test]
     fn xml_control_structured_mutation_keeps_boundary_fields_coherent() {
         let scalar = |name: &str, size: u32| V3Spec {
             kind: "scalar".into(), name: name.into(), c_type: Some("uint16_t".into()),
@@ -3084,6 +3200,10 @@ mod v3_stage_tests {
         let wstring_spec = stage.bundle.abi.frame_fields[1].spec.clone();
         let truncated = stage.mutate_string_value(&wstring_spec, "😀😀A");
         assert!(truncated.encode_utf16().count() <= 4);
+        let mut large_pointer = stage.bundle.abi.frame_fields[0].spec.clone();
+        large_pointer.element.as_mut().unwrap().byte_size = Some(32768);
+        let value = stage.mutate_pointer_value(&large_pointer, "0x00");
+        assert_eq!(value.len(), 2 + MAX_POINTER_FIELD_BYTES * 2);
     }
 
     #[test]

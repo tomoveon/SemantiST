@@ -17,45 +17,36 @@ def _campaign(tmp_path: Path) -> Campaign:
     return campaign
 
 
-def test_native_novelty_reinjects_solver_seed_once_in_order(tmp_path: Path) -> None:
+def test_klee_seeds_enter_bounded_native_queue_in_order(tmp_path: Path) -> None:
     campaign = _campaign(tmp_path)
+    campaign.config = {"solver_seed_queue_limit": 2}
     first = b"0.X,INT,7\n0.__DT,TIME,10000000\n"
     second = b"0.X,INT,9\n"
-    observation = Observation(0, False, "", hits={10: [0]})
 
-    assert campaign._offer_solver_seed(first, observation, query_id="q1", task_id="task-1")
-    assert not campaign._offer_solver_seed(second, observation, query_id="q2", task_id="task-1")
-    assert campaign._offer_solver_seed(second, Observation(0, False, "", hits={11: [0]}),
-                                       query_id="q3", task_id="task-2")
+    assert campaign._enqueue_solver_seed(first, query_id="q1", task_id="task-1")
+    assert campaign._enqueue_solver_seed(second, query_id="q2", task_id="task-1")
+    assert not campaign._enqueue_solver_seed(second, query_id="q3", task_id="task-2")
     directory = tmp_path / "solver" / "reinject"
-    assert (directory / "solver-seed-00000001.seed").read_bytes() == first
-    assert (directory / "solver-seed-00000002.seed").read_bytes() == second
+    assert (directory / "solver-seed-00000001.seed").read_bytes() == b"0.X,INT,0x0700\n0.__DT,TIME,10000000\n"
+    assert (directory / "solver-seed-00000002.seed").read_bytes() == b"0.X,INT,0x0900\n"
     metadata = json.loads((directory / "solver-seed-00000001.json").read_text())
     assert metadata["task_id"] == "task-1"
     assert metadata["query_id"] == "q1"
-    assert metadata["new_runtime_hits"] == [10]
+    assert metadata["native_replay"] == "pending_engine_execution"
     assert not list(directory.glob("*.tmp"))
     assert campaign.metrics.summary()["solver_seeds_enqueued"] == 2
 
 
-def test_invalid_or_failed_native_testcase_never_enters_rust_queue(tmp_path: Path) -> None:
+def test_invalid_klee_testcase_never_enters_rust_queue(tmp_path: Path) -> None:
     campaign = _campaign(tmp_path)
     campaign.model = SimpleNamespace(runtime_index={10: {
         "kind": "hazard_violation", "modeling": "exact", "hazard": "division",
     }})
-    valid = b"0.X,INT,7\n"
-    hit = {10: [0]}
-    assert not campaign._offer_solver_seed(valid, Observation(0, True, "", hits=hit),
-                                           query_id="timeout", task_id=None)
-    assert not campaign._offer_solver_seed(valid, Observation(7, False, "", hits=hit),
-                                           query_id="failed", task_id=None)
-    assert not campaign._offer_solver_seed(b"0.X,INT,40000\n", Observation(0, False, "", hits=hit),
-                                           query_id="out-of-range", task_id=None)
-    assert not campaign._offer_solver_seed(b"__INIT,ENUM,import\n0.X,INT,7\n",
-                                           Observation(0, False, "", hits=hit),
-                                           query_id="import", task_id=None)
-    assert not campaign._offer_solver_seed(valid, Observation(0, False, "", hits=hit),
-                                           query_id="finding", task_id=None)
+    assert not campaign._enqueue_solver_seed(b"0.X,INT,40000\n",
+                                             query_id="out-of-range", task_id=None)
+    assert not campaign._enqueue_solver_seed(b"__INIT,ENUM,import\n0.X,INT,7\n",
+                                             query_id="import", task_id=None)
+    assert not campaign._enqueue_solver_seed(b"", query_id="empty", task_id=None)
     assert not (tmp_path / "solver" / "reinject").exists()
 
 
@@ -82,7 +73,7 @@ def test_conservative_goal_replay_is_not_a_vulnerability_or_mismatch(tmp_path: P
     ) == "REPLAY_MISMATCH"
 
 
-def test_additional_klee_paths_are_individually_probed_and_filtered(tmp_path: Path) -> None:
+def test_additional_klee_paths_skip_python_native_probe(tmp_path: Path) -> None:
     campaign = _campaign(tmp_path)
     first = tmp_path / "first.txt"
     second = tmp_path / "second.txt"
@@ -92,15 +83,15 @@ def test_additional_klee_paths_are_individually_probed_and_filtered(tmp_path: Pa
 
     def probe(testcase, **kwargs):
         observed.append(testcase)
-        return Observation(0, False, "", hits={10 + len(observed): [0]})
+        raise AssertionError("ordinary KLEE seeds must be executed by Rust")
 
     campaign._probe_with_deadline = probe
     campaign._offer_additional_solver_seeds(
         {"seed_only": True, "seed_files": [str(first), str(second)]},
-        timeout_s=1.0, deadline=float("inf"), query_id="q", task_id="task")
-    assert observed == [first.read_bytes(), second.read_bytes()]
+        deadline=float("inf"), query_id="q", task_id="task")
+    assert observed == []
     assert campaign.metrics.summary()["solver_seeds_enqueued"] == 2
     campaign._offer_additional_solver_seeds(
         {"status": "SAT", "seed_files": [str(first)]},
-        timeout_s=1.0, deadline=float("inf"), query_id="q", task_id="task")
-    assert len(observed) == 2
+        deadline=float("inf"), query_id="q", task_id="task")
+    assert observed == []

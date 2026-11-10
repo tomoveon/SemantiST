@@ -41,7 +41,8 @@ SEMANTIST_LLM_MODEL=<model-id>
 
 ## 复现单目标
 
-下面以 OSCAT `INC2` 为例。整个混合搜索阶段限时 600 秒，目标构建另有
+下面以 OSCAT `INC2` 为例。这是旧的单工具预算示例，并非 100 目标正式主实验。
+此示例的整个混合搜索阶段限时 600 秒，目标构建另有
 600 秒上限；LLM 只在启用 `--llm` 时参与搜索前规划。
 
 ```bash
@@ -65,6 +66,14 @@ mkdir -p artifacts
 的原生冷启动可重复，不自动代表厂商原始运行时也存在该风险。
 
 更多目标和批量运行方法见 [OSCAT 基准](benchmarks/oscat/README.md)；
+正式主实验见 [实验运行说明](benchmarks/experiments/README.md)：`overall`
+共 1500 项（100 目标、三工具、每目标每工具 s0-s4），每项 300 秒在线墙钟；
+完整去重比较矩阵共 3500 项，600 秒仅用于另一个预算比较。
+先在同一个 `artifacts/experiments/overall-<时间戳>` 根目录构建三工具并冻结
+100 个计划，再分三条命令运行 SemantiST、AFL++、ICSQuartz。工具分别使用
+物理核 0-9、10-19、20-29，每项两核和 8 GiB；正式 SemantiST 保留在线
+KLEE。结果根目录位于 `/home` 磁盘。失败项需查看日志并用同 root 的
+`--retry-failed` 重跑；代码修改后的重测须换镜像和 root，不能混用旧 trial。
 
 查看全部参数可运行：
 

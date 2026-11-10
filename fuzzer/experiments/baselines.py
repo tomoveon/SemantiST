@@ -317,6 +317,8 @@ def _candidates(tool: str, build_dir: Path, output: Path,
 
 def run(tool: str, common: Path, build_dir: Path, output: Path,
         seed: int, seconds: int) -> None:
+    started = time.monotonic()
+    started_ns = time.time_ns()
     output.mkdir(parents=True, exist_ok=True)
     raw_seed = build_dir / "afl-seed" if tool == "aflpp" else None
     if tool == "aflpp":
@@ -324,8 +326,6 @@ def run(tool: str, common: Path, build_dir: Path, output: Path,
         inputs.mkdir()
         if raw_seed.is_file():
             shutil.copy2(raw_seed, inputs / raw_seed.name)
-    started = time.monotonic()
-    started_ns = time.time_ns()
     processes = _launch(tool, build_dir, output, seed, seconds)
     early_failure = False
     try:
@@ -337,7 +337,7 @@ def run(tool: str, common: Path, build_dir: Path, output: Path,
                 break
             time.sleep(0.2)
     finally:
-        online_elapsed = min(float(seconds), time.monotonic() - started)
+        online_elapsed = time.monotonic() - started
         _stop(processes)
     candidates = _candidates(tool, build_dir, output, started_ns, seconds)
     executions = _statistics(tool, output)

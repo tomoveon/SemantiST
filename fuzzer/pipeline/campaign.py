@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from fuzzer.corpus.frames import Frame, TestCase, parse_testcase
+from fuzzer.corpus.frames import Frame, TestCase, canonicalize_raw, parse_testcase
 from fuzzer.pipeline.metrics import Metrics
 from fuzzer.pipeline.probe import Observation, classify, is_finding_candidate, probe
 from fuzzer.pipeline.model import TargetModel
@@ -24,15 +24,8 @@ from fuzzer.llm.plan import _field_map
 
 
 def _normalize_ablations(config: dict[str, Any]) -> dict[str, Any]:
-    """Normalize switches and keep the single native executor hot path lean."""
+    """Normalize aliases without silently disabling search capabilities."""
     ablations = dict(config.get("ablations") or {})
-    for name in (
-        "no_symbolic", "symbolic_initial_only", "no_online_reinjection",
-        "no_minimization", "no_traced_replay", "no_snapshot",
-        "no_goal_prefix", "no_distance", "no_state_copy",
-        "no_adaptive_reset", "no_tail_guidance", "no_transition_guidance",
-    ):
-        ablations.setdefault(name, True)
     aliases = {
         "v3_no_symbolic": "no_symbolic",
         "v3_symbolic_initial_only": "symbolic_initial_only",
@@ -158,10 +151,6 @@ class Campaign:
         self.symbolic_unsupported: list[dict[str, Any]] = []
         self.symbolic_results: list[dict[str, Any]] = []
         self.native_replay_results: list[dict[str, Any]] = []
-        self.source_stats: dict[str, dict[str, float]] = {
-            source: {"attempts": 0, "gains": 0, "weight": 1.0}
-            for source in ("fuzz", "solver")
-        }
         # Startup and live prefix queries share one campaign-wide budget.
         self._solver_budget_lock = threading.Lock()
         self._solver_queries_used = 0
@@ -175,10 +164,7 @@ class Campaign:
             }
         except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
             self._solver_task_limits = {}
-        self._live_prefix_ids: set[str] = set()
         self._solver_seed_lock = threading.Lock()
-        self._solver_seed_hits: set[int] = set()
-        self._solver_seed_states: set[str] = set()
         self._solver_seed_best_distance: dict[str, float] = {}
         self._solver_seed_next_id = 1
 
@@ -203,35 +189,6 @@ class Campaign:
                 task_counts[task_id] = task_counts.get(task_id, 0) + 1
             return True
 
-    def _record_source_result(self, source: str, *, gained: bool) -> None:
-        """Update advisory source scheduling without affecting finding status."""
-        stats = getattr(self, "source_stats", None)
-        if stats is None:
-            stats = self.source_stats = {}
-        item = stats.setdefault(source, {"attempts": 0, "gains": 0, "weight": 1.0})
-        item["attempts"] += 1
-        if gained:
-            item["gains"] += 1
-            item["weight"] = min(2.0, item["weight"] * 0.8 + 0.55)
-        else:
-            item["weight"] = max(0.1, item["weight"] * 0.85)
-        self.metrics.event(
-            "source_weight",
-            source=source,
-            gained=gained,
-            attempts=int(item["attempts"]),
-            gains=int(item["gains"]),
-            weight=round(item["weight"], 4),
-        )
-
-    def _credit_solver_feedback(self, query_id: str) -> None:
-        item = self.source_stats.setdefault(
-            "solver", {"attempts": 0, "gains": 0, "weight": 1.0})
-        item["gains"] += 1
-        item["weight"] = min(2.0, item["weight"] * 0.8 + 0.55)
-        self.metrics.event("solver_feedback_gain", query_id=query_id,
-                           gains=int(item["gains"]), weight=round(item["weight"], 4))
-
     def _record_symbolic_result(self, query_id: str, task_id: str | None,
                                 result: dict[str, Any]) -> None:
         record = {"query_id": query_id, "task_id": task_id,
@@ -245,7 +202,6 @@ class Campaign:
         self.metrics.add("solver_queries", 1)
         if record["status"] == "UNSUPPORTED":
             self.symbolic_unsupported.append(record)
-        self._record_source_result("solver", gained=False)
 
     @staticmethod
     def _scope_is_approximate(scope: dict[str, Any] | None) -> bool:
@@ -365,11 +321,12 @@ class Campaign:
             return {**result, "status": "REPLAY_MISMATCH",
                     "reason": f"solver candidate unavailable: {error}"}, None
 
-    def _offer_solver_seed(self, testcase: bytes, observation: Observation, *,
-                           query_id: str, task_id: str | None) -> bool:
-        """Publish a cold replay with new runtime coverage or valid state."""
+    def _enqueue_solver_seed(self, testcase: bytes, *, query_id: str,
+                             task_id: str | None) -> bool:
+        """Queue a canonical KLEE input; the native engine decides its value."""
         stop_event = getattr(self, "_engine_stop_event", None)
-        if stop_event is not None and self.config.get("ablations", {}).get("no_online_reinjection"):
+        config = getattr(self, "config", {})
+        if stop_event is not None and config.get("ablations", {}).get("no_online_reinjection"):
             self.metrics.event("solver_seed_rejected", query_id=query_id,
                                reason="experiment_no_online_reinjection")
             return False
@@ -377,44 +334,29 @@ class Campaign:
             self.metrics.event("solver_seed_rejected", query_id=query_id,
                                reason="engine_finished_no_feedback_this_round")
             return False
-        if observation.timed_out or observation.returncode != 0 or observation.scan_budget:
-            return False
-        runtime_index = getattr(getattr(self, "model", None), "runtime_index", {})
-        if classify(observation, runtime_index) is not None:
+        if not testcase.strip():
             return False
         try:
             from fuzzer.corpus.frames import validate
 
-            case = parse_testcase(testcase, self._abi_like())
-            validate(case, self._abi_like())
+            abi = self._abi_like()
+            case = parse_testcase(testcase, abi)
+            validate(case, abi)
             if not case.frames or len(case.frames) > 300 or case.init_profile != "cold":
                 return False
+            testcase = canonicalize_raw(case, abi, include_dt=True)
         except (OSError, TypeError, ValueError, UnicodeError):
             return False
         lock = getattr(self, "_solver_seed_lock", None)
         if lock is None:
             lock = self._solver_seed_lock = threading.Lock()
         with lock:
-            seen = getattr(self, "_solver_seed_hits", None)
-            if seen is None:
-                seen = self._solver_seed_hits = set()
-            new_hits = set(observation.hits) - seen
-            states = getattr(self, "_solver_seed_states", None)
-            if states is None:
-                states = self._solver_seed_states = set()
-            state_key = self._solver_state_key(task_id, observation)
-            new_state = state_key is not None and state_key not in states
-            distance = self._solver_task_distance(task_id, case, observation)
-            distances = getattr(self, "_solver_seed_best_distance", None)
-            if distances is None:
-                distances = self._solver_seed_best_distance = {}
-            improved_distance = (distance is not None and task_id is not None
-                                 and task_id in distances and distance < distances[task_id])
-            if not new_hits and not new_state and not improved_distance:
-                self.metrics.event("solver_seed_rejected", query_id=query_id,
-                                   reason="no_new_runtime_hit_state_or_distance")
-                return False
             seed_id = int(getattr(self, "_solver_seed_next_id", 1))
+            limit = max(0, int(config.get("solver_seed_queue_limit", 64)))
+            if seed_id > limit:
+                self.metrics.event("solver_seed_rejected", query_id=query_id,
+                                   reason="queue_limit")
+                return False
             directory = self.run_dir / "solver" / "reinject"
             directory.mkdir(parents=True, exist_ok=True)
             path = directory / f"solver-seed-{seed_id:08}.seed"
@@ -425,9 +367,7 @@ class Campaign:
                 temporary.write_bytes(testcase)
                 metadata_temporary.write_text(json.dumps({
                     "query_id": query_id, "task_id": task_id,
-                    "native_replay": "cold_ok", "new_runtime_hits": sorted(new_hits),
-                    "new_valid_state": new_state, "improved_distance": improved_distance,
-                    "distance": distance,
+                    "native_replay": "pending_engine_execution",
                 }, sort_keys=True) + "\n", encoding="utf-8")
                 os.replace(metadata_temporary, metadata_path)
                 os.replace(temporary, path)
@@ -438,17 +378,11 @@ class Campaign:
                 self.metrics.event("solver_seed_rejected", query_id=query_id,
                                    reason=f"queue write failed: {error}")
                 return False
-            seen.update(observation.hits)
-            if state_key is not None:
-                states.add(state_key)
-            if improved_distance and task_id is not None and distance is not None:
-                distances[task_id] = distance
             self._solver_seed_next_id = seed_id + 1
         self.metrics.add("solver_seeds_enqueued", 1)
         self.metrics.event("solver_seed_enqueued", query_id=query_id, task_id=task_id,
-                           seed_id=seed_id, new_hits=sorted(new_hits), new_state=new_state,
-                           improved_distance=improved_distance, distance=distance,
-                           frames=len(case.frames), native_replay="cold_ok")
+                           seed_id=seed_id, frames=len(case.frames),
+                           native_replay="pending_engine_execution")
         return True
 
     def _solver_state_key(self, task_id: str | None,
@@ -518,18 +452,6 @@ class Campaign:
                 scores.append(sum(penalties))
         return min(scores) if scores else None
 
-    def _record_solver_distance_baseline(self, task_id: str, case: TestCase,
-                                         prefix_id: str) -> None:
-        distance = self._solver_task_distance(task_id, case, Observation(0, False, ""))
-        if distance is None:
-            return
-        best = getattr(self, "_solver_seed_best_distance", None)
-        if best is None:
-            best = self._solver_seed_best_distance = {}
-        best[task_id] = min(best.get(task_id, float("inf")), distance)
-        self.metrics.event("solver_distance_baseline", task_id=task_id,
-                           prefix_id=prefix_id, distance=distance)
-
     def _native_task_reached(self, task_id: str) -> bool:
         reached = getattr(self, "_native_reached_task_ids", None)
         if reached is None:
@@ -556,7 +478,7 @@ class Campaign:
         return task_id in reached
 
     def _offer_additional_solver_seeds(self, result: dict[str, Any], *,
-                                       timeout_s: float, deadline: float,
+                                       deadline: float,
                                        query_id: str, task_id: str | None) -> None:
         if not result.get("seed_only"):
             return
@@ -567,38 +489,9 @@ class Campaign:
                 testcase = Path(reference).read_bytes()
             except (OSError, TypeError, ValueError):
                 continue
-            observation = self._probe_with_deadline(
-                testcase, timeout_s=timeout_s, deadline=deadline)
-            self._offer_solver_seed(testcase, observation,
-                                    query_id=query_id, task_id=task_id)
-
-    def _invalidate_snapshots(self, reason: str) -> None:
-        """Remove active cross-process snapshots after an aborted native run.
-
-        A killed engine cannot leave a trusted current state behind.  Keep a
-        small audit record, but make the snapshot directory/index unavailable
-        to later solver phases so they must start from a cold prefix replay.
-        """
-        snapshots_dir = self.run_dir / "prefixes" / "snapshots"
-        index = self.run_dir / "prefixes" / "snapshots.jsonl"
-        had_artifacts = snapshots_dir.exists() or index.exists()
-        if snapshots_dir.exists():
-            shutil.rmtree(snapshots_dir, ignore_errors=True)
-        index.unlink(missing_ok=True)
-        if had_artifacts:
-            marker = self.run_dir / "prefixes" / "snapshots.invalidated.json"
-            marker.parent.mkdir(parents=True, exist_ok=True)
-            marker.write_text(json.dumps({
-                "status": "invalidated",
-                "reason": reason,
-                "time": time.time(),
-            }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-            self.metrics.event("snapshot_invalidated", reason=reason)
+            self._enqueue_solver_seed(testcase, query_id=query_id, task_id=task_id)
 
     # -- inputs ----------------------------------------------------------
-    def _candidate_testcase(self, frames) -> bytes:
-        return self.model.build(list(frames))
-
     def _abi_like(self):
         from fuzzer.pipeline.model import _AbiLike
 
@@ -818,18 +711,6 @@ class Campaign:
         self.metrics.add("candidates", 1)
         return candidate
 
-    def _save_candidate(self, evaluation) -> Candidate | None:
-        if evaluation.candidate is None:
-            return None
-        testcase = self._candidate_testcase(evaluation.prefix.frames)
-        return self._register_candidate(
-            testcase,
-            evaluation.observation,
-            evaluation.candidate,
-            provenance_source="fuzz",
-            depth=len(evaluation.prefix.frames),
-        )
-
     # -- confirmation ----------------------------------------------------
     def _same_candidate(self, first: dict[str, Any], second: dict[str, Any] | None) -> bool:
         if second is None:
@@ -838,19 +719,18 @@ class Campaign:
 
     def confirm(self, candidate: Candidate,
                 observations: list[Observation] | None = None) -> dict[str, Any] | None:
-        # Confirmation probes are independent cold processes.  When called
-        # directly, bound their concurrency by search-jobs; the campaign
-        # queue path supplies observations from one shared pool below.
+        # The first independent cold replay is sufficient when it matches.
+        # A failed first replay needs two matching retries to establish an
+        # intermittent candidate.
         if observations is None:
-            workers = max(1, min(3, int(getattr(self, "jobs", 1))))
-            with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="semantist-confirm") as pool:
-                observations = list(pool.map(lambda _index: self._observe_again(candidate.testcase), range(3)))
-        matches = 0
-        for observation in observations:
-            if self._same_candidate(candidate.candidate,
-                                     classify(observation, self.model.runtime_index)):
-                matches += 1
-        if matches < 3:
+            observations = [self._observe_again(candidate.testcase)]
+            if not self._same_candidate(candidate.candidate,
+                                        classify(observations[0], self.model.runtime_index)):
+                observations.extend(self._observe_again(candidate.testcase) for _ in range(2))
+        matches = [self._same_candidate(candidate.candidate,
+                                        classify(observation, self.model.runtime_index))
+                   for observation in observations]
+        if not matches or not (matches[0] or (len(matches) >= 3 and all(matches[1:3]))):
             return None
         try:
             parsed = parse_testcase(candidate.testcase, self._abi_like())
@@ -938,7 +818,8 @@ class Campaign:
             "time_dependency": False,
             "initialization_scope": "cold",
         }
-        if self.config.get("minimize", True):
+        if (self.config.get("minimize", True)
+                and not self.config.get("ablations", {}).get("no_minimization")):
             minimization_deadline = min(self.deadline - 0.5, time.monotonic() + 5.0)
 
             def bounded_probe(_target_binary, testcase, *, work_dir, timeout_s):
@@ -1070,120 +951,64 @@ class Campaign:
 
     def _run_confirmation(self) -> None:
         confirmed_ids = {item.get("finding_id") for item in self.confirmed if isinstance(item, dict)}
-        candidates = [item for item in self.candidates if item.finding_id not in confirmed_ids]
-        if not candidates:
-            return
         confirmation_results = getattr(self, "candidate_confirmation_results", None)
         if confirmation_results is None:
             confirmation_results = self.candidate_confirmation_results = []
-        shortenings: dict[str, dict[str, Any]] = {}
+        reviewed_ids = {item.get("finding_id") for item in confirmation_results if isinstance(item, dict)}
+        candidates = [item for item in self.candidates
+                      if item.finding_id not in confirmed_ids and item.finding_id not in reviewed_ids]
+        if not candidates:
+            return
         workers = max(1, int(getattr(self, "jobs", 1)))
 
-        def fast_probe_round(testcase: bytes) -> list[Observation]:
-            with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="semantist-confirm") as pool:
-                return list(pool.map(lambda _index: self._observe_again(testcase), range(3)))
-
-        # Establish native evidence for the exact candidate before any
-        # minimization or semantic tracing can alter the input or consume the
-        # instrumentation scan budget.
+        # Retry only candidates whose first independent cold replay missed.
         observations: list[list[Observation]] = [[] for _ in candidates]
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="semantist-confirm") as pool:
             futures = [
                     (candidate_index, pool.submit(self._observe_again, candidate.testcase))
                 for candidate_index, candidate in enumerate(candidates)
-                for _attempt in range(3)
             ]
             for candidate_index, future in futures:
                 observations[candidate_index].append(future.result())
+            retries = [
+                (candidate_index, pool.submit(self._observe_again, candidate.testcase))
+                for candidate_index, candidate in enumerate(candidates)
+                if not self._same_candidate(candidate.candidate,
+                                            classify(observations[candidate_index][0], self.model.runtime_index))
+                for _attempt in range(2)
+            ]
+            for candidate_index, future in retries:
+                observations[candidate_index].append(future.result())
         self.metrics.event("confirmation_probes", candidates=len(candidates),
-                           probes=len(candidates) * 3, workers=workers)
+                           probes=sum(map(len, observations)), workers=workers)
         for candidate, candidate_observations in zip(candidates, observations):
             initial_fast_match = any(
                 self._same_candidate(candidate.candidate,
                                      classify(observation, self.model.runtime_index))
                 for observation in candidate_observations
             )
-            shortening: dict[str, Any] = {"status": "skipped",
-                                          "reason": "native_mismatch" if not initial_fast_match
-                                          else "not_needed"}
-            ablations = getattr(self, "config", {}).get("ablations", {})
-            if initial_fast_match and not ablations.get("no_minimization"):
-                try:
-                    depth = len(parse_testcase(candidate.testcase, self._abi_like()).frames)
-                    if depth > 1 and time.monotonic() + 2.5 < self.deadline:
-                        deadline = min(self.deadline - 1.0, time.monotonic() + 2.0)
-
-                        def bounded_probe(_target_binary, testcase, *, work_dir, timeout_s):
-                            return self._probe_with_deadline(testcase, timeout_s=timeout_s,
-                                                             deadline=deadline, trace=False)
-
-                        result = minimize_module.minimize(
-                            candidate.testcase, abi_like=self._abi_like(),
-                            runtime_index=self.model.runtime_index,
-                            target_binary=self.target_binary, work_dir=self.run_dir / "probe",
-                            probe_fn=bounded_probe,
-                            signature=(candidate.candidate.get("oracle"),
-                                       candidate.candidate.get("runtime_id"),
-                                       str(candidate.candidate.get("source"))),
-                            max_rounds=1, deadline=deadline,
-                        )
-                        if result.frames < depth:
-                            candidate.testcase = result.testcase
-                            (self.run_dir / "findings" / "candidates" /
-                             f"{candidate.finding_id}.shortened.txt").write_bytes(result.testcase)
-                            candidate_observations = fast_probe_round(candidate.testcase)
-                            self.metrics.event("confirmation_probes", candidates=1,
-                                               probes=3, workers=workers, phase="post_minimize")
-                        shortening = {"status": "completed", "original_frames": depth,
-                                      "shortened_frames": result.frames,
-                                      "removed_frames": result.removed,
-                                      "simplified_values": result.simplified}
-                except (OSError, ValueError, TimeoutError) as error:
-                    shortening = {"status": "TIMEOUT" if isinstance(error, TimeoutError) else "FAILED",
-                                  "reason": str(error)}
-            shortenings[candidate.finding_id] = shortening
+            shortening: dict[str, Any] = {
+                "status": "skipped",
+                "reason": "native_mismatch" if not initial_fast_match
+                else "deferred_to_report",
+            }
             finding = self.confirm(candidate, observations=candidate_observations)
-            rounds = [candidate_observations]
-            # Native confirmation is authoritative. Only a candidate that
-            # matched in the fast pass may pay for semantic tracing; a
-            # scan-budget abort or native mismatch must not be promoted by a
-            # slower traced replay.
-            fast_match = any(
-                self._same_candidate(candidate.candidate,
-                                     classify(observation, self.model.runtime_index))
-                for observation in candidate_observations
-            )
-            if (finding is None and fast_match
-                    and not ablations.get("no_traced_replay")
-                    and time.monotonic() + 1.0 < self.deadline):
-                retry_timeout = 10.0 if any(item.timed_out for item in candidate_observations) else 5.0
-                with ThreadPoolExecutor(max_workers=min(3, workers),
-                                        thread_name_prefix="semantist-confirm-retry") as pool:
-                    retry = list(pool.map(
-                        lambda _index: self._probe_with_deadline(candidate.testcase,
-                                                                  timeout_s=retry_timeout,
-                                                                  trace=True),
-                        range(3),
-                    ))
-                rounds.append(retry)
-                finding = self.confirm(candidate, observations=retry)
             attempts = []
-            for round_index, current_round in enumerate(rounds, start=1):
-                for observation in current_round:
-                    actual = classify(observation, self.model.runtime_index)
-                    attempts.append({
-                        "round": round_index,
-                        "status": ("TIMEOUT" if observation.timed_out else
-                                    "INSTRUMENTATION_ABORT" if actual is not None
-                                    and actual.get("kind") == "scan_budget" else
-                                    "MATCH" if self._same_candidate(candidate.candidate, actual)
-                                    else "REPLAY_MISMATCH"),
-                        "returncode": observation.returncode,
-                        "wall_s": observation.wall_s,
-                        "risk_probe_hits": [int(runtime_id) for runtime_id in observation.hits],
-                        "observed_oracle": actual.get("oracle") if actual else None,
-                        "observed_runtime_id": actual.get("runtime_id") if actual else None,
-                    })
+            for observation in candidate_observations:
+                actual = classify(observation, self.model.runtime_index)
+                attempts.append({
+                    "round": 1,
+                    "status": ("TIMEOUT" if observation.timed_out else
+                                "INSTRUMENTATION_ABORT" if actual is not None
+                                and actual.get("kind") == "scan_budget" else
+                                "MATCH" if self._same_candidate(candidate.candidate, actual)
+                                else "REPLAY_MISMATCH"),
+                    "returncode": observation.returncode,
+                    "wall_s": observation.wall_s,
+                    "risk_probe_hits": [int(runtime_id) for runtime_id in observation.hits],
+                    "observed_oracle": actual.get("oracle") if actual else None,
+                    "observed_runtime_id": actual.get("runtime_id") if actual else None,
+                })
             status = "confirmed" if finding is not None else (
                 "TIMEOUT" if any(item["status"] == "TIMEOUT" for item in attempts)
                 else "INSTRUMENTATION_ABORT" if any(
@@ -1194,7 +1019,7 @@ class Campaign:
                 "status": status,
                 "initial_risk_probe_hits": [int(runtime_id) for runtime_id in candidate.observation.hits],
                 "initial_oracle": candidate.candidate.get("oracle"),
-                "shortening": shortenings[candidate.finding_id],
+                "shortening": shortening,
                 "attempts": attempts,
             }
             confirmation_results.append(evidence)
@@ -1353,7 +1178,6 @@ class Campaign:
             "model_scope": self.contract.get("model_scope", {}),
             "model_result_counts": model_result_counts,
             "confirmed_model_counts": confirmed_model_counts,
-            "source_weights": getattr(self, "source_stats", {}),
             "symbolic_queries": self.symbolic_results,
             "solver_feedback": solver_feedback,
             "cycle_effects": getattr(self, "cycle_effects", {}),
@@ -1437,7 +1261,10 @@ class Campaign:
         attempted = 0
         # A caller-provided zero is a real budget: do not silently turn it
         # into one symbolic query.
-        query_budget = max(0, int(self.max_evaluations))
+        query_budget = min(
+            max(0, int(self.max_evaluations)),
+            max(0, int(self.config.get("symbolic_startup_max_queries", 8))),
+        )
         suggestions = getattr(self, "llm_symbolic_suggestions", {})
         eligible_tasks = [task for task in goal_tasks.get("tasks", [])
                           if (task.get("goal") or {}).get("hazard") in (
@@ -1499,15 +1326,15 @@ class Campaign:
                                    runtime_id=runtime_id)
                 if solver_testcase is None:
                     continue
-                observation = self._probe_with_deadline(
-                    solver_testcase, timeout_s=5.0, deadline=self.symbolic_startup_deadline)
-                self._offer_solver_seed(solver_testcase, observation,
-                                        query_id=query_id, task_id=task.get("task_id"))
+                self._enqueue_solver_seed(solver_testcase,
+                                          query_id=query_id, task_id=task.get("task_id"))
                 self._offer_additional_solver_seeds(
-                    result, timeout_s=5.0, deadline=self.symbolic_startup_deadline,
+                    result, deadline=self.symbolic_startup_deadline,
                     query_id=query_id, task_id=task.get("task_id"))
                 if result.get("status") not in {"SAT", "SAT_APPROX"}:
                     continue
+                observation = self._probe_with_deadline(
+                    solver_testcase, timeout_s=5.0, deadline=self.symbolic_startup_deadline)
                 candidate_info = classify(observation, self.model.runtime_index)
                 replay_status = self._record_klee_native_replay(
                     prefix_id="cold", query_id=query_id, task_id=task.get("task_id"),
@@ -1570,12 +1397,18 @@ class Campaign:
         minimum_margin_s = max(1.0, float(self.config.get("solver_feedback_margin_s", 15.0)))
         seen: set[tuple[str, str | None]] = set()
         processed = 0
+        max_online_queries = max(0, int(self.config.get("online_symbolic_max_queries", 4)))
         budget_exhausted = False
+        if max_online_queries == 0:
+            self.metrics.event("solver_monitor", status="DISABLED",
+                               reason="online_symbolic_query_budget_zero")
+            return
         self.metrics.event(
             "solver_scheduler", phase="engine_live", workers=1,
             mode="rust_klee_queue",
         )
         while (not stop_event.is_set() and not budget_exhausted
+               and processed < max_online_queries
                and time.monotonic() < solver_deadline):
             if not queue_index.exists():
                 stop_event.wait(0.05)
@@ -1628,10 +1461,6 @@ class Campaign:
                     seen.add((prefix_id, task_key))
                     continue
                 seen.add((prefix_id, task_key))
-                live_prefix_ids = getattr(self, "_live_prefix_ids", None)
-                if live_prefix_ids is None:
-                    live_prefix_ids = self._live_prefix_ids = set()
-                live_prefix_ids.add(prefix_id)
                 found = True
                 frames = [dict(frame.values) for frame in case.frames]
                 shared_records = "".join(
@@ -1659,7 +1488,6 @@ class Campaign:
                         self.metrics.event("solver_trigger", prefix_id=prefix_id,
                                            task_id=task.get("task_id"), status="skipped", reason=reason)
                         continue
-                    self._record_solver_distance_baseline(str(task.get("task_id")), case, prefix_id)
                     if stop_event.is_set() or time.monotonic() >= solver_deadline:
                         break
                     native_execution = record.get("native_execution", 0)
@@ -1746,19 +1574,16 @@ class Campaign:
                             next_execution[task_id] = native_execution + min(
                                 10000, 100 * (2 ** min(task_failures[task_id], 6)))
                         continue
-                    observation = self._probe_with_deadline(
-                        solver_testcase, timeout_s=1.0, deadline=self.engine_deadline
-                    )
-                    gained = self._offer_solver_seed(solver_testcase, observation,
-                                                     query_id=query_id, task_id=task_id)
-                    if gained:
+                    queued = self._enqueue_solver_seed(solver_testcase,
+                                                       query_id=query_id, task_id=task_id)
+                    if queued:
                         task_failures[task_id] = 0
                     else:
                         task_failures[task_id] = task_failures.get(task_id, 0) + 1
                         next_execution[task_id] = native_execution + min(
                             10000, 100 * (2 ** min(task_failures[task_id], 6)))
                     self._offer_additional_solver_seeds(
-                        result, timeout_s=1.0, deadline=self.engine_deadline,
+                        result, deadline=self.engine_deadline,
                         query_id=query_id, task_id=task_id)
                     recent_costs_s[-1] = time.monotonic() - query_started
                     solver_deadline = min(solver_deadline, solver_feedback_cutoff(
@@ -1769,6 +1594,8 @@ class Campaign:
                                            self.engine_deadline - solver_deadline, 3))
                     if result.get("status") not in {"SAT", "SAT_APPROX"}:
                         continue
+                    observation = self._probe_with_deadline(
+                        solver_testcase, timeout_s=1.0, deadline=self.engine_deadline)
                     info = classify(observation, self.model.runtime_index)
                     native_replay_status = self._record_klee_native_replay(
                         prefix_id=prefix_id,
@@ -1796,7 +1623,8 @@ class Campaign:
                 stop_event.wait(0.05)
         self.metrics.event("solver_monitor", status="stopped", phase="engine_live",
                            processed=processed,
-                           reason=("solver_budget_exhausted" if budget_exhausted else
+                           reason=("online_query_budget_exhausted" if processed >= max_online_queries else
+                                   "solver_budget_exhausted" if budget_exhausted else
                                    "engine_finished" if stop_event.is_set() else "deadline"))
 
     def run_rust_engine(self) -> dict[str, Any]:
@@ -1821,9 +1649,9 @@ class Campaign:
             self.metrics.event("frozen_planning_import", plan_id=prepared.get("plan_id"))
         self.phase_times_s["llm_planning"] = round(time.monotonic() - phase_started, 3)
         online_started = time.monotonic()
-        self.online_start_offset_s = online_started - self.started
+        self.online_start_offset_s = (0.0 if self.config.get("online_budget_from_start")
+                                      else online_started - self.started)
         if self.config.get("online_budget_from_start"):
-            self.deadline = online_started + max(0.0, self.time_budget_s)
             self.engine_deadline = self.deadline
             self.solver_deadline = self.engine_deadline - max(
                 1.0, float(self.config.get("solver_feedback_margin_s", 15.0)))
@@ -1844,15 +1672,11 @@ class Campaign:
             self.metrics.event("engine_finished", returncode=None, timed_out=True,
                                reason="campaign budget exhausted before engine")
             raise RuntimeError("campaign budget exhausted before the native engine")
-        # Allow summary writing after the native online loop reaches its budget.
         full_fuzz_duration = bool(self.config.get("full_fuzz_duration"))
         full_hybrid_duration = bool(self.config.get("full_hybrid_duration"))
-        campaign_budget_s = getattr(self, "time_budget_s", engine_budget_s)
-        exit_headroom_s = min(3.0, max(0.25, engine_budget_s * 0.1))
-        engine_runtime_s = (campaign_budget_s - 180.0 if full_fuzz_duration
-                            else min(campaign_budget_s, max(0.001, engine_budget_s
-                                                             - (0.0 if full_hybrid_duration
-                                                                else exit_headroom_s))))
+        engine_runtime_s = (self.time_budget_s - 180.0 if full_fuzz_duration else
+                            engine_budget_s if full_hybrid_duration else
+                            max(0.001, engine_budget_s - min(3.0, max(0.25, engine_budget_s * 0.1))))
         if full_fuzz_duration and engine_budget_s < engine_runtime_s + 5.0:
             raise RuntimeError("insufficient campaign time for the requested native fuzz duration")
         engine = self.target_binary.parent / "semantist-inprocess"
@@ -1862,7 +1686,6 @@ class Campaign:
             )
         command = [
             str(engine),
-            "--v3",
             "--target", str(self.target_binary),
             "--function", self.function,
             "--run-dir", str(self.run_dir),
@@ -1886,6 +1709,9 @@ class Campaign:
                 command.append(flag)
         environment = os.environ.copy()
         environment["SEMANTIST_V3_RUN_DIR"] = str(self.run_dir)
+        environment.pop("SEMANTIST_ONLINE_DEADLINE_NS", None)
+        if self.config.get("online_budget_from_start"):
+            environment["SEMANTIST_ONLINE_DEADLINE_NS"] = str(int(self.deadline * 1_000_000_000))
         environment["SEMANTIST_MUTATION_MODE"] = str(
             self.config.get("mutation_mode", environment.get("SEMANTIST_MUTATION_MODE", "combined")))
         semantic_ratio = self.config.get("semantic_ratio", environment.get("SEMANTIST_SEMANTIC_RATIO", 0.30))
@@ -1902,6 +1728,16 @@ class Campaign:
             environment["SEMANTIST_EXPERIMENT_NO_STG"] = "1"
         if ablations.get("single_frame"):
             environment["SEMANTIST_EXPERIMENT_SINGLE_FRAME"] = "1"
+        if self.config.get("fb_max_cycles") is not None:
+            environment["SEMANTIST_FB_MAX_CYCLES"] = str(self.config["fb_max_cycles"])
+        if self.config.get("fb_stale_threshold") is not None:
+            environment["SEMANTIST_FB_STALE_THRESHOLD"] = str(self.config["fb_stale_threshold"])
+        if self.config.get("fb_state_trace"):
+            environment["SEMANTIST_FB_STATE_TRACE"] = "1"
+            if self.config.get("fb_state_trace_file"):
+                environment["SEMANTIST_FB_STATE_TRACE_FILE"] = str(
+                    self.config["fb_state_trace_file"]
+                )
         for key, env_key in (
             ("no_online_reinjection", "SEMANTIST_EXPERIMENT_NO_ONLINE_REINJECTION"),
             ("no_adaptive_reset", "SEMANTIST_EXPERIMENT_NO_ADAPTIVE_RESET"),
@@ -1932,7 +1768,6 @@ class Campaign:
             engine_archive_path.unlink(missing_ok=True)
             pending_path.unlink(missing_ok=True)
         except OSError as error:
-            self._invalidate_snapshots("engine_summary_cleanup_failed")
             raise RuntimeError(f"could not clear prior engine summary: {error}") from error
         try:
             process = subprocess.Popen(
@@ -1944,10 +1779,7 @@ class Campaign:
                 text=True,
             )
         except OSError as error:
-            # A missing or non-executable engine is a campaign failure, not
-            # an uncaught launcher traceback. Invalidate any prior snapshot
-            # state before the caller writes its best-effort report.
-            self._invalidate_snapshots("engine_launch_failed")
+            # A missing or non-executable engine is a campaign failure.
             self.metrics.event("engine_finished", returncode=127,
                                timed_out=False, engine=str(engine),
                                launch_error=str(error)[:400])
@@ -1973,15 +1805,11 @@ class Campaign:
         phase_started = time.monotonic()
         try:
             launcher_guard_s = max(0.001, self.engine_deadline - time.monotonic())
-            if full_hybrid_duration:
-                # The hybrid engine must never outlive the campaign's current
-                # remainder when planning or startup consumed part of it.
-                launcher_guard_s = max(0.001, engine_runtime_s) + 0.5
+            if self.config.get("online_budget_from_start"):
+                launcher_guard_s += 60.0
+            elif full_hybrid_duration:
+                launcher_guard_s = max(0.001, engine_runtime_s) + 5.0
             stdout, stderr = process.communicate(
-                # Loading the STG/goal bundle and starting the isolated
-                # native worker is outside the online search clock.  Keep a
-                # separate launcher guard so large network targets cannot be
-                # killed before their configured online budget begins.
                 timeout=launcher_guard_s
             )
             completed = subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
@@ -1995,7 +1823,6 @@ class Campaign:
                 except OSError:
                     pass
                 process.wait()
-            self._invalidate_snapshots("engine_timeout")
             self.engine_status = "TIMEOUT"
             self.metrics.event("engine_finished", returncode=None, timed_out=True, engine=str(engine))
             self.metrics.write_summary()
@@ -2017,17 +1844,19 @@ class Campaign:
             returncode=completed.returncode,
             engine=str(engine),
         )
-        elapsed_online = online_finished - online_started
         self.phase_times_s["online_search"] = round(
-            min(elapsed_online, self.time_budget_s)
-            if self.config.get("online_budget_from_start") else elapsed_online, 3)
+            min(online_finished, self.engine_deadline) - self.started
+            if self.config.get("online_budget_from_start")
+            else online_finished - online_started, 3)
+        if self.config.get("online_budget_from_start"):
+            self.phase_times_s["engine_postdeadline"] = round(
+                max(0.0, online_finished - self.engine_deadline), 3)
         self.metrics.event("online_search_finished")
         review_budget_s = self.config.get("review_budget_s")
         if review_budget_s is not None:
             self.deadline = time.monotonic() + max(0.0, float(review_budget_s))
         review_started = time.monotonic()
         if completed.returncode != 0:
-            self._invalidate_snapshots(f"engine_exit_{completed.returncode}")
             self.engine_status = "FAILED"
             if pending_path.is_file():
                 try:
@@ -2065,7 +1894,6 @@ class Campaign:
                 json.dumps(engine_summary, indent=2, sort_keys=True) + "\n", encoding="utf-8"
             )
         except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
-            self._invalidate_snapshots("engine_summary_invalid")
             raise RuntimeError(f"invalid engine summary: {error}") from error
         self.metrics.add("executions", engine_summary["executions"])
         self.metrics.add("scans", engine_summary["scans"])
@@ -2073,8 +1901,6 @@ class Campaign:
         self.metrics.add("engine_scans", engine_summary["scans"])
         for name in ("solver_seeds_loaded", "solver_seeds_executed", "solver_seeds_retained"):
             self.metrics.add(name, engine_summary.get(name, 0))
-        for _ in range(int(engine_summary.get("solver_seeds_retained", 0))):
-            self._credit_solver_feedback("engine_retained")
         self.metrics.add("snapshot_hits", engine_summary.get("cache_hits", 0))
         self.metrics.add("snapshot_saved_scans", engine_summary.get("saved_scans", 0))
         snapshot_attempts = engine_summary.get("snapshot_attempts")
@@ -2085,7 +1911,6 @@ class Campaign:
                              else max(0, snapshot_attempts - engine_summary.get("cache_hits", 0)))
         else:
             self.metrics.event("snapshot_stats_unavailable", engine="rust")
-        self._record_source_result("fuzz", gained=bool(engine_summary["candidates"]))
         candidate_dir = self.run_dir / "findings" / "candidates"
         if candidate_dir.is_dir():
             for path in sorted(candidate_dir.glob("candidate-*.txt")):

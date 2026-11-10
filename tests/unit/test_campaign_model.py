@@ -13,7 +13,6 @@ from fuzzer.pipeline.analysis import collect_literals
 from fuzzer.pipeline.goal_tasks import (
     MAX_PLANNED_PREFIXES_PER_TASK,
     _array_guard_values,
-    _bounded_prefixes,
     _planned_prefixes,
     build_goal_tasks,
 )
@@ -101,16 +100,17 @@ def test_persistent_array_boundary_prefixes_follow_types_bounds_and_names():
             abi, task, [], state_update_reads=update_reads))
 
 
-def test_planned_prefixes_keep_conditions_and_sample_all_protocol_strata():
-    prefixes = [[{"Mode": str(index)}] for index in range(1500)]
-    first = _bounded_prefixes(prefixes, 0, 29)
-    second = _bounded_prefixes(prefixes, 1, 29)
-
-    assert len(first) == len(second) == MAX_PLANNED_PREFIXES_PER_TASK
-    assert first[:8] == second[:8] == prefixes[:8]
-    assert int(first[-1][0]["Mode"]) > 1400
-    assert first[8:] != second[8:]
-    assert len({entry[0]["Mode"] for entry in first}) == MAX_PLANNED_PREFIXES_PER_TASK
+def test_goal_tasks_emit_only_runtime_consumed_prefixes():
+    abi = {"target": {"name": "ARRAY_TARGET", "kind": "FUNCTION_BLOCK"},
+           "frame_fields": [{"name": "Mode", "block_kind": "VAR_INPUT",
+                             "spec": {"kind": "scalar", "name": "INT", "size": 2}}],
+           "shared_fields": [], "state_fields": []}
+    plan = {"tasks": [{"task_id": "array-goal", "terminal_kind": "hazard_violation",
+                       "terminal_hazard": "array_access", "terminal_runtime_id": 1,
+                       "candidate_paths": [], "control_obligations": []}]}
+    prefixes = build_goal_tasks(plan, abi, {"regions": []})["tasks"][0]["seed_prefixes"]
+    assert len(prefixes) == MAX_PLANNED_PREFIXES_PER_TASK
+    assert all(len(prefix) == 5 for prefix in prefixes)
 
 
 def _write_minimal_exchange(tmp_path):

@@ -23,7 +23,8 @@ are available under `oscat/oscat/`, check extraction with:
 python3 -m benchmarks.oscat.prepare_targets --check
 ```
 
-Run the complete SemantiST batch with a ten-minute total hybrid-search
+The following 600-second batch is a historical single-tool example, not the
+formal 100-target main experiment. Run the complete SemantiST batch with a ten-minute total hybrid-search
 budget per target (plus a separate build allowance):
 
 ```bash
@@ -67,6 +68,16 @@ planner; the default campaign includes native fuzzing and the symbolic phase.
 The Basic targets compile against the normalized OSCAT Basic project. Network
 and Building use the suite's normalized exports and typed compatibility stubs.
 The 100-target roster is a selection, not a completed validation result.
+For the formal `overall` experiment, see [the experiment runner](../experiments/README.md).
+It has 1,500 trials (100 targets, three tools, five seeds each), with 300 seconds
+of online wall time per trial; the full deduplicated comparison matrix has
+3,500 jobs, and 600 seconds belongs only to the separate budget comparison.
+All three tools are built and all SemantiST plans frozen before any search;
+then SemantiST, AFL++ and ICSQuartz run as separate commands in one timestamped
+`artifacts/experiments/` root on the `/home` disk. They use physical CPU pools
+0-9, 10-19 and 20-29 respectively, two cores and 8 GiB per trial. The online
+clock includes initialization and SemantiST online KLEE. Failed trials require
+inspection and `--retry-failed`; changed code requires a new image and root.
 Network and Building currently use approximate compatibility models; some
 targets are native-only for symbolic search. Report source/model
 fidelity, native support, symbolic support, and probe coverage per target.

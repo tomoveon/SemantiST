@@ -83,7 +83,6 @@ RUN ./compiler/scripts/build_rusty_semantic.sh \
 # Prebuild all release binaries. /opt is not hidden when users mount the
 # repository's artifacts directory for persistent experiment output.
 RUN cargo build --workspace --release --locked \
-    && test -x "${CARGO_TARGET_DIR}/release/semantist" \
     && test -r "${CARGO_TARGET_DIR}/release/libsemantist_inprocess.a" \
     && test -x "${CARGO_TARGET_DIR}/release/semantist-stg" \
     && test -x "${CARGO_TARGET_DIR}/release/stg-ir-instrument"

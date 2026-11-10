@@ -12,44 +12,13 @@ sys.path.insert(0, str(ROOT))
 
 from fuzzer.pipeline.core import (  # noqa: E402
     Layout,
-    apply_fb_runtime_env,
     build_targets,
-    launch_fuzzer,
     record_build_failure,
     run_campaign,
 )
 
 
 class PipelineFunctionBlockRuntimeEnvTests(unittest.TestCase):
-    def test_fb_runtime_args_map_to_environment(self) -> None:
-        env = {}
-        args = argparse.Namespace(
-            fb_max_cycles=5,
-            fb_stale_threshold=1,
-            fb_state_trace=True,
-            fb_state_trace_file=Path("/tmp/fb-trace.log"),
-        )
-
-        apply_fb_runtime_env(args, env)
-
-        self.assertEqual(env["SEMANTIST_FB_MAX_CYCLES"], "5")
-        self.assertEqual(env["SEMANTIST_FB_STALE_THRESHOLD"], "1")
-        self.assertEqual(env["SEMANTIST_FB_STATE_TRACE"], "1")
-        self.assertEqual(env["SEMANTIST_FB_STATE_TRACE_FILE"], "/tmp/fb-trace.log")
-
-    def test_fb_trace_file_is_ignored_unless_trace_is_enabled(self) -> None:
-        env = {}
-        args = argparse.Namespace(
-            fb_max_cycles=None,
-            fb_stale_threshold=None,
-            fb_state_trace=False,
-            fb_state_trace_file=Path("/tmp/fb-trace.log"),
-        )
-
-        apply_fb_runtime_env(args, env)
-
-        self.assertEqual(env, {})
-
     def test_build_targets_uses_only_semantic_ir_configuration(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -156,34 +125,6 @@ class PipelineFunctionBlockRuntimeEnvTests(unittest.TestCase):
             status = json.loads((layout.run_dir / "campaign-status.json").read_text(encoding="utf-8"))
             self.assertEqual(status["status"], "build_failed")
             self.assertEqual(status["execution_status"]["build"], "failed")
-
-    def test_launch_fuzzer_preserves_explicit_zero_iteration_budget(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            layout = Layout.from_run_dir(root / "run", root / "build")
-            layout.mkdirs()
-            (layout.run_dir / "stg").mkdir(parents=True)
-            args = SimpleNamespace(
-                function="TEST", semantic_task_budget=7, fuzz_iterations=0,
-                fuzz_timeout=3, semantic_runtime_trace=False,
-                semantic_debug_artifacts=False, fb_max_cycles=None,
-                fb_stale_threshold=None, fb_state_trace=False,
-                fb_state_trace_file=None,
-            )
-            calls: list[list[str]] = []
-
-            def record(command: list[str], env=None, timeout=None) -> None:
-                del env, timeout
-                calls.append(command)
-
-            with patch("fuzzer.pipeline.core.run_command", side_effect=record):
-                launch_fuzzer(args, layout, root / "target")
-
-            self.assertEqual(len(calls), 1)
-            self.assertIn("--fuzz-iterations", calls[0])
-            index = calls[0].index("--fuzz-iterations")
-            self.assertEqual(calls[0][index + 1], "0")
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -205,18 +205,23 @@ int main(int argc, char **argv) {
 static int observed;
 void RAW__ctor(semantist_fb_state_t *inst) { inst->f0 = 0; memset(inst->f1, 0, sizeof(inst->f1)); }
 void RAW(semantist_fb_state_t *inst) {
-    if (inst->f0 == 3 && (unsigned char)inst->f1[0] == 0x80 && inst->f1[1] == 0) observed = 1;
+    if (inst->f0 == 3 && (unsigned char)inst->f1[0] == 0x80 && inst->f1[1] == 0) observed |= 1;
+    if (inst->f0 == 3 && (unsigned char)inst->f1[0] == 0x80 && inst->f1[1] == 'A'
+        && (unsigned char)inst->f1[2] == 0xff && inst->f1[3] == 'Z') observed |= 2;
 }
 int main(void) {
     semantist_frame_t frame;
     uint8_t flag = 0x03;
     uint8_t text[] = {0x80};
+    uint8_t full_storage[] = {0x80, 'A', 0xff, 'Z'};
     memset(&frame, 0, sizeof(frame));
     if (semantist_init("") != 0) return 1;
     if (semantist_apply_raw_field("FLAG", &flag, sizeof(flag), &frame) != 0) return 2;
     if (semantist_apply_raw_field("TEXT", text, sizeof(text), &frame) != 0) return 3;
     if (semantist_step(&frame, 10000000ULL) != 0) return 4;
-    return observed ? 0 : 5;
+    if (semantist_apply_raw_field("TEXT", full_storage, sizeof(full_storage), &frame) != 0) return 5;
+    if (semantist_step(&frame, 10000000ULL) != 0) return 6;
+    return observed == 3 ? 0 : 7;
 }
 '''
         source_text = generate_function_block_harness(abi) + "\n" + target
@@ -299,6 +304,47 @@ int main(void) {
             source = Path(directory) / "raw-array.c"
             source.write_text(source_text, encoding="utf-8")
             binary = Path(directory) / "raw-array"
+            build = subprocess.run(
+                ["cc", "-DSEMANTIST_IN_PROCESS", "-O1", str(source), "-o", str(binary)],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(build.returncode, 0, build.stderr[:2000])
+            run = subprocess.run([str(binary)], capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+
+    @unittest.skipUnless(shutil.which("cc"), "requires a C compiler")
+    def test_raw_shared_constants_keep_full_storage_bytes(self):
+        flag = Param("CONFIG", scalar_spec("BOOL"), "VAR_INPUT", constant=True,
+                     offset=8, index=1)
+        text = Param("LABEL", TypeSpec("string", "STRING", c_type="char", size=1, length=3),
+                     "VAR_INPUT", constant=True, offset=9, index=2)
+        abi = TargetAbi("FUNCTION_BLOCK", "RAW_CONST", [flag, text],
+                        state_fields=[flag, text], instance_size=16, instance_align=1)
+        target = r'''
+static int observed;
+void RAW_CONST__ctor(semantist_fb_state_t *inst) { inst->f0 = 0; memset(inst->f1, 0, sizeof(inst->f1)); }
+void RAW_CONST(semantist_fb_state_t *inst) {
+    if (inst->f0 == 0x03 && (unsigned char)inst->f1[0] == 0x80
+        && inst->f1[1] == 'A' && (unsigned char)inst->f1[2] == 0xff
+        && inst->f1[3] == 'Z') observed = 1;
+}
+int main(void) {
+    semantist_frame_t frame;
+    uint8_t flag = 0x03;
+    uint8_t text[] = {0x80, 'A', 0xff, 'Z'};
+    memset(&frame, 0, sizeof(frame));
+    if (semantist_init("") != 0) return 1;
+    if (semantist_apply_raw_shared_field("CONFIG", &flag, sizeof(flag)) != 0) return 2;
+    if (semantist_apply_raw_shared_field("LABEL", text, sizeof(text)) != 0) return 3;
+    if (semantist_step(&frame, 10000000ULL) != 0) return 4;
+    return observed ? 0 : 5;
+}
+'''
+        source_text = generate_function_block_harness(abi) + "\n" + target
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "raw-constant.c"
+            source.write_text(source_text, encoding="ascii")
+            binary = Path(directory) / "raw-constant"
             build = subprocess.run(
                 ["cc", "-DSEMANTIST_IN_PROCESS", "-O1", str(source), "-o", str(binary)],
                 capture_output=True, text=True,

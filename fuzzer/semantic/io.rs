@@ -33,7 +33,6 @@ fn append_runtime_finding_event(path: &Path, event: &RuntimeFindingEvent) -> Res
 }
 
 fn append_json_value(path: &Path, value: &serde_json::Value) -> Result<(), Error> {
-    let _timer = PhaseTimer::start(Phase::IoEvents);
     append_json_line(path, value, "semantic coverage event")
 }
 

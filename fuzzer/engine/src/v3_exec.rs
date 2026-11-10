@@ -63,7 +63,6 @@ where
             let mut cache = self.cache.lock().expect("prefix cache");
             cache.invalidations += 1;
             cache.clear();
-            PrefixCache::invalidate_exports("target_exit_or_executor_error");
         }
         result
     }

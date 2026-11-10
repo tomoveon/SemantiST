@@ -3,16 +3,11 @@ name = "semantist"
 version.workspace = true
 edition.workspace = true
 
-# The in-process fuzzer library; the forkserver engine is the `semantist` binary.
+# The single in-process fuzzer library used by the campaign pipeline.
 [lib]
 name = "semantist_inprocess"
 path = "src/lib.rs"
 crate-type = ["staticlib"]
-test = false
-
-[[bin]]
-name = "semantist"
-path = "src/main.rs"
 
 [dependencies]
 libafl = "0.15.4"

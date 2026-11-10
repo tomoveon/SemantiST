@@ -62,9 +62,10 @@ def test_frozen_plan_seeds_are_imported_without_importing_prep_findings(tmp_path
             write_json(self.run_dir / "report.json", {"findings": [
                 {"first_candidate_s": 20.0, "oracle": "late_candidate",
                  "goal": {"source": {"file": "target.st", "line": 1}}, "finding_id": "late"}],
-                       "online_start_offset_s": 0, "solver_feedback": {}})
+                       "online_start_offset_s": 0, "solver_feedback": {"enqueued": 3}})
             write_json(self.run_dir / "metrics" / "engine-summary.json",
-                       {"executions": 4, "scans": 4})
+                       {"executions": 4, "scans": 4,
+                        "solver_seeds_executed": 2, "solver_seeds_retained": 1})
 
     monkeypatch.setattr(worker, "Campaign", FakeCampaign)
     job = Job(target, "semantist", "full", 0, 5, ["overall"])
@@ -74,6 +75,8 @@ def test_frozen_plan_seeds_are_imported_without_importing_prep_findings(tmp_path
     assert result["confirmed"] == 0
     assert result["excluded_outside_online_findings"] == 1
     assert result["llm_tokens"] == 200
+    assert {key: result["feedback"][key] for key in ("enqueued", "executed", "retained")} == {
+        "enqueued": 3, "executed": 2, "retained": 1}
 
 
 def test_semantist_mutation_mode_reaches_campaign_worker(tmp_path, monkeypatch):
@@ -93,9 +96,10 @@ def test_semantist_mutation_mode_reaches_campaign_worker(tmp_path, monkeypatch):
     seen = []
 
     class FakeCampaign:
-        def __init__(self, run_dir: Path, *_args, **_kwargs):
+        def __init__(self, run_dir: Path, *_args, **kwargs):
             self.run_dir = run_dir
             self.phase_times_s = {"online_search": 1.0}
+            seen.append(kwargs["config"]["ablations"])
 
         def run(self):
             seen.append(os.environ.get("SEMANTIST_MUTATION_MODE"))
@@ -106,7 +110,7 @@ def test_semantist_mutation_mode_reaches_campaign_worker(tmp_path, monkeypatch):
     job = Job(target, "semantist", "no_llm", 0, 2, ["overall"])
     result = worker.run_job(tmp_path, job, mutation_mode="byte")
     assert result["status"] == "completed"
-    assert seen == ["byte"]
+    assert seen == [{"llm": False}, "byte"]
     assert os.environ.get("SEMANTIST_MUTATION_MODE") is None
 
 

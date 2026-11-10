@@ -183,14 +183,15 @@ def build(
     except PhaseError as error:
         return failure(error)
     faithful = {"TON", "TOF", "TP", "R_TRIG", "F_TRIG", "TIME",
-                "DWORD_TO_REAL", "REAL_TO_DWORD", "ROL__DWORD", "LEN__STRING",
+                "DWORD_TO_REAL", "REAL_TO_DWORD", "ROL__DWORD", "ROL__BYTE",
+                "ROR__BYTE", "MAX__TIME", "LEN__STRING",
                 "CONCAT__STRING", "INSERT_EXT__STRING", "LINT_TO_STRING_EXT"}
     float_fields = [entry for section in ("frame_fields", "shared_fields") for entry in abi.get(section, [])
                     if entry.get("spec", {}).get("name") in ("REAL", "LREAL")]
     concretizing = {"strtod"} if float_fields else set()
     havoc = {"ACOS__REAL", "ASIN__REAL", "ATAN__REAL", "COS__REAL", "SIN__REAL",
              "SIN__LREAL", "TAN__REAL", "LN__REAL", "SQRT__REAL"}
-    approximating = {"EXP__REAL", "ROUND__REAL"}
+    approximating = {"EXP__REAL", "ROUND__REAL", "STRING_TO_DINT"}
     imprecise = sorted((symbols & (havoc | approximating)) | concretizing)
     manifest = {
         "status": "supported",

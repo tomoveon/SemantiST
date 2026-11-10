@@ -201,20 +201,21 @@ def _frame_case_lines(abi: TargetAbi, target: str) -> list[str]:
     return lines
 
 
+def _shared_storage_access(abi: TargetAbi, param: Param, target: str) -> str:
+    if (param.block_kind == "VAR_IN_OUT" and _uses_external_storage(param)
+            or param.spec.kind == "pointer"
+            or abi.kind == "FUNCTION" and _uses_external_storage(param)):
+        return _external_storage_name(param)
+    if abi.kind == "FUNCTION" or param.block_kind == "VAR_IN_OUT":
+        return f"{target}.{_storage_name(param)}"
+    return f"{target}.inst.{_field_name(param)}"
+
+
 def _shared_case_lines(abi: TargetAbi, target: str) -> list[str]:
     lines: list[str] = []
     for param in shared_params(abi):
         spec = param.spec
-        if param.block_kind == "VAR_IN_OUT" and _uses_external_storage(param):
-            access = _external_storage_name(param)
-        elif spec.kind == "pointer" or (abi.kind == "FUNCTION" and _uses_external_storage(param)):
-            access = _external_storage_name(param)
-        elif abi.kind == "FUNCTION":
-            access = f"{target}.{_storage_name(param)}"
-        elif param.block_kind == "VAR_IN_OUT":
-            access = f"{target}.{_storage_name(param)}"
-        else:
-            access = f"{target}.inst.{_field_name(param)}"
+        access = _shared_storage_access(abi, param, target)
         lines.append(f'if (strcmp(name, "{param.name}") == 0) {{')
         if spec.kind == "scalar":
             lines.extend(_scalar_assignment(spec, access))
@@ -700,9 +701,6 @@ SEMANTIST_DRIVER static int semantist_v3_execute(char *data) {
                     free(frames);
                     return 3;
                 }
-                if (__SEMANTIST_SINGLE_FRAME__) {
-                    break;
-                }
             }
             current_cycle = cycle;
             dt_ns = (uint64_t)SEMANTIST_SCAN_PERIOD_NS;
@@ -717,12 +715,10 @@ SEMANTIST_DRIVER static int semantist_v3_execute(char *data) {
             return 2;
         }
     }
-    if (current_cycle < 0 || !__SEMANTIST_SINGLE_FRAME__) {
-        if (semantist_step(&frame, dt_ns) != 0) {
-            free(shared);
-            free(frames);
-            return 3;
-        }
+    if (semantist_step(&frame, dt_ns) != 0) {
+        free(shared);
+        free(frames);
+        return 3;
     }
     semantist_trace_end();
     semantist_snapshot_report();
@@ -739,7 +735,7 @@ def _generator():
     return generator
 
 
-def _preamble(abi: TargetAbi, single_frame: bool) -> str:
+def _preamble(abi: TargetAbi) -> str:
     frame_decl = "\n".join(f"    {line}" for line in frame_declarations(abi)) or "    uint8_t unused;"
     state_decl = "\n".join(f"    {line}" for line in state_declarations(abi))
     return f"""
@@ -758,7 +754,6 @@ def _preamble(abi: TargetAbi, single_frame: bool) -> str:
 #ifndef SEMANTIST_LOOP_BACKEDGES_PER_SCAN
 #define SEMANTIST_LOOP_BACKEDGES_PER_SCAN 1000000ULL
 #endif
-#define __SEMANTIST_SINGLE_FRAME__ {1 if single_frame else 0}
 
 static int semantist_numeric_end(const char *end) {{
     while (*end == ' ' || *end == '\\t' || *end == '\\r') end++;
@@ -872,9 +867,8 @@ def _raw_copy_lines(spec, access: str) -> list[str]:
             "    return 0;",
         ]
     unit = 2 if spec.kind == "string" and spec.name == "WSTRING" else 1
-    terminate = 1 if spec.kind == "string" else 0
     return [
-        f"    if (!semantist_copy_raw_bytes(({access}), sizeof({access}), bytes, byte_len, {unit}, {terminate})) return 1;",
+        f"    if (!semantist_copy_raw_bytes(({access}), sizeof({access}), bytes, byte_len, {unit})) return 1;",
         "    return 0;",
     ]
 
@@ -895,14 +889,9 @@ def _raw_field_function(abi: TargetAbi) -> str:
         cases.append("    }")
     return f"""
 static int semantist_copy_raw_bytes(void *dst, size_t dst_len, const uint8_t *bytes,
-                                    size_t byte_len, size_t unit, int terminate) {{
+                                    size_t byte_len, size_t unit) {{
     if (!dst || (!bytes && byte_len) || unit == 0) return 0;
-    size_t limit = dst_len;
-    if (terminate) {{
-        if (dst_len < unit) return 0;
-        limit -= unit;
-    }}
-    if (byte_len > limit || byte_len % unit != 0) return 0;
+    if (byte_len > dst_len || byte_len % unit != 0) return 0;
     memset(dst, 0, dst_len);
     if (byte_len) memcpy(dst, bytes, byte_len);
     return 1;
@@ -918,20 +907,17 @@ SEMANTIST_DRIVER int semantist_apply_raw_field(const char *name, const uint8_t *
 
 
 def _raw_shared_function(abi: TargetAbi) -> str:
-    """Expose the same raw path for shared VAR_IN_OUT backing objects."""
+    """Apply raw bytes to the ABI storage of every shared input."""
     cases: list[str] = []
     for param in shared_params(abi):
-        if param.block_kind != "VAR_IN_OUT":
-            continue
-        access = _external_storage_name(param) if _uses_external_storage(param) else f"{STATE_VAR}.{_storage_name(param)}"
+        access = _shared_storage_access(abi, param, STATE_VAR)
         cases.append(f'    if (strcmp(name, "{param.name}") == 0) {{')
         if param.spec.kind == "scalar":
             cases.extend(_raw_copy_lines(param.spec, f"{access}"))
         else:
             unit = 2 if param.spec.kind == "string" and param.spec.name == "WSTRING" else 1
-            terminate = 1 if param.spec.kind == "string" else 0
             cases.extend([
-                f"    if (!semantist_copy_raw_bytes({access}, sizeof({access}), bytes, byte_len, {unit}, {terminate})) return 1;",
+                f"    if (!semantist_copy_raw_bytes({access}, sizeof({access}), bytes, byte_len, {unit})) return 1;",
                 "    return 0;",
             ])
         cases.append("    }")
@@ -987,7 +973,7 @@ typedef struct {{
 
 extern void {name}(semantist_fb_state_t *);
 extern void {name}__ctor(semantist_fb_state_t *);
-{_preamble(abi, False)}
+{_preamble(abi)}
 {chr(10).join(external_backing_declarations(abi))}
 {_accessor_declarations(abi)}
 {_inout_accessor(abi)}
@@ -1095,7 +1081,7 @@ def generate_function_harness(abi: TargetAbi) -> str:
     return f"""{g.HEADER}
 {g.INCLUDES}
 {g.COMMON_C}
-{_preamble(abi, False)}
+{_preamble(abi)}
 {chr(10).join(external_backing_declarations(abi))}
 {_accessor_declarations(abi)}
 {_inout_accessor(abi)}

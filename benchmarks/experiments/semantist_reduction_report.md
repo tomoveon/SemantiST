@@ -3,7 +3,9 @@
 ## Stage 1: Execution Path
 
 The default campaign now uses one Rust native executor, one feedback record,
-and one shared corpus. Live symbolic solving, online solver reinjection,
+and one shared corpus. This is a historical development report; its statements
+about live symbolic solving and online solver reinjection predate the current
+formal `overall` configuration. Live symbolic solving, online solver reinjection,
 prefix distance selection, adaptive reset/tail guidance, snapshots, automatic
 minimization, and traced replay are disabled by default. Native confirmation
 still runs three probes for each candidate. LLM planning remains an offline

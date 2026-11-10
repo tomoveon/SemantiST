@@ -260,59 +260,6 @@ fn inprocess_edge_map_size() -> usize {
     ((final_loc + 1 + 63) / 64 * 64).min(MAP_SIZE)
 }
 
-// The in-process campaign over a given event manager and, after a restart,
-// the restored state.
-macro_rules! inprocess_campaign {
-    ($setup:expr, $scheduler:expr, $mgr:expr, $restored:expr, $edges:expr, $semantic:expr, $telemetry:expr) => {{
-        let setup: &CampaignSetup = $setup;
-        let config = &setup.config;
-        let mut mgr = $mgr;
-        let restored = $restored;
-        let fresh = restored.is_none();
-        let covered = restored.as_ref()
-            .and_then(|state: &_| HasMetadata::metadata_map(state).get::<SemanticRuntimeMetadata>())
-            .map(|runtime| runtime.covered_target_ids.clone());
-        let (time_observer, edges_observer, semantic_observer, telemetry_observer, mut feedback, mut objective) =
-            semantist_feedbacks!(setup, $edges, $semantic, $telemetry, covered.as_ref());
-        let handles = (edges_observer.handle(), semantic_observer.handle(), telemetry_observer.handle());
-        let mut state = match restored {
-            Some(state) => state,
-            None => semantist_new_state!(setup, &mut feedback, &mut objective),
-        };
-        let mut fuzzer = StdFuzzer::builder()
-            .scheduler($scheduler)
-            .feedback(feedback)
-            .objective(objective)
-            .build();
-
-        let mut harness = |input: &BytesInput| {
-            let bytes: &[u8] = input.as_ref();
-            unsafe { semantist_harness_execute(bytes.as_ptr(), bytes.len()) };
-            ExitKind::Ok
-        };
-        let executor = libafl::executors::inprocess::InProcessExecutor::with_timeout(
-            &mut harness,
-            tuple_list!(
-                PhaseMarkerObserver::opening(),
-                time_observer,
-                edges_observer,
-                semantic_observer,
-                telemetry_observer,
-                PhaseMarkerObserver::closing()
-            ),
-            &mut fuzzer,
-            &mut state,
-            &mut mgr,
-            config.timeout,
-        )?;
-        let mut executor = ProfiledExecutor { inner: executor };
-        // No AFL++ compiler pass runs, so there are no autotokens.
-        let tokens = Tokens::new();
-        semantist_campaign!(setup, fuzzer, executor, state, mgr, handles, tokens, fresh, "in-process")
-    }};
-}
-
-
 /// Semantic map snapshot used by V3GoalStage after an execution.
 fn v3_semantic_snapshot() -> Vec<u8> {
     let size = __semantist_semantic_buffer_size.load(std::sync::atomic::Ordering::Relaxed);
@@ -515,13 +462,11 @@ fn run_v3_inprocess(setup: CampaignSetup) -> Result<(), Error> {
     let executor = libafl::executors::inprocess::InProcessExecutor::with_timeout(
         &mut harness,
         tuple_list!(
-            PhaseMarkerObserver::opening(),
             goal_observer,
             time_observer,
             edges_observer,
             semantic_observer,
-            telemetry_observer,
-            PhaseMarkerObserver::closing()
+            telemetry_observer
         ),
         &mut fuzzer,
         &mut state,
@@ -543,11 +488,24 @@ fn run_v3_inprocess(setup: CampaignSetup) -> Result<(), Error> {
         config.v3_no_state_copy,
         config.v3_no_snapshot,
     );
-    // Bundle and goal-task loading can be substantial for network targets.
-    // The configured V3 budget is the online search budget, so start it only
-    // after the engine has finished constructing the executable stage.
-    let started = std::time::Instant::now();
-    let budget = config.v3_time_budget;
+    // The process clock includes bundle loading and worker initialization.
+    let started = setup.started;
+    stage.set_online_start(started);
+    let budget = if let Ok(raw) = std::env::var("SEMANTIST_ONLINE_DEADLINE_NS") {
+        let deadline = raw.parse::<u64>()
+            .map_err(|error| Error::illegal_argument(format!("invalid online deadline: {error}")))?;
+        let mut now = std::mem::MaybeUninit::<libc::timespec>::uninit();
+        if unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, now.as_mut_ptr()) } != 0 {
+            return Err(Error::illegal_argument("could not read online monotonic clock"));
+        }
+        let now = unsafe { now.assume_init() };
+        let now_ns = (now.tv_sec as u64).saturating_mul(1_000_000_000)
+            .saturating_add(now.tv_nsec as u64);
+        config.v3_time_budget.min(started.elapsed()
+            + std::time::Duration::from_nanos(deadline.saturating_sub(now_ns)))
+    } else {
+        config.v3_time_budget
+    };
     println!("[v3] in-process engine: {} tasks, budget {:?}", bundle.tasks.tasks.len(), budget);
     while started.elapsed() < budget && (config.v3_full_duration
         || config.fuzz_iterations.is_none_or(|limit| stage.stats.executions < limit)) {
@@ -567,7 +525,8 @@ fn run_v3_inprocess(setup: CampaignSetup) -> Result<(), Error> {
         let native_edges = unsafe {
             std::slice::from_raw_parts(EDGES_BUFFER.as_mut_ptr(), inprocess_edge_map_size())
         };
-        stage.record_native_edges(native_edges);
+        stage.record_native_edges(native_edges,
+            matches!(stage_exit_kind, libafl::executors::ExitKind::Crash));
         let semantic = v3_semantic_snapshot();
         let mut executed = executor.take_outcome();
         if let Some(ref mut outcome) = executed {
@@ -604,70 +563,16 @@ fn run_v3_inprocess(setup: CampaignSetup) -> Result<(), Error> {
     } else {
         "budget".to_string()
     };
-    near_budget(&stage, started, budget);
     stage.write_summary(started.elapsed(), budget).map_err(Error::illegal_argument)?;
     manager.send_exiting()?;
     println!("[v3] ended {}: executions={} scans={}", stage.ended, stage.stats.executions, stage.stats.scans);
     Ok(())
 }
 
-fn near_budget(_stage: &V3GoalStage, _started: std::time::Instant, _budget: std::time::Duration) {}
-
 fn run_inprocess() -> Result<(), Error> {
-    use libafl::events::SimpleRestartingEventManager;
-    use std::{os::unix::ffi::OsStrExt, sync::atomic::Ordering};
-
-    // Set before launch(): every restarted client is forked from this
-    // process, so the start time (time to exposure) stays continuous.
     let started = std::time::Instant::now();
-    let mut setup = prepare_campaign(Config::from_args()?, started)?;
-    if setup.config.v3 {
-        return run_v3_inprocess(setup);
-    }
-    // __ubsan_default_options halts unless UBSAN_OPTIONS overrides it.
-    setup.sanitizer_reports_end_execution = sanitizer_env_flag("UBSAN_OPTIONS", "halt_on_error") != Some(false);
-    let config = &setup.config;
-    if env::var("ASAN_OPTIONS").map_or(true, |options| !options.contains("log_path")) {
-        // Same log directory and file prefix the forkserver engine configures.
-        let path = std::ffi::CString::new(setup.sanitizer_log_dir.join("asan").as_os_str().as_bytes())
-            .map_err(|error| Error::illegal_argument(format!("sanitizer log path: {error}")))?;
-        unsafe { __sanitizer_set_report_path(path.as_ptr()) };
-    }
-    if setup.semantic_map_size > SEMANTIC_BUFFER_CAPACITY {
-        return Err(Error::illegal_argument(format!(
-            "semantic map of {} entries exceeds the in-process buffer of {SEMANTIC_BUFFER_CAPACITY}",
-            setup.semantic_map_size
-        )));
-    }
-    __semantist_semantic_buffer_size.store(setup.semantic_map_size, Ordering::Relaxed);
-    // The target and the observers share these buffers; executions never
-    // overlap with observer access.
-    let (edges, semantic_map, telemetry) = unsafe {
-        (
-            std::slice::from_raw_parts_mut(EDGES_BUFFER.as_mut_ptr(), inprocess_edge_map_size()),
-            std::slice::from_raw_parts_mut(__semantist_semantic_buffer.as_mut_ptr(), setup.semantic_map_size),
-            std::slice::from_raw_parts_mut(__semantist_telemetry_buffer.as_mut_ptr(), TELEMETRY_SIZE),
-        )
-    };
-    // Loaded once here, so restarted clients inherit earlier runs' records.
-    let scheduler = TargetAwareScheduler::new(config.metadata_bootstrap.clone(), config.ablation);
-
-    // A consistency dump runs its inputs once; a crash simply ends it. A
-    // campaign uses the restarting manager: a crash or timeout ends the
-    // client, and the restarter forks a new one that resumes from the state
-    // the crash handler saved.
-    let monitor = SimpleMonitor::new(|s| println!("{s}"));
-    if config.consistency_dump.is_some() {
-        let mgr = libafl::events::SimpleEventManager::new(monitor);
-        return inprocess_campaign!(&setup, scheduler, mgr, None, edges, semantic_map, telemetry);
-    }
-    let mut shmem_provider = UnixShMemProvider::new()?;
-    let (restored, mgr) = match SimpleRestartingEventManager::launch(monitor, &mut shmem_provider) {
-        Ok(launched) => launched,
-        Err(Error::ShuttingDown) => return Ok(()),
-        Err(error) => return Err(error),
-    };
-    inprocess_campaign!(&setup, scheduler, mgr, restored, edges, semantic_map, telemetry)
+    let setup = prepare_campaign(Config::from_args()?, started)?;
+    run_v3_inprocess(setup)
 }
 
 /// C entry point of a per-target in-process fuzzer; the harness defines no

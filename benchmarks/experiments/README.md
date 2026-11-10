@@ -4,8 +4,10 @@ This runner declares five comparisons: overall effectiveness, three core
 ablations, scan-cycle guidance, budget sensitivity, and case/cost analysis. The
 last item reuses the other runs. The 20-target subset in
 `selection.json` was chosen from the OSCAT manifest by POU kind and manifest
-order, before search results. The unique matrix has 3,700 search jobs: 3,500 at
-300 seconds and 200 at 600 seconds. A job reused by several comparisons runs
+order, before search results. The unique matrix has 3,500 search jobs: 3,300 at
+300 seconds and 200 at 600 seconds. The formal `overall` main experiment is
+1,500 of those jobs (100 targets x 3 tools x 5 seeds, all at 300 seconds).
+A job reused by several comparisons runs
 only once.
 
 The runner defaults to a dry run. Build the combined image once:
@@ -22,7 +24,8 @@ for SMTP_CLIENT, IRTRANS_DECODE, NET_VAR_BUFFER, XML_READER, PARSET, and a
 multi-cycle SEQUENCE_64 target is described in
 [`mutation_short.md`](mutation_short.md). It is separate from the 20-target
 100-second development pilot and the formal matrix.
-The implementation and verification record is in
+The historical development record, which predates the current formal trial
+configuration, is in
 [`semantist_reduction_report.md`](semantist_reduction_report.md).
 
 The image includes the SemantiST toolchain, AFL++ 4.09c and the pinned
@@ -38,22 +41,42 @@ python3 -m fuzzer.cli.experiment run --execute --experiment overall \
 
 For the formal main experiment (100 targets, three tools, five independent
 repetitions, 300 seconds online per trial), prepare all binaries and frozen
-LLM plans before starting any timed search. Run from the repository root:
+LLM plans before starting any timed search. From the repository root, this
+single command builds the image, completes prepare, launches the three tool
+commands concurrently in their disjoint CPU pools, waits for all three, and
+writes the final summary:
+
+```bash
+bash benchmarks/experiments/run_overall.sh
+```
+
+The equivalent manual commands below run the tools sequentially; they are
+useful when controlling or retrying one tool at a time:
 
 ```bash
 set -euo pipefail
 IMAGE_TAG="semantist:experiment-$(date +%Y%m%d-%H%M%S)"
 podman build --no-cache --format docker -f benchmarks/experiments/Containerfile -t "$IMAGE_TAG" .
-RUN_ROOT="/tmp/semantist-experiment-main-$(date +%Y%m%d-%H%M%S)"
+RUN_ROOT="$PWD/artifacts/experiments/overall-$(date +%Y%m%dT%H%M%S)"
+mkdir -p "$PWD/artifacts/experiments"
+mkdir "$RUN_ROOT"
 python3 -m fuzzer.cli.experiment prepare --execute --allow-formal \
   --experiment overall --root "$RUN_ROOT" --image "$IMAGE_TAG" \
   --llm-env-file "$PWD/.env.semantist-llm" \
   --build-jobs 8 --plan-jobs 4 \
-  2>&1 | tee "$RUN_ROOT-prepare.log"
+  2>&1 | tee "$RUN_ROOT/prepare.log"
 python3 -m fuzzer.cli.experiment run --execute --allow-formal \
-  --experiment overall --root "$RUN_ROOT" --image "$IMAGE_TAG" \
-  --schedule target_waves --jobs 15 \
-  2>&1 | tee "$RUN_ROOT-run.log"
+  --experiment overall --tool semantist --root "$RUN_ROOT" --image "$IMAGE_TAG" \
+  --schedule standard --jobs 5 --memory 8g \
+  2>&1 | tee "$RUN_ROOT/run-semantist.log"
+python3 -m fuzzer.cli.experiment run --execute --allow-formal \
+  --experiment overall --tool aflpp --root "$RUN_ROOT" --image "$IMAGE_TAG" \
+  --schedule standard --jobs 5 --memory 8g \
+  2>&1 | tee "$RUN_ROOT/run-aflpp.log"
+python3 -m fuzzer.cli.experiment run --execute --allow-formal \
+  --experiment overall --tool icsquartz --root "$RUN_ROOT" --image "$IMAGE_TAG" \
+  --schedule standard --jobs 5 --memory 8g \
+  2>&1 | tee "$RUN_ROOT/run-icsquartz.log"
 python3 -m fuzzer.cli.experiment summary --experiment overall \
   --root "$RUN_ROOT"
 ```
@@ -62,26 +85,31 @@ Smoke mode permits at most two targets, six jobs, and ten seconds of online
 search per job. Full 300/600-second searches require both `--execute` and
 `--allow-formal`. Pass `--llm-env-file` when preparing full SemantiST plans.
 Builds are shared per target; planning runs once per target; each search gets an
-independent working directory and seed. `/tmp/semantist-experiment` is the default
-working root. Move or archive completed artifacts separately. `--retry-failed`
+independent working directory and seed. This root is under `/home` (the `/home`
+disk), inside the repository's `artifacts/experiments/`; all five commands use
+the same root. A changed SemantiST implementation requires a new image tag and
+new experiment root for its five-seed rerun. `--retry-failed`
 preserves old directories with a `.previous-N` suffix before restarting.
+For a failed build or frozen plan, inspect `logs/builds/` or `logs/plans/`,
+then repeat the same prepare command with `--retry-failed` before any run.
 Each `requests/...json` records the target, tool, configuration, seed, online
 budget, frozen build/plan package paths, output directory, two assigned
 physical CPU IDs and memory limit.
 
 One trial is one target, one tool, one random seed and one online budget.
-`--schedule target_waves --jobs 15` submits all five seeds for each of the
-three tools in one target wave. The next target starts after the entire wave,
-including per-trial review, has finished. Each trial has two physical cores
-and an 8 GiB container limit, so a full wave uses 30 physical cores and has a
-combined 120 GiB memory limit. On the 64-core EPYC host, the three 10-core
-bands are CPUs 0-9, 10-19 and 20-29. Tool-to-band assignments rotate every
-target: SemantiST/ICSQuartz/AFL++ use bands A/B/C, then B/C/A, then C/A/B.
+The three formal commands each select exactly 500 jobs, with at most five
+concurrent trials. SemantiST uses physical CPU IDs 0-9, AFL++ 10-19,
+and ICSQuartz 20-29. Each trial gets a distinct pair in its tool's pool and an
+8 GiB container limit. The scheduler verifies these IDs are available and
+distinct physical cores. Do not begin any run until the single prepare command
+has completed all 100 shared builds, 200 baseline adapter builds and 100
+frozen SemantiST plans.
 Avoid heavy host work on CPUs 0-29 and sibling threads 64-93 during the run.
-The root lives on the NVMe-backed `/tmp`; archive results after completion.
+The root remains on the `/home` disk; preserve it for summary and reruns.
 
-Each container is pinned to two distinct physical cores with `taskset`, and
-Podman applies a two-CPU quota and an 8 GiB memory limit. Search containers
+Each worker sets and checks affinity to its two distinct physical cores; the
+host launcher also uses `taskset`. Podman applies a two-CPU quota and an 8 GiB
+memory limit without requiring a delegated `cpuset` cgroup controller. Search containers
 have separate network namespaces and see the experiment root read-only; only
 their own run directory parent is mounted writable. Each trial has its own
 corpus, solver files, logs, result directory and random seed. One LLM plan is
@@ -93,8 +121,10 @@ the scheduler's trials from sharing search state. They cannot eliminate
 contention for shared cache, memory bandwidth and storage, or interference
 from unrelated host processes. `--jobs`,
 `--build-jobs`, and `--plan-jobs` control independent concurrent jobs, not
-in-process native probes. The scheduler is the only writer of `summary.json`
-and `per-target.json`.
+in-process native probes. The scheduler and explicit `summary` command write
+`summary.json` and `per-target.json` from the same frozen root. Formal per-tool
+`run` commands write only their own trial results, so three processes can run
+concurrently; execute `summary` after all three have exited.
 
 ## Baseline adapters
 
@@ -184,25 +214,41 @@ Only plan seeds and suggestions enter the five online trials. Planning-stage
 findings remain in the plan package and are never counted at online time zero.
 Target compilation, STG generation, IR instrumentation, baseline binary
 preparation and the one frozen LLM plan per target finish before any online
-search trial is scheduled. AFL++ copies its independent raw seed before its
-online timer starts.
+search trial is scheduled. AFL++ copies its independent raw seed inside its
+online timer.
 
-The online clock starts immediately before the native engine and ends when it
-stops. Native confirmation and root-cause review follow in a separate phase.
+The online wall clock starts before SemantiST campaign initialization and
+before each baseline search process launches. It includes engine initialization,
+startup symbolic work and SemantiST online KLEE. No trial gets more than its
+300-second online window. Rust uses that same monotonic deadline; engine exit
+after the deadline is recorded as `engine_postdeadline`. Native confirmation
+and root-cause review follow in a separate phase.
 Rust candidate metadata records when a candidate was emitted. The default
 search records native edge novelty, state progress, finding candidates, and
 mutation/corpus counts in `metrics/engine-summary.json` and
-`metrics/events.jsonl`; it does not run a live solver or traced replay.
+`metrics/events.jsonl`; the current full configuration retains bounded online
+KLEE queries and feedback reinjection.
 The result excludes candidates emitted after the online endpoint and reports
 their count separately; the raw campaign report remains available. Each
-finding's `first_candidate_end_to_end_s` charges that target's build and frozen
-planning costs once before its online candidate time. Shared tool installation
-and common engine bootstrap are recorded in logs, outside this target-level
-measure.
+finding's `first_candidate_online_s` is the primary time metric. Only candidates
+created inside 300 seconds and confirmed by post-run native replay contribute
+to the primary discovery rate. `preparation_costs_s` separates common build,
+baseline adapter build, LLM planning, offline KLEE and planning review.
+`first_candidate_end_to_end_s` adds an amortized preparation share: common
+build/15 across all tools and seeds, plus tool-specific adapter or SemantiST
+plan costs/5, to the online candidate time. The unamortized alternative is
+`first_candidate_unamortized_s`. Post-run native review, shared engine bootstrap
+and image installation remain separate, not part of either candidate time.
 
 `summary.json` reports every planned run, including unsupported and failed
 ones. It counts build and LLM planning costs once per target, and separately
-reports online/review time, CPU, memory, throughput and feedback events.
+reports offline KLEE, planning review, online/review time, CPU, memory,
+throughput and feedback events. The shared build total appears in each tool
+group for comparison and must not be summed across groups. A failed tool run
+returns nonzero; inspect its `result.json` and log, fix only the failure, then
+rerun that tool with `--retry-failed` on the same root. Completed trials are
+never rerun by that flag. Rebuilds or code changes require a new root and
+image, and old trials must not be mixed with the new five-seed results.
 `per-target.json` reports each target's five-run discovery rate. `cases.json`
 indexes each online confirmed finding and its reproducer across runs, with
 root-cause IDs only where manually adjudicated. The

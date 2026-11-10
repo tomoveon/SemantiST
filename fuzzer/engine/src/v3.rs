@@ -7,6 +7,8 @@
 use serde_json::Value;
 use std::ffi::CString;
 
+const MAX_POINTER_FIELD_BYTES: usize = 4096;
+
 extern "C" {
     fn semantist_init(shared_records: *const std::ffi::c_char) -> std::ffi::c_int;
     fn semantist_step(frame: *const u8, dt_ns: u64) -> std::ffi::c_int;
@@ -24,10 +26,6 @@ extern "C" {
     fn semantist_checkpoint(out: *mut u8);
     fn semantist_restore(input: *const u8);
     fn semantist_state_size() -> usize;
-    fn semantist_state_region_count() -> usize;
-    fn semantist_state_region_base(index: usize) -> *const u8;
-    fn semantist_state_region_size(index: usize) -> u64;
-    fn semantist_harness_state_base() -> *const u8;
     #[link_name = "__semantist_semantic_buffer"]
     static SEMANTIST_GOAL_MAP: u8;
     #[link_name = "__semantist_semantic_buffer_size"]
@@ -247,7 +245,7 @@ pub struct V3Task {
     #[serde(default)]
     pub budget: Option<Value>,
     #[serde(default)]
-    pub control_obligations: Vec<Value>,
+    pub literals: Vec<Value>,
     #[serde(default)]
     pub seed_prefixes: Vec<Vec<std::collections::BTreeMap<String, String>>>,
 }
@@ -406,7 +404,7 @@ impl V3Bundle {
             if entry.spec.kind == "scalar" {
                 schema.frame_scalar_width.insert(entry.name.clone(), entry.spec.size.unwrap_or(1) as usize);
             } else if entry.spec.kind != "string" {
-                let capacity = if entry.spec.kind == "pointer" { 4096 } else { entry.spec.byte_size.or(entry.spec.size).unwrap_or(0) as usize };
+                let capacity = if entry.spec.kind == "pointer" { MAX_POINTER_FIELD_BYTES } else { entry.spec.byte_size.or(entry.spec.size).unwrap_or(0) as usize };
                 schema.frame_byte_capacity.insert(entry.name.clone(), capacity);
             }
             if let Some(bounds) = integer_bounds(&entry.spec) {
@@ -427,7 +425,7 @@ impl V3Bundle {
             if entry.spec.kind == "scalar" {
                 schema.shared_scalar_width.insert(entry.name.clone(), entry.spec.size.unwrap_or(1) as usize);
             } else if entry.spec.kind != "string" {
-                let capacity = if entry.spec.kind == "pointer" { 4096 } else { entry.spec.byte_size.or(entry.spec.size).unwrap_or(0) as usize };
+                let capacity = if entry.spec.kind == "pointer" { MAX_POINTER_FIELD_BYTES } else { entry.spec.byte_size.or(entry.spec.size).unwrap_or(0) as usize };
                 schema.shared_byte_capacity.insert(entry.name.clone(), capacity);
             }
             if let Some(bounds) = integer_bounds(&entry.spec) {
@@ -819,41 +817,6 @@ impl PrefixCache {
         self.snapshots.insert(id, Snapshot { depth, state, observations: observations.to_vec(), bytes, saves: 0 });
     }
 
-    /// Export a snapshot for a later KLEE process.  The node number is an
-    /// in-memory prefix identity; the canonical prefix bytes are stored only
-    /// as a lookup record and are never used as a hash or deduplication key.
-    pub fn export_snapshot(&self, id: u64, depth: usize, prefix: &[u8], shared: &str, layout: &V3Layout) {
-        let Some(snapshot) = self.snapshots.get(&id) else { return; };
-        let Ok(run_dir) = std::env::var("SEMANTIST_V3_RUN_DIR") else { return; };
-        let root = std::path::Path::new(&run_dir).join("prefixes").join("snapshots");
-        if std::fs::create_dir_all(&root).is_err() { return; }
-        let state_path = root.join(format!("node-{id:016x}.bin"));
-        if std::fs::write(&state_path, &snapshot.state).is_err() { return; }
-        let (relocations, complete, reason) = snapshot_relocations(layout, &snapshot.state);
-        let relocation_path = root.join(format!("node-{id:016x}.reloc.json"));
-        let relocation_document = serde_json::json!({
-            "complete": complete,
-            "reason": reason,
-            "relocations": relocations,
-        });
-        if std::fs::write(&relocation_path, serde_json::to_vec_pretty(&relocation_document).unwrap_or_default()).is_err() {
-            return;
-        }
-        let record = serde_json::json!({
-            "node_id": id,
-            "depth": depth,
-            "prefix": String::from_utf8_lossy(prefix),
-            "shared_records": shared,
-            "state_file": state_path.strip_prefix(std::path::Path::new(&run_dir))
-                .unwrap_or(&state_path).to_string_lossy(),
-            "relocation_file": relocation_path.strip_prefix(std::path::Path::new(&run_dir))
-                .unwrap_or(&relocation_path).to_string_lossy(),
-            "relocation_complete": complete,
-        });
-        let index = std::path::Path::new(&run_dir).join("prefixes").join("snapshots.jsonl");
-        append_event(&index, record).expect("failed to append snapshot record");
-    }
-
     fn restore(&mut self, id: u64) -> Option<usize> {
         let expected_size = unsafe { semantist_state_size() };
         if self.snapshots.get(&id)?.state.len() != expected_size {
@@ -879,109 +842,6 @@ impl PrefixCache {
         self.used_bytes = 0;
     }
 
-    /// A target crash/timeout invalidates exported snapshots as well as the
-    /// in-process cache.  Keep an audit marker, but remove the active index so
-    /// later solver phases cannot import state from before the failed input.
-    pub fn invalidate_exports(reason: &str) {
-        let Ok(run_dir) = std::env::var("SEMANTIST_V3_RUN_DIR") else { return; };
-        let root = std::path::Path::new(&run_dir).join("prefixes");
-        let snapshots = root.join("snapshots");
-        let index = root.join("snapshots.jsonl");
-        let had_artifacts = snapshots.exists() || index.exists();
-        if snapshots.exists() {
-            let _ = std::fs::remove_dir_all(&snapshots);
-        }
-        let _ = std::fs::remove_file(&index);
-        if had_artifacts {
-            let marker = root.join("snapshots.invalidated.json");
-            let document = serde_json::json!({
-                "status": "invalidated",
-                "reason": reason,
-            });
-            let _ = std::fs::create_dir_all(&root);
-            let _ = std::fs::write(
-                marker,
-                serde_json::to_vec_pretty(&document).unwrap_or_default(),
-            );
-        }
-    }
-}
-
-/// Convert raw pointers in a native checkpoint into region-relative pointers.
-/// A sidecar is kept next to the state blob so the KLEE driver can apply the
-/// existing C relocation API in a fresh process.  An unmapped pointer makes
-/// the import unsupported; the caller can then retry the same prefix cold.
-fn snapshot_relocations(layout: &V3Layout, state: &[u8]) -> (Vec<Value>, bool, Option<String>) {
-    if std::mem::size_of::<usize>() != 8 {
-        return (Vec::new(), false, Some("pointer snapshots require 64-bit addresses".into()));
-    }
-    let target_count = unsafe { semantist_state_region_count() };
-    let harness_index = layout.harness_region_index.map(|value| value as usize).unwrap_or(target_count);
-    let mut region_offsets = std::collections::BTreeMap::new();
-    let mut cursor = 0usize;
-    for region in &layout.regions {
-        region_offsets.insert(region.index as usize, cursor);
-        cursor = cursor.saturating_add(region.size as usize);
-    }
-    if cursor > state.len() || target_count > harness_index {
-        return (Vec::new(), false, Some("snapshot layout does not match native region count".into()));
-    }
-    let mut targets: Vec<(usize, usize, usize)> = Vec::new();
-    for index in 0..target_count {
-        let base = unsafe { semantist_state_region_base(index) } as usize;
-        let size = unsafe { semantist_state_region_size(index) as usize };
-        if base == 0 || size == 0 {
-            return (Vec::new(), false, Some(format!("native target region {index} has no address")));
-        }
-        targets.push((index, base, size));
-    }
-    if let Some(region) = layout.regions.iter().find(|entry| entry.index as usize == harness_index) {
-        let base = unsafe { semantist_harness_state_base() } as usize;
-        if base == 0 || region.size == 0 {
-            return (Vec::new(), false, Some("native harness region has no address".into()));
-        }
-        targets.push((harness_index, base, region.size as usize));
-    }
-    let mut records = Vec::new();
-    let mut missing = Vec::new();
-    for region in &layout.regions {
-        if region.pointer_offsets.is_empty() {
-            continue;
-        }
-        let source_base = *region_offsets.get(&(region.index as usize)).unwrap_or(&usize::MAX);
-        for &offset in &region.pointer_offsets {
-            let source_offset = source_base.saturating_add(offset as usize);
-            if source_base == usize::MAX || source_offset.checked_add(8).map_or(true, |end| end > state.len()) {
-                missing.push(format!("source region {} offset {} is outside checkpoint", region.index, offset));
-                continue;
-            }
-            let mut raw = [0u8; 8];
-            raw.copy_from_slice(&state[source_offset..source_offset + 8]);
-            let address = usize::from_ne_bytes(raw);
-            if address == 0 {
-                continue;
-            }
-            let target = targets.iter().find_map(|(index, base, size)| {
-                let end = base.checked_add(*size)?;
-                (address >= *base && address < end).then(|| (*index, address - *base))
-            });
-            if let Some((target_region, target_offset)) = target {
-                records.push(serde_json::json!({
-                    "region": region.index,
-                    "offset": offset,
-                    "target_region": target_region,
-                    "target_offset": target_offset,
-                }));
-            } else {
-                missing.push(format!("pointer region {} offset {} points outside known regions", region.index, offset));
-            }
-        }
-    }
-    if missing.is_empty() {
-        (records, true, None)
-    } else {
-        (records, false, Some(missing.join("; ")))
-    }
 }
 
 /// Execute a canonical testcase from the longest cached prefix.
@@ -1018,7 +878,7 @@ pub fn execute_with_cache(bytes: &[u8], bundle: &V3Bundle, cache: &mut PrefixCac
             semantist_apply_raw_shared_field(field_name.as_ptr(), raw.as_ptr(), raw.len())
         };
         if applied != 0 {
-            return Err(format!("raw shared field {name} rejected"));
+            return Err(format!("parser reject: raw shared field {name} rejected"));
         }
     }
     let mut provenance = if start > 0 { "snapshot" } else { "cold" };
@@ -1061,8 +921,6 @@ pub fn execute_with_cache(bytes: &[u8], bundle: &V3Bundle, cache: &mut PrefixCac
         if cache.enabled && frame_count > 1 && (depth % 16 == 0 || depth == frame_count) {
             let snapshot_started = std::time::Instant::now();
             cache.store(prefix_ids[depth - 1], depth, &observations);
-            let prefix = serialize(bundle, &case.frames[..depth], &case.shared);
-            cache.export_snapshot(prefix_ids[depth - 1], depth, &prefix, &shared, &bundle.layout);
             snapshot_ns += snapshot_started.elapsed().as_nanos() as u64;
         }
     }
@@ -1109,7 +967,7 @@ fn execute_frame(bundle: &V3Bundle, index: usize, value: &Frame, frame: &mut [u8
             semantist_apply_raw_field(name.as_ptr(), bytes.as_ptr(), bytes.len(), frame.as_mut_ptr())
         };
         if applied != 0 {
-            return Err(format!("semantist_apply_raw_field failed at frame {index} field {}", field.name));
+            return Err(format!("parser reject: raw field {} rejected at frame {index}", field.name));
         }
     }
     let abi_ns = abi_started.elapsed().as_nanos() as u64;

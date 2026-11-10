@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import queue
+import re
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -35,6 +36,31 @@ def _physical_cpus(count: int) -> list[list[int]]:
     if len(available) < count * 2:
         raise RuntimeError(f"need {count * 2} distinct physical cores, have {len(available)}")
     return [available[index * 2:index * 2 + 2] for index in range(count)]
+
+
+FORMAL_CPU_POOLS = {"semantist": list(range(0, 10)),
+                    "aflpp": list(range(10, 20)),
+                    "icsquartz": list(range(20, 30))}
+
+
+def _validate_formal_root(root: Path) -> None:
+    parent = (ROOT / "artifacts" / "experiments").resolve()
+    if root.parent != parent or re.fullmatch(r"overall-\d{8}T\d{6}", root.name) is None:
+        raise ValueError(f"formal overall root must be {parent}/overall-YYYYMMDDTHHMMSS")
+
+
+def _formal_cpu_pairs(tool: str) -> list[list[int]]:
+    requested = FORMAL_CPU_POOLS[tool]
+    output = subprocess.run(["lscpu", "-p=CPU,CORE,SOCKET"], check=True,
+                            capture_output=True, text=True).stdout
+    topology = {int(parts[0]): (int(parts[2]), int(parts[1]))
+                for line in output.splitlines() if line and not line.startswith("#")
+                for parts in [line.split(",")]}
+    if (not set(requested) <= os.sched_getaffinity(0)
+            or len({topology.get(cpu) for cpu in requested}) != 10
+            or None in {topology.get(cpu) for cpu in requested}):
+        raise RuntimeError(f"{tool} requires ten available distinct physical CPUs: {requested}")
+    return [requested[index:index + 2] for index in range(0, 10, 2)]
 
 
 def _container_command(args: argparse.Namespace, action: str, *, cpu_ids: list[int],
@@ -99,6 +125,9 @@ def _invoke(args: argparse.Namespace, action: str, *, cpu_ids: list[int],
         except subprocess.TimeoutExpired:
             output.write(f"\nworker exceeded {timeout_s}s\n")
             return 124
+        except OSError as error:
+            output.write(f"\nworker launch failed: {error}\n")
+            return 127
 
 
 def _bootstrap(args: argparse.Namespace, cpus: list[int]) -> None:
@@ -195,6 +224,8 @@ def _validate_execution(args: argparse.Namespace, jobs: list[Job]) -> None:
 def _validate_target_waves(args: argparse.Namespace, jobs: list[Job]) -> None:
     if args.schedule != "target_waves":
         return
+    if args.experiment == "overall" and args.smoke_seconds is None:
+        raise ValueError("formal overall runs require three --tool commands with --schedule standard")
     if (args.command != "run" or args.experiment != "overall" or args.jobs != 15
             or args.local or args.smoke_seconds is not None or len(jobs) != 1500):
         raise ValueError("target waves require the complete formal overall matrix and --jobs 15")
@@ -233,7 +264,11 @@ def _run_parallel(args: argparse.Namespace, items: list[tuple[str, list[str], Pa
                   *, workers: int) -> dict[str, int]:
     if not items:
         return {}
-    cpu_sets = _physical_cpus(workers) if not args.local else [[0, 1]] * workers
+    cpu_sets = (_formal_cpu_pairs(args.tool) if args.command == "run"
+                and args.experiment == "overall" and args.smoke_seconds is None
+                and args.tool in FORMAL_CPU_POOLS and len(items) >= 1
+                else _physical_cpus(workers) if not args.local else [[0, 1]] * workers)
+    cpu_sets = cpu_sets[:workers]
     available: queue.Queue[list[int]] = queue.Queue()
     for cpu_set in cpu_sets:
         available.put(cpu_set)
@@ -247,8 +282,11 @@ def _run_parallel(args: argparse.Namespace, items: list[tuple[str, list[str], Pa
                 request = json.loads(request_file.read_text(encoding="utf-8"))
                 request["resources"]["cpu_ids"] = cpu_ids
                 write_json(request_file, request)
-            return label, _invoke(args, extra[0], cpu_ids=cpu_ids,
-                                  extra=extra[1:], log=log, timeout_s=timeout_s)
+            code = _invoke(args, extra[0], cpu_ids=cpu_ids,
+                           extra=extra[1:], log=log, timeout_s=timeout_s)
+            if action_is_trial(label) and code != 0:
+                _record_trial_failure(args.root, label, code)
+            return label, code
         finally:
             available.put(cpu_ids)
     with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -267,6 +305,17 @@ def _run_parallel(args: argparse.Namespace, items: list[tuple[str, list[str], Pa
 
 def action_is_trial(label: str) -> bool:
     return not label.startswith(("build:", "plan:"))
+
+
+def _record_trial_failure(root: Path, job_id: str, code: int) -> None:
+    result = root / "runs" / job_id / "result.json"
+    if not result.is_file():
+        request_file = root / "requests" / f"{job_id}.json"
+        request = (json.loads(request_file.read_text(encoding="utf-8"))
+                   if request_file.is_file() else {"job_id": job_id})
+        write_json(result, {**request, "status": "failed", "supported": False,
+                            "confirmed": None, "findings": [], "run_failures": 1,
+                            "reason": f"worker exited {code}; see logs/runs/{job_id}.log"})
 
 
 def _run_target_waves(args: argparse.Namespace, jobs: list[Job],
@@ -301,6 +350,8 @@ def _run_target_waves(args: argparse.Namespace, jobs: list[Job],
             for future in as_completed(futures):
                 label = futures[future]
                 exit_code = future.result()
+                if exit_code != 0:
+                    _record_trial_failure(args.root, label, exit_code)
                 result_file = args.root / "runs" / label / "result.json"
                 status = f"failed ({exit_code})" if exit_code else "completed"
                 if exit_code == 0 and result_file.is_file():
@@ -324,40 +375,82 @@ def _prepare(args: argparse.Namespace, jobs: list[Job], adapters: dict) -> None:
         _bootstrap(args, _physical_cpus(1)[0])
     build_items = []
     for target_id in semantist_targets:
-        if (build_path(args.root, target_id) / "build.json").is_file():
+        package = build_path(args.root, target_id)
+        if (package / "build.json").is_file():
             continue
+        if package.exists():
+            if not args.retry_failed:
+                raise RuntimeError(f"incomplete common build: {package}; use --retry-failed")
+            _preserve(package)
         stale = build_path(args.root, target_id).with_name("semantist.building")
         if stale.exists() and args.retry_failed:
             _preserve(stale)
         build_items.append((f"build:{target_id}", ["build", "--target-id", target_id],
                             args.root / "logs" / "builds" / f"{target_id}.log", None))
-    _run_parallel(args, build_items, workers=min(args.build_jobs, len(build_items) or 1))
+    build_results = _run_parallel(args, build_items, workers=min(args.build_jobs, len(build_items) or 1))
+    if any(code != 0 for code in build_results.values()):
+        raise RuntimeError("common target builds failed; see logs/builds")
     external_items = []
     for target_id, tool in external:
         if not (build_path(args.root, target_id) / "build.json").is_file():
             continue
-        if (args.root / "builds" / target_id / tool / "build-result.json").is_file():
-            continue
+        package = args.root / "builds" / target_id / tool
+        result_file = package / "build-result.json"
+        if result_file.is_file():
+            result = json.loads(result_file.read_text(encoding="utf-8"))
+            if result.get("status") == "supported":
+                continue
+            if not args.retry_failed:
+                raise RuntimeError(f"baseline build failed or unsupported: {result_file}; see reason")
+            _preserve(package)
+        elif package.exists():
+            if not args.retry_failed:
+                raise RuntimeError(f"incomplete baseline build: {package}; use --retry-failed")
+            _preserve(package)
         stale = args.root / "builds" / target_id / f"{tool}.building"
         if stale.exists() and args.retry_failed:
             _preserve(stale)
         external_items.append((f"build:{target_id}:{tool}",
                             ["build", "--target-id", target_id, "--tool", tool],
                             args.root / "logs" / "builds" / f"{target_id}-{tool}.log", None))
-    _run_parallel(args, external_items, workers=min(args.build_jobs, len(external_items) or 1))
+    external_results = _run_parallel(args, external_items, workers=min(args.build_jobs, len(external_items) or 1))
+    if any(code != 0 for code in external_results.values()):
+        raise RuntimeError("baseline adapter builds failed; see logs/builds")
     plan_targets = {job.target["id"]: job.target for job in jobs
                     if job.tool == "semantist" and CONFIGURATIONS[job.configuration]["llm"]}
-    plan_items = [(f"plan:{target_id}", ["plan", "--target-id", target_id],
-                   args.root / "logs" / "plans" / f"{target_id}.log", None)
-                  for target_id in plan_targets
-                  if not (plan_path(args.root, target_id) / "plan.json").is_file()
-                  and (build_path(args.root, target_id) / "build.json").is_file()]
+    plan_items = []
+    for target_id in plan_targets:
+        if _plan_ready(args.root, target_id):
+            continue
+        package = plan_path(args.root, target_id)
+        if package.exists():
+            if not args.retry_failed:
+                raise RuntimeError(f"frozen plan is incomplete: {package}; use --retry-failed")
+            _preserve(package)
+        if (build_path(args.root, target_id) / "build.json").is_file():
+            plan_items.append((f"plan:{target_id}", ["plan", "--target-id", target_id],
+                               args.root / "logs" / "plans" / f"{target_id}.log", None))
     if args.retry_failed:
         for target_id in plan_targets:
             stale = plan_path(args.root, target_id).with_name("semantist.planning")
             if stale.exists():
                 _preserve(stale)
-    _run_parallel(args, plan_items, workers=min(args.plan_jobs, len(plan_items) or 1))
+    plan_results = _run_parallel(args, plan_items, workers=min(args.plan_jobs, len(plan_items) or 1))
+    if any(code != 0 for code in plan_results.values()):
+        raise RuntimeError("frozen target plans failed; see logs/plans")
+
+
+def _plan_ready(root: Path, target_id: str) -> bool:
+    package = plan_path(root, target_id)
+    plan_file = package / "plan.json"
+    if not plan_file.is_file():
+        return False
+    plan = json.loads(plan_file.read_text(encoding="utf-8"))
+    seeds = package / "unified-corpus" / "seeds"
+    return (plan.get("calls", 0) >= 1
+            and (plan.get("summary") or {}).get("native_valid_plans", 0) >= 1
+            and bool(plan.get("seed_files"))
+            and all((seeds / name).is_file() for name in plan["seed_files"]))
 
 
 def _require_prepared(root: Path, jobs: list[Job]) -> None:
@@ -369,10 +462,14 @@ def _require_prepared(root: Path, jobs: list[Job]) -> None:
             missing.add(f"build:{target_id}")
         if job.tool != "semantist":
             external = root / "builds" / target_id / job.tool / "build-result.json"
-            if not external.is_file() or json.loads(external.read_text(encoding="utf-8")).get("status") != "supported":
+            metadata = json.loads(external.read_text(encoding="utf-8")) if external.is_file() else {}
+            if (metadata.get("status") != "supported"
+                    or metadata.get("canonical_testcases") is not True
+                    or metadata.get("oracle_equivalent") is not True
+                    or not str(metadata.get("version") or "").strip()):
                 missing.add(f"build:{target_id}:{job.tool}")
         elif CONFIGURATIONS[job.configuration]["llm"]:
-            if not (plan_path(root, target_id) / "plan.json").is_file():
+            if not _plan_ready(root, target_id):
                 missing.add(f"plan:{target_id}")
     if missing:
         examples = ", ".join(sorted(missing)[:10])
@@ -397,6 +494,10 @@ def _worker(args: argparse.Namespace) -> int:
         job = Job(data["target"], data["tool"], data["configuration"],
                   data["seed"], data["online_seconds"], data["experiments"])
         _validate_trial_request(root, job, data)
+        assigned_cpus = set(data["resources"]["cpu_ids"])
+        os.sched_setaffinity(0, assigned_cpus)
+        if os.sched_getaffinity(0) != assigned_cpus:
+            raise RuntimeError(f"trial CPU affinity differs from request: {job.job_id}")
         run_job(root, job, adapter_config=adapters,
                 mutation_mode=data.get("mutation_mode"),
                 semantic_ratio=float(data.get("semantic_ratio", 0.30)))
@@ -434,7 +535,7 @@ def main() -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
     for name in ("matrix", "prepare", "run", "summary"):
         sub = subparsers.add_parser(name)
-        sub.add_argument("--root", type=Path, default=Path("/tmp/semantist-experiment"))
+        sub.add_argument("--root", type=Path, default=ROOT / "artifacts/experiments")
         sub.add_argument("--experiment", choices=("overall", "core_ablation", "multicycle", "budget"))
         sub.add_argument("--target")
         sub.add_argument("--targets", help="comma-separated target ids for an explicit bounded smoke set")
@@ -474,11 +575,37 @@ def main() -> int:
     if args.command == "_worker":
         return _worker(args)
     if args.schedule is None:
-        args.schedule = ("target_waves" if args.command == "run" and args.execute
-                         and args.experiment == "overall" and args.smoke_seconds is None
-                         else "standard")
+        args.schedule = "standard"
     args.root = args.root.resolve()
     jobs = _select(args)
+    formal_tool_run = (args.command == "run" and args.execute and args.experiment == "overall"
+                       and args.smoke_seconds is None and args.tool in FORMAL_CPU_POOLS
+                       and args.target is None and args.targets is None
+                       and args.configuration is None and args.seed is None
+                       and args.duration is None and args.limit is None)
+    formal_prepare = (args.command == "prepare" and args.execute
+                      and args.experiment == "overall" and args.smoke_seconds is None
+                      and args.target is None and args.targets is None
+                      and args.tool is None and args.configuration is None
+                      and args.seed is None and args.duration is None
+                      and args.limit is None)
+    if formal_prepare and len(jobs) != 1500:
+        raise ValueError("formal overall preparation requires all 1500 jobs")
+    if formal_prepare or formal_tool_run:
+        _validate_formal_root(args.root)
+    if formal_tool_run and (len(jobs) != 500 or args.jobs != 5 or args.memory != "8g"):
+        raise ValueError("formal per-tool overall run requires 500 jobs, --jobs 5 and --memory 8g")
+    if formal_tool_run and args.schedule != "standard":
+        raise ValueError("formal per-tool overall run requires --schedule standard")
+    if (args.command == "run" and args.execute and args.experiment == "overall"
+            and args.smoke_seconds is None and len(jobs) == 1500):
+        raise ValueError("formal overall runs require --tool semantist, icsquartz or aflpp")
+    if (args.command == "run" and args.execute and args.experiment == "overall"
+            and args.smoke_seconds is None and args.tool in FORMAL_CPU_POOLS
+            and args.target is None and args.targets is None
+            and args.duration is None and args.seed is None
+            and args.configuration is None and not formal_tool_run):
+        raise ValueError("formal per-tool overall runs cannot use --limit")
     print(f"selected {len(jobs)} unique search jobs")
     if args.command == "matrix":
         by_experiment = {name: sum(name in job.experiments for job in jobs)
@@ -519,8 +646,9 @@ def main() -> int:
     if args.smoke_seconds is not None:
         _prepare(args, jobs, adapters)
     else:
-        _require_prepared(args.root, jobs)
-    all_scheduled = _remember_jobs(args.root, jobs)
+        _require_prepared(args.root, [job for job in _select_all_overall(args.root)]
+                          if formal_tool_run else jobs)
+    all_scheduled = jobs if formal_tool_run else _remember_jobs(args.root, jobs)
     items = []
     for job in jobs:
         prior = result_path(args.root, job)
@@ -530,7 +658,8 @@ def main() -> int:
                 continue
         if prior.parent.exists() and any(prior.parent.iterdir()):
             if not args.retry_failed:
-                print(f"preserving incomplete trial: {prior.parent}; use --retry-failed to rerun")
+                print(f"incomplete trial: {prior.parent}; use --retry-failed to rerun")
+                _record_trial_failure(args.root, job.job_id, 125)
                 continue
             _preserve(prior.parent)
         request = Path("requests") / f"{job.job_id}.json"
@@ -557,13 +686,23 @@ def main() -> int:
         _run_target_waves(args, jobs, items)
     else:
         _run_parallel(args, items, workers=min(args.jobs, len(items) or 1))
-    summarize(args.root, all_scheduled)
+    if not formal_tool_run:
+        summarize(args.root, all_scheduled)
     incomplete = [job.job_id for job in jobs if not result_path(args.root, job).is_file()
                   or json.loads(result_path(args.root, job).read_text(encoding="utf-8")).get("status")
                   != "completed"]
     if incomplete:
-        print(f"{len(incomplete)} trials are incomplete or unsupported; see summary.json")
+        location = "logs/runs and result.json" if formal_tool_run else "summary.json"
+        print(f"{len(incomplete)} trials are incomplete or unsupported; see {location}")
     return 1 if incomplete else 0
+
+
+def _select_all_overall(root: Path) -> list[Job]:
+    matrix_file = root / "matrix.json"
+    records = json.loads(matrix_file.read_text(encoding="utf-8"))["jobs"]
+    return [Job(item["target"], item["tool"], item["configuration"],
+                item["seed"], item["online_seconds"], item["experiments"])
+            for item in records if "overall" in item["experiments"]]
 
 
 def _preserve(path: Path) -> None:

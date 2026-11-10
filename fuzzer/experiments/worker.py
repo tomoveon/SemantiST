@@ -52,19 +52,7 @@ def _semantist_trial(root: Path, job: Job, run_dir: Path,
     build_metadata = json.loads((build / "build.json").read_text(encoding="utf-8"))
     _copy_template(build, run_dir)
     flags = dict(CONFIGURATIONS[job.configuration])
-    # Keep the online search on one native executor and corpus. Symbolic
-    # solving, prefix reinjection, minimization, and traced replay are opt-in.
-    flags.update({"no_symbolic": True, "symbolic_initial_only": True,
-                  "no_online_reinjection": True, "no_minimization": True,
-                  "no_traced_replay": True, "no_snapshot": True,
-                  "no_goal_prefix": True, "no_distance": True,
-                  "no_state_copy": True, "no_adaptive_reset": True,
-                  "no_tail_guidance": True, "no_transition_guidance": True})
-    if not flags.get("llm"):
-        # The no-LLM smoke path still exercises ABI, raw bytes, and native
-        # feedback. It does not need to deserialize the large offline task
-        # expressions generated for LLM-guided planning.
-        flags["no_goal_tasks"] = True
+    # An LLM ablation still uses the same STG tasks and native execution path.
     prepared = None
     if flags["llm"]:
         frozen_plan = plan_path(root, job.target["id"])
@@ -91,6 +79,8 @@ def _semantist_trial(root: Path, job: Job, run_dir: Path,
         "online_budget_from_start": True,
         "full_hybrid_duration": True,
         "symbolic_startup_budget_s": min(30.0, float(job.online_seconds) * 0.1),
+        "symbolic_startup_max_queries": 8,
+        "online_symbolic_max_queries": 4,
         "solver_feedback_margin_s": min(15.0, max(1.0, float(job.online_seconds) * 0.05)),
         "review_budget_s": review_seconds,
         "seed": job.seed, "fuzz_timeout": job.online_seconds,
@@ -121,22 +111,36 @@ def _semantist_trial(root: Path, job: Job, run_dir: Path,
             os.environ["SEMANTIST_SEMANTIC_RATIO"] = previous_semantic_ratio
     report = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
     engine = json.loads((run_dir / "metrics" / "engine-summary.json").read_text(encoding="utf-8"))
+    solver_feedback = report.get("solver_feedback") or {}
     online_start = report.get("online_start_offset_s") or 0.0
     all_findings = report.get("findings", [])
-    online_duration = campaign.phase_times_s.get("online_search", 0)
     findings = [item for item in all_findings
-                if 0 <= item.get("first_candidate_s", -1) - online_start <= online_duration]
-    preparation_seconds = build_metadata.get("build_seconds")
-    if prepared and isinstance(preparation_seconds, (int, float)):
-        preparation_seconds += plan.get("planning_seconds", 0) + plan.get("planning_review_seconds", 0)
+                if isinstance(item.get("first_candidate_s"), (int, float))
+                and 0 <= item["first_candidate_s"] - online_start <= job.online_seconds]
+    preparation_costs = {
+        "common_build_s": build_metadata.get("build_seconds"),
+        "adapter_build_s": None,
+        "llm_planning_s": plan.get("planning_seconds") if prepared else 0,
+        "offline_klee_s": plan.get("offline_solver_seconds") if prepared else 0,
+        "planning_review_s": plan.get("planning_review_seconds") if prepared else 0,
+    }
+    shared = preparation_costs["common_build_s"]
+    own = [preparation_costs[key] for key in
+           ("llm_planning_s", "offline_klee_s", "planning_review_s")]
+    amortized = (shared / 15 + sum(own) / 5
+                 if isinstance(shared, (int, float))
+                 and all(isinstance(value, (int, float)) for value in own) else None)
+    unamortized = (shared + sum(own) if amortized is not None else None)
     confirmed_findings = []
     for item in findings:
         candidate_online_s = max(0.0, round(item.get("first_candidate_s", 0) - online_start, 3))
         confirmed_findings.append({
             "oracle": item.get("oracle"), "source": item.get("goal", {}).get("source"),
             "first_candidate_online_s": candidate_online_s,
-            "first_candidate_end_to_end_s": (round(preparation_seconds + candidate_online_s, 3)
-                                                if isinstance(preparation_seconds, (int, float)) else None),
+            "first_candidate_end_to_end_s": (round(amortized + candidate_online_s, 3)
+                                                if amortized is not None else None),
+            "first_candidate_unamortized_s": (round(unamortized + candidate_online_s, 3)
+                                               if unamortized is not None else None),
             "repro_dir": f"findings/confirmed/{item.get('finding_id', '')}",
         })
     return {
@@ -151,6 +155,7 @@ def _semantist_trial(root: Path, job: Job, run_dir: Path,
         "timeouts": engine.get("timeouts", 0),
         "run_failures": int(not engine.get("executions", 0)),
         "phase_times_s": campaign.phase_times_s,
+        "preparation_costs_s": preparation_costs,
         "llm_plan_id": prepared["plan_id"] if prepared else None,
         "llm_planning_cost": (plan.get("planning_seconds") if prepared else None),
         "llm_planning_review_cost": (plan.get("planning_review_seconds") if prepared else None),
@@ -161,9 +166,9 @@ def _semantist_trial(root: Path, job: Job, run_dir: Path,
             "state_progress": engine.get("state_transition_novelty", 0),
             "finding_candidates": engine.get("candidates", 0),
             "shared_corpus": True,
-            "enqueued": 0,
-            "executed": 0,
-            "retained": 0,
+            "enqueued": solver_feedback.get("enqueued", 0),
+            "executed": engine.get("solver_seeds_executed", 0),
+            "retained": engine.get("solver_seeds_retained", 0),
             "events_file": "metrics/events.jsonl",
         },
         "mutation": {
@@ -282,15 +287,30 @@ def _external_trial(root: Path, job: Job, run_dir: Path,
             "sequence_frames": candidate.get("sequence_frames"),
             "replay_returncode": returncode,
         })
+    common_metadata = json.loads((common_build / "build.json").read_text(encoding="utf-8"))
+    preparation_costs = {"common_build_s": common_metadata.get("build_seconds"),
+                         "adapter_build_s": build_result.get("build_seconds"),
+                         "llm_planning_s": 0, "offline_klee_s": 0,
+                         "planning_review_s": 0}
+    common_seconds = preparation_costs["common_build_s"]
+    adapter_seconds = preparation_costs["adapter_build_s"]
+    amortized = (common_seconds / 15 + adapter_seconds / 5
+                 if isinstance(common_seconds, (int, float))
+                 and isinstance(adapter_seconds, (int, float)) else None)
+    unamortized = (common_seconds + adapter_seconds if amortized is not None else None)
     return {"status": "completed", "supported": True,
             "confirmed": len(findings),
             "native_crash_events": output.get("native_crash_events"),
             "native_sequence_saved": output.get("native_sequence_saved"),
             "findings": [{**finding,
                           "first_candidate_end_to_end_s": (
-                              round(build_result["build_seconds"] + finding["first_candidate_online_s"], 3)
-                              if isinstance(build_result.get("build_seconds"), (int, float)) else None)}
+                              round(amortized + finding["first_candidate_online_s"], 3)
+                              if amortized is not None else None),
+                          "first_candidate_unamortized_s": (
+                              round(unamortized + finding["first_candidate_online_s"], 3)
+                              if unamortized is not None else None)}
                          for finding in findings],
+            "preparation_costs_s": preparation_costs,
             "executions": output.get("executions"), "scans": output.get("scans"),
             "phase_times_s": {"online_search": round(online_elapsed, 3),
                               "adapter_postprocess": round(max(0, adapter_elapsed - online_elapsed), 3),
@@ -324,5 +344,7 @@ def run_job(root: Path, job: Job, *, adapter_config: dict[str, Any] | None = Non
               "wall_seconds": round(time.monotonic() - started, 3),
               "cpu_seconds": round(max(0.0, after_cpu - before_cpu), 3),
               "peak_memory_bytes": max(before_peak, after_peak)}
+    if result.get("status") == "failed":
+        result.setdefault("run_failures", 1)
     write_json(output, result)
     return result

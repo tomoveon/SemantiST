@@ -100,6 +100,39 @@ def test_confirmation_records_probe_hit_timeout_and_mismatch(tmp_path: Path) -> 
     assert not campaign.confirmed
 
 
+def test_confirmation_stops_after_first_matching_cold_replay(tmp_path: Path) -> None:
+    campaign = object.__new__(Campaign)
+    campaign.run_dir = tmp_path
+    campaign.jobs = 2
+    campaign.metrics = _Metrics()
+    campaign.model = SimpleNamespace(runtime_index={7: {
+        "kind": "hazard_violation", "modeling": "exact", "hazard": "array_access",
+    }})
+    candidate = Candidate(
+        "F0001", b"0.X,INT,1\n", Observation(0, False, "", hits={7: [0]}),
+        {"oracle": "array_access", "runtime_id": 7, "source": None}, {}, 0.0,
+    )
+    campaign.candidates = [candidate]
+    campaign.confirmed = []
+    (tmp_path / "findings" / "candidates").mkdir(parents=True)
+    calls = []
+    campaign._observe_again = lambda testcase: (calls.append(testcase) or Observation(
+        0, False, "", hits={7: [0]}
+    ))
+    campaign.confirm = lambda candidate, observations: {"oracle": "array_access"}
+    campaign._write_repro = lambda candidate, finding: None
+
+    campaign._run_confirmation()
+
+    assert calls == [candidate.testcase]
+    evidence = json.loads((tmp_path / "findings" / "candidates" /
+                           "F0001.confirmation.json").read_text(encoding="utf-8"))
+    assert evidence["status"] == "confirmed"
+    assert len(evidence["attempts"]) == 1
+    campaign._run_confirmation()
+    assert calls == [candidate.testcase]
+
+
 def test_pointer_width_assumption_prevents_source_vulnerability_claim(tmp_path: Path,
                                                                         monkeypatch) -> None:
     abi = TargetAbi("FUNCTION", "F", [Param("X", scalar_spec("INT"), "VAR_INPUT")])
@@ -377,7 +410,6 @@ def test_live_prefix_monitor_submits_cold_prefix_query(tmp_path: Path, trigger: 
     campaign.deadline = campaign.started + 5
     campaign.engine_deadline = campaign.started + 5
     campaign.metrics = _Metrics()
-    campaign.source_stats = {"solver": {"attempts": 0, "gains": 0, "weight": 1.0}}
     campaign.symbolic_results = []
     campaign.symbolic_unsupported = []
     campaign.contract = {}
@@ -398,7 +430,6 @@ def test_live_prefix_monitor_submits_cold_prefix_query(tmp_path: Path, trigger: 
     assert observed["prefix_dt_ns"] == [17]
     assert observed["window"] == 2
     assert campaign.symbolic_results[0]["status"] == "UNSUPPORTED"
-    assert "p-00000001" in campaign._live_prefix_ids
 
 
 def test_live_solver_ignores_unqualified_prefix_index(tmp_path: Path) -> None:
@@ -543,24 +574,6 @@ def test_klee_native_replay_outcome_is_recorded_separately(tmp_path: Path) -> No
     assert records[0]["wall_s"] == 0.125
 
 
-def test_aborted_engine_invalidates_active_snapshots(tmp_path: Path) -> None:
-    campaign = object.__new__(Campaign)
-    campaign.run_dir = tmp_path
-    campaign.metrics = _Metrics()
-    snapshots = tmp_path / "prefixes" / "snapshots"
-    snapshots.mkdir(parents=True)
-    (snapshots / "node.bin").write_bytes(b"stale")
-    (tmp_path / "prefixes" / "snapshots.jsonl").write_text("stale\n", encoding="utf-8")
-
-    campaign._invalidate_snapshots("engine_timeout")
-
-    assert not snapshots.exists()
-    assert not (tmp_path / "prefixes" / "snapshots.jsonl").exists()
-    marker = json.loads((tmp_path / "prefixes" / "snapshots.invalidated.json").read_text())
-    assert marker["status"] == "invalidated"
-    assert marker["reason"] == "engine_timeout"
-
-
 def _engine_campaign(tmp_path: Path) -> Campaign:
     campaign = object.__new__(Campaign)
     campaign.run_dir = tmp_path
@@ -589,8 +602,6 @@ def _engine_campaign(tmp_path: Path) -> Campaign:
 def test_engine_timeout_is_a_failed_campaign(tmp_path: Path, monkeypatch) -> None:
     campaign = _engine_campaign(tmp_path)
     campaign.symbolic_results = [{"status": "UNSAT", "query_id": "q-start-1"}]
-    invalidated: list[str] = []
-    campaign._invalidate_snapshots = lambda reason: invalidated.append(reason)
 
     class TimedOut:
         pid = 999999
@@ -604,7 +615,6 @@ def test_engine_timeout_is_a_failed_campaign(tmp_path: Path, monkeypatch) -> Non
     monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: TimedOut())
     with pytest.raises(RuntimeError, match="wall-clock guard"):
         campaign.run_rust_engine()
-    assert invalidated == ["engine_timeout"]
     report = json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))
     assert report["execution_status"]["native"] == "TIMEOUT"
     assert report["symbolic_queries"][0]["query_id"] == "q-start-1"
@@ -612,8 +622,6 @@ def test_engine_timeout_is_a_failed_campaign(tmp_path: Path, monkeypatch) -> Non
 
 def test_engine_nonzero_is_a_failed_campaign(tmp_path: Path, monkeypatch) -> None:
     campaign = _engine_campaign(tmp_path)
-    invalidated: list[str] = []
-    campaign._invalidate_snapshots = lambda reason: invalidated.append(reason)
 
     class Failed:
         pid = 999999
@@ -625,7 +633,6 @@ def test_engine_nonzero_is_a_failed_campaign(tmp_path: Path, monkeypatch) -> Non
     monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: Failed())
     with pytest.raises(RuntimeError, match="status 7"):
         campaign.run_rust_engine()
-    assert invalidated == ["engine_exit_7"]
     report = json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))
     assert report["execution_status"]["native"] == "FAILED"
 
@@ -636,7 +643,6 @@ def test_engine_crash_journal_cold_replay_keeps_finding_and_failed_engine_status
     campaign.candidates = []
     campaign.confirmed = []
     campaign.model = type("Model", (), {"runtime_index": {}})()
-    campaign._invalidate_snapshots = lambda reason: None
     campaign._probe_with_deadline = lambda testcase, **kwargs: object()
     campaign._abi_like = lambda: object()
     monkeypatch.setattr("fuzzer.pipeline.campaign.parse_testcase", lambda testcase, abi: type("Case", (), {"frames": [1, 2]})())
@@ -667,17 +673,14 @@ def test_engine_crash_journal_cold_replay_keeps_finding_and_failed_engine_status
                         "depth": 2, "engine_status": "FAILED"}
 
 
-def test_engine_launch_failure_is_visible_and_invalidates_snapshots(tmp_path: Path, monkeypatch) -> None:
+def test_engine_launch_failure_is_visible(tmp_path: Path, monkeypatch) -> None:
     campaign = _engine_campaign(tmp_path)
-    invalidated: list[str] = []
-    campaign._invalidate_snapshots = lambda reason: invalidated.append(reason)
 
     monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: (_ for _ in ()).throw(
         PermissionError("permission denied")
     ))
     with pytest.raises(RuntimeError, match="could not start"):
         campaign.run_rust_engine()
-    assert invalidated == ["engine_launch_failed"]
 
 
 @pytest.mark.parametrize("summary", [
@@ -689,8 +692,6 @@ def test_engine_invalid_summary_fails_campaign(
     tmp_path: Path, monkeypatch, summary: str,
 ) -> None:
     campaign = _engine_campaign(tmp_path)
-    invalidated: list[str] = []
-    campaign._invalidate_snapshots = lambda reason: invalidated.append(reason)
     metrics = tmp_path / "metrics"
     metrics.mkdir()
 
@@ -706,13 +707,10 @@ def test_engine_invalid_summary_fails_campaign(
     monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: Completed())
     with pytest.raises(RuntimeError, match="invalid engine summary"):
         campaign.run_rust_engine()
-    assert invalidated == ["engine_summary_invalid"]
 
 
 def test_engine_missing_summary_cannot_reuse_prior_run(tmp_path: Path, monkeypatch) -> None:
     campaign = _engine_campaign(tmp_path)
-    invalidated: list[str] = []
-    campaign._invalidate_snapshots = lambda reason: invalidated.append(reason)
     metrics = tmp_path / "metrics"
     metrics.mkdir()
     old_summary = metrics / "summary.json"
@@ -730,7 +728,6 @@ def test_engine_missing_summary_cannot_reuse_prior_run(tmp_path: Path, monkeypat
     monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: Completed())
     with pytest.raises(RuntimeError, match="invalid engine summary"):
         campaign.run_rust_engine()
-    assert invalidated == ["engine_summary_invalid"]
 
 
 def test_valid_engine_summary_populates_metrics(tmp_path: Path, monkeypatch) -> None:
@@ -738,7 +735,6 @@ def test_valid_engine_summary_populates_metrics(tmp_path: Path, monkeypatch) -> 
     campaign.metrics = Metrics(tmp_path)
     campaign.candidates = []
     campaign.confirmed = []
-    campaign.source_stats = {"fuzz": {"attempts": 0, "gains": 0, "weight": 1.0}}
     campaign._run_confirmation = lambda: None
     campaign._write_report = lambda: None
     summary_path = tmp_path / "metrics" / "summary.json"
@@ -771,7 +767,6 @@ def test_engine_candidates_get_cold_replay_without_post_engine_solver(tmp_path: 
     campaign.confirmed = []
     campaign.native_replay_results = []
     campaign.model = type("Model", (), {"runtime_index": {}})()
-    campaign.source_stats = {"fuzz": {"attempts": 0, "gains": 0, "weight": 1.0}}
     candidate_dir = tmp_path / "findings" / "candidates"
     candidate_dir.mkdir(parents=True)
     (candidate_dir / "candidate-000001.txt").write_bytes(b"engine testcase")
@@ -812,7 +807,6 @@ def test_engine_loop_budget_leaves_time_for_normal_summary_exit(tmp_path: Path, 
     campaign.metrics = Metrics(tmp_path)
     campaign.candidates = []
     campaign.confirmed = []
-    campaign.source_stats = {"fuzz": {"attempts": 0, "gains": 0, "weight": 1.0}}
     campaign._run_confirmation = lambda: None
     campaign._write_report = lambda: None
     observed = {}
@@ -847,7 +841,6 @@ def test_full_hybrid_duration_uses_campaign_remainder_without_iteration_cap(
     campaign.engine_deadline = time.monotonic() + 10
     campaign.config["full_hybrid_duration"] = True
     campaign.metrics = Metrics(tmp_path)
-    campaign.source_stats = {"fuzz": {"attempts": 0, "gains": 0, "weight": 1.0}}
     campaign._run_confirmation = lambda: None
     campaign._write_report = lambda: None
     observed = {}
@@ -864,6 +857,7 @@ def test_full_hybrid_duration_uses_campaign_remainder_without_iteration_cap(
 
     def start(command, **_kwargs):
         observed["command"] = command
+        observed["deadline_ns"] = _kwargs["env"].get("SEMANTIST_ONLINE_DEADLINE_NS")
         return Completed()
 
     monkeypatch.setattr(subprocess, "Popen", start)
@@ -872,7 +866,16 @@ def test_full_hybrid_duration_uses_campaign_remainder_without_iteration_cap(
     engine_s = int(command[command.index("--v3-time-budget-ms") + 1]) / 1000
     assert "--v3-full-duration" in command
     assert "--fuzz-iterations" not in command
-    assert 0 < engine_s + 0.25 < observed["guard_s"] < 11
+    assert 0 < engine_s + 4.5 < observed["guard_s"] < 16
+    assert observed["deadline_ns"] is None
+
+    campaign.config["online_budget_from_start"] = True
+    campaign.deadline = campaign.started + 10
+    campaign.run_rust_engine()
+    assert observed["deadline_ns"] == str(int(campaign.deadline * 1_000_000_000))
+    assert 60 < observed["guard_s"] < 71
+    assert campaign.phase_times_s["online_search"] < 10
+    assert campaign.phase_times_s["engine_postdeadline"] == 0
 
 
 def test_native_probe_launch_failure_is_a_failed_observation(tmp_path: Path) -> None:
@@ -905,21 +908,6 @@ def test_solver_sat_without_replayable_candidate_is_mismatch(tmp_path: Path) -> 
     result, testcase = campaign._solver_candidate({"status": "SAT", "candidate_file": str(candidate)})
     assert result["status"] == "SAT"
     assert testcase == b"0.X,INT,1\n"
-
-
-def test_source_weight_drops_after_stagnation_and_recovers_on_gain(tmp_path: Path) -> None:
-    campaign = object.__new__(Campaign)
-    campaign.metrics = _Metrics()
-    campaign.source_stats = {"llm": {"attempts": 0, "gains": 0, "weight": 1.0}}
-
-    campaign._record_source_result("llm", gained=False)
-    low = campaign.source_stats["llm"]["weight"]
-    campaign._record_source_result("llm", gained=True)
-
-    assert low < 1.0
-    assert campaign.source_stats["llm"]["attempts"] == 2
-    assert campaign.source_stats["llm"]["gains"] == 1
-    assert campaign.source_stats["llm"]["weight"] > low
 
 
 def test_batch_snapshot_rate_requires_real_engine_attempts() -> None:

@@ -23,12 +23,19 @@ def _median(values: list[float | int]) -> float | None:
     return statistics.median(values) if values else None
 
 
+def _first_time(result: dict, key: str) -> float | None:
+    values = [finding.get(key) for finding in result.get("findings", [])]
+    numeric = [value for value in values if isinstance(value, (int, float))]
+    return min(numeric) if numeric else None
+
+
 def _preparation_costs(root: Path, entries: list[tuple[Job, dict]],
                        tool: str, configuration: str) -> dict:
     targets = {job.target["id"] for job, _ in entries}
     common = []
     external = []
     planning = []
+    offline_klee = []
     planning_review = []
     tokens = []
     for target_id in targets:
@@ -44,6 +51,7 @@ def _preparation_costs(root: Path, entries: list[tuple[Job, dict]],
             if plan_file.is_file():
                 plan = json.loads(plan_file.read_text(encoding="utf-8"))
                 planning.append(plan.get("planning_seconds"))
+                offline_klee.append(plan.get("offline_solver_seconds"))
                 planning_review.append(plan.get("planning_review_seconds"))
                 tokens.append(plan.get("tokens"))
 
@@ -57,6 +65,7 @@ def _preparation_costs(root: Path, entries: list[tuple[Job, dict]],
         "unique_common_build_seconds": total(common, len(targets)),
         "unique_adapter_build_seconds": total(external, len(targets)) if tool != "semantist" else None,
         "unique_llm_planning_seconds": total(planning, len(targets)) if llm else 0,
+        "unique_offline_klee_seconds": total(offline_klee, len(targets)) if llm else 0,
         "unique_llm_planning_review_seconds": total(planning_review, len(targets)) if llm else 0,
         "unique_llm_tokens": total(tokens, len(targets)) if llm else 0,
     }
@@ -109,6 +118,7 @@ def summarize(root: Path, jobs: list[Job]) -> dict:
                     "phase": "online_search", "job_id": job.job_id, "tool": job.tool,
                     "first_candidate_online_s": finding.get("first_candidate_online_s"),
                     "first_candidate_end_to_end_s": finding.get("first_candidate_end_to_end_s"),
+                    "first_candidate_unamortized_s": finding.get("first_candidate_unamortized_s"),
                     "repro_dir": finding.get("repro_dir"),
                     "testcase_file": finding.get("testcase_file"),
                 })
@@ -120,12 +130,11 @@ def summarize(root: Path, jobs: list[Job]) -> dict:
         supported = [(job, result) for job, result in entries
                      if result.get("status") == "completed" and result.get("supported")]
         found = [(job, result) for job, result in supported if result.get("confirmed", 0) > 0]
-        times = [finding["first_candidate_online_s"] for _, result in supported
-                 for finding in result.get("findings", [])
-                 if isinstance(finding.get("first_candidate_online_s"), (float, int))]
-        end_to_end_times = [finding["first_candidate_end_to_end_s"] for _, result in supported
-                            for finding in result.get("findings", [])
-                            if isinstance(finding.get("first_candidate_end_to_end_s"), (float, int))]
+        times = [_first_time(result, "first_candidate_online_s") for _, result in supported]
+        end_to_end_times = [_first_time(result, "first_candidate_end_to_end_s")
+                            for _, result in supported]
+        unamortized_times = [_first_time(result, "first_candidate_unamortized_s")
+                             for _, result in supported]
         root_ids = set()
         planning_locations = set()
         if tool == "semantist" and CONFIGURATIONS[configuration]["llm"]:
@@ -180,10 +189,12 @@ def summarize(root: Path, jobs: list[Job]) -> dict:
             "runs_with_confirmed": len(found),
             "native_crash_events": sum(result.get("native_crash_events") or 0 for _, result in supported),
             "native_sequence_saved": sum(result.get("native_sequence_saved") or 0 for _, result in supported),
-            "discovery_rate_all": len(found) / len(entries),
+            "discovery_rate_all": (len(found) / len(entries)
+                                   if len(supported) == len(entries) else None),
             "discovery_rate_supported": len(found) / len(supported) if supported else None,
-            "median_first_candidate_online_s": _median(times),
-            "median_first_candidate_end_to_end_s": _median(end_to_end_times),
+            "median_first_candidate_online_s": _median([value for value in times if value is not None]),
+            "median_first_candidate_end_to_end_s": _median([value for value in end_to_end_times if value is not None]),
+            "median_first_candidate_unamortized_s": _median([value for value in unamortized_times if value is not None]),
             "independent_defects_adjudicated": len(root_ids),
             "planning_stage_confirmed_locations": len(planning_locations),
             "all_pipeline_independent_defects_adjudicated": len(root_ids | planning_root_ids),
@@ -229,19 +240,22 @@ def summarize(root: Path, jobs: list[Job]) -> dict:
                 "experiment": experiment, "tool": tool,
                 "configuration": configuration, "online_seconds": seconds,
                 "target_id": target_id, "planned_runs": len(trials),
+                "status_counts": {status: sum(item.get("status") == status for item in trials)
+                                  for status in sorted({item.get("status", "not_run")
+                                                        for item in trials})},
                 "supported_runs": len(target_supported),
                 "runs_with_confirmed": target_found,
                 "native_crash_events": sum(item.get("native_crash_events") or 0
                                            for item in target_supported),
                 "native_sequence_saved": sum(item.get("native_sequence_saved") or 0
                                                for item in target_supported),
-                "discovery_rate_all": target_found / len(trials),
+                "discovery_rate_all": (target_found / len(trials)
+                                       if len(target_supported) == len(trials) else None),
                 "discovery_rate_supported": target_found / len(target_supported)
                 if target_supported else None,
                 "median_first_candidate_online_s": _median([
-                    finding["first_candidate_online_s"] for item in target_supported
-                    for finding in item.get("findings", [])
-                    if isinstance(finding.get("first_candidate_online_s"), (int, float))]),
+                    value for item in target_supported
+                    if (value := _first_time(item, "first_candidate_online_s")) is not None]),
                 "planning_stage_confirmed_locations": len({
                     _location_key(target_id, {"oracle": finding.get("oracle"),
                                               "source": (finding.get("goal") or {}).get("source")})

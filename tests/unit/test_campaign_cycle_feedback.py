@@ -120,13 +120,15 @@ def test_stg_assign_source_proves_pointer_store(tmp_path, name, pointer):
     assert cycle_effects(abi, stg)["mode"] == "multi_cycle"
 
 
-def test_stateless_fb_kind_alone_is_not_multicycle_proof():
+def test_function_block_defaults_to_multicycle():
     abi = {"target": {"name": "RENAMED_FB", "kind": "FUNCTION_BLOCK"},
            "frame_fields": [], "shared_fields": [], "state_fields": []}
     stg = {"pous": [{"pou": {"name": "RENAMED_FB", "kind": "function_block",
                              "stateful": False},
                      "environment": {"symbols": [], "calls": []}}]}
-    assert cycle_effects(abi, stg)["mode"] == "unknown"
+    effects = cycle_effects(abi, stg)
+    assert effects["mode"] == "multi_cycle"
+    assert "function_block_default" in effects["reasons"]
 
 
 @pytest.mark.parametrize("count,order", [(5, ["HISTORY", "COUNT"]),
@@ -183,20 +185,15 @@ def _campaign(tmp_path: Path) -> Campaign:
     return campaign
 
 
-def test_cold_distance_feedback_and_no_novelty_rejection(tmp_path):
+def test_solver_queue_defers_distance_feedback_to_native_engine(tmp_path):
     campaign = _campaign(tmp_path)
-    observation = Observation(0, False, "")
-    assert not campaign._offer_solver_seed(b"0.N,INT,20\n", observation, query_id="q0", task_id="task")
-    from fuzzer.corpus.frames import parse_testcase
-    prefix = parse_testcase(b"0.N,INT,30\n", campaign._abi_like())
-    campaign._record_solver_distance_baseline("task", prefix, "p-native")
-    assert campaign._offer_solver_seed(b"0.N,INT,20\n", observation, query_id="q1", task_id="task")
-    assert not campaign._offer_solver_seed(b"0.N,INT,21\n", observation, query_id="q2", task_id="task")
-    assert campaign._offer_solver_seed(b"0.N,INT,9\n", observation, query_id="q3", task_id="task")
-    assert len(list((tmp_path / "solver" / "reinject").glob("*.seed"))) == 2
+    assert campaign._enqueue_solver_seed(b"0.N,INT,20\n", query_id="q0", task_id="task")
+    assert campaign._enqueue_solver_seed(b"0.N,INT,21\n", query_id="q1", task_id="task")
+    assert campaign._enqueue_solver_seed(b"0.N,INT,9\n", query_id="q2", task_id="task")
+    assert len(list((tmp_path / "solver" / "reinject").glob("*.seed"))) == 3
     campaign._engine_stop_event = threading.Event()
     campaign._engine_stop_event.set()
-    assert not campaign._offer_solver_seed(b"0.N,INT,8\n", observation, query_id="q4", task_id="task")
+    assert not campaign._enqueue_solver_seed(b"0.N,INT,8\n", query_id="q3", task_id="task")
 
 
 def test_solver_budget_shared_and_prefix_requires_native_task_progress(tmp_path):

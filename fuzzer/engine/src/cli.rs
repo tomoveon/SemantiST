@@ -2,7 +2,6 @@ fn next_arg(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<Strin
     args.next()
         .ok_or_else(|| Error::illegal_argument(format!("{flag} requires a value")))
 }
-
 // 避免 function 名被拿来构造奇怪路径。
 fn sanitize_name(name: &str) -> Result<String, Error> {
     let trimmed = name.trim();
@@ -23,27 +22,20 @@ fn sanitize_name(name: &str) -> Result<String, Error> {
 // 主程序帮助文本。
 fn print_usage() {
     println!(
-        "usage: semantist [--target ./artifacts/build/targets/fuzz_target] [--function INC2] [--run-dir artifacts/runs/id] [--timeout-ms 1000] [--debug-child]"
+        "usage: semantist [--target ./artifacts/build/targets/fuzz_target] [--function INC2] [--run-dir artifacts/runs/id] [--timeout-ms 1000]"
     );
     println!(
         "  --run-dir PATH               use PATH/unified-corpus, target-corpus, findings and semantic artifacts"
     );
     println!("  --metadata-bootstrap PATH    load testcase metadata into native LibAFL metadata");
     println!("  --semantic-task-plan PATH    load the STG Stable Target ID task plan");
-    println!("  --semantic-model PATH        generate bounded initial seeds from the STG model");
     println!("  --semantic-runtime-ids PATH  map semantic bitmap IDs back to stable STG targets");
-    println!(
-        "  --semantic-task-budget N     executions per GuideTarget before failure decay"
-    );
     println!(
         "  --fuzz-iterations N          stop after N LibAFL iterations (useful for smoke tests)"
     );
     println!("  --seed N                     initialize the SemantiST LibAFL RNG deterministically");
-    println!("  --ablation NAME              full, no_semantic_init, no_targeted_mutation, queue_havoc,");
-    println!("                               no_transition_guidance, no_prefix_growth, no_multicycle_guidance");
-    println!("  --execution MODE             fork (default) or persistent forkserver execution");
-    println!("  --consistency-dump PATH      run --consistency-inputs once each and write observations, then exit");
-    println!("  --consistency-inputs PATH    file listing one input path per line, in execution order");
+    println!("  --v3-bundle PATH             load the native execution bundle");
+    println!("  --v3-time-budget-ms N        limit native search time in milliseconds");
 }
 
 // fuzzer 启动前创建输出目录。
@@ -56,12 +48,5 @@ fn ensure_dirs(config: &Config) -> Result<(), Error> {
     if let Some(parent) = config.events_file.parent() {
         fs::create_dir_all(parent)?;
     }
-    if let Some(parent) = config.semantic_task_state_file.parent() {
-        fs::create_dir_all(parent)?;
-    }
     Ok(())
-}
-
-fn initial_corpus_dirs(config: &Config) -> Vec<PathBuf> {
-    vec![config.seed_dir.clone(), config.queue_dir.clone()]
 }

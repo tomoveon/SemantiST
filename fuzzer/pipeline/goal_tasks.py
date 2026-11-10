@@ -14,7 +14,7 @@ from fuzzer.corpus.frames import default_for_spec
 from fuzzer.pipeline.model import type_bounds
 
 
-MAX_PLANNED_PREFIXES_PER_TASK = 96
+MAX_PLANNED_PREFIXES_PER_TASK = 2
 
 
 def cycle_effects(abi: dict[str, Any], stg_model: dict[str, Any] | None) -> dict[str, Any]:
@@ -22,8 +22,8 @@ def cycle_effects(abi: dict[str, Any], stg_model: dict[str, Any] | None) -> dict
     reasons: set[str] = set()
     unknown: set[str] = set()
     target = abi.get("target") or {}
-    if target.get("kind") != "FUNCTION":
-        unknown.add("instance_effects_unresolved")
+    if target.get("kind") == "FUNCTION_BLOCK":
+        reasons.add("function_block_default")
     def pointer_store(operation: dict[str, Any]) -> bool:
         if operation.get("kind") != "assign":
             return False
@@ -108,19 +108,6 @@ def cycle_effects(abi: dict[str, Any], stg_model: dict[str, Any] | None) -> dict
     if stg_model is not None and stg_model.get("effect_resolution"):
         result["effect_resolution"] = stg_model["effect_resolution"]
     return result
-
-
-def _bounded_prefixes(prefixes: list[list[dict[str, str]]], task_index: int,
-                      task_count: int) -> list[list[dict[str, str]]]:
-    if len(prefixes) <= MAX_PLANNED_PREFIXES_PER_TASK:
-        return prefixes
-    focused_count = 8
-    remaining = prefixes[focused_count:]
-    slots = MAX_PLANNED_PREFIXES_PER_TASK - focused_count
-    # Keep each task's condition seeds and spread the rest across the protocol space.
-    selected = [remaining[((slot * task_count + task_index) * len(remaining))
-                          // (slots * task_count)] for slot in range(slots)]
-    return prefixes[:focused_count] + selected
 
 
 def _bounded_integer(spec: dict[str, Any], value: int) -> int:
@@ -584,11 +571,10 @@ def build_goal_tasks(
                 "symbolic_suitable": bool(objective and hazard in ("array_access", "pointer_access", "division", "modulo", "dangerous_conversion")),
                 "budget": {"attempts": 2000, "solver_queries": 20, "llm_calls": 2},
                 "literals": sorted(analysis.collect_literals(task)),
-                "seed_prefixes": [sequence[-1:] for sequence in _planned_prefixes(
-                    abi, task, deduped, global_literals, state_update_reads)] if one_frame_first else _planned_prefixes(
-                    abi, task, deduped, global_literals, state_update_reads),
-                "terminal_goal_expression": task.get("terminal_goal_expression"),
-                "control_obligations": task.get("control_obligations"),
+                "seed_prefixes": [sequence[-1:] if one_frame_first else sequence
+                                  for sequence in _planned_prefixes(
+                                      abi, task, deduped, global_literals, state_update_reads
+                                  )[:MAX_PLANNED_PREFIXES_PER_TASK]],
             }
         )
     # A generic combined mode prefix: every frame-input condition from the
@@ -605,55 +591,27 @@ def build_goal_tasks(
                 if (field in combined and action_specs[field].get("kind") == "scalar"
                         and isinstance(constant, (int, float))):
                     combined[field] = _condition_value(action_specs[field], condition.get("op"), constant)
-    if True:
-        boolean_fields = [
-            entry["name"] for entry in action_entries
-            if entry["spec"].get("name") == "BOOL"
-        ][:6]
-        modes = [0]
-        for bit in range(len(boolean_fields)):
-            modes.extend([1 << bit])
-        modes.append((1 << len(boolean_fields)) - 1)
-        literal_values = sorted(
-            {
-                int(value)
-                for task in tasks
-                for value in task.get("literals") or []
-            }
-        )
-        for task in tasks:
-            for entry in task.get("abstraction") or []:
-                thresholds = [int(value) for value in entry.get("thresholds") or [] if isinstance(value, int)]
-                if len(thresholds) >= 2 and max(thresholds) - min(thresholds) <= 128:
-                    literal_values.extend(range(min(thresholds), max(thresholds) + 1))
-        literal_values = sorted(set(literal_values))
-        integer_fields = [
-            entry["name"] for entry in action_entries
-            if entry["spec"].get("kind") == "scalar"
-            and entry["spec"].get("name") not in ("BOOL", "REAL", "LREAL")
-        ][:4]
-        variants = [dict(combined)]
-        global_tasks = [task for task in tasks if (task.get("goal") or {}).get("hazard") == "array_access"] or [task for task in tasks if task.get("goal_class") == "defect"][:1]
-        for field in integer_fields:
-            for value in literal_values[:256]:
-                for neighbor in (value - 1, value, value + 1):
-                    variant = dict(combined)
-                    variant[field] = str(_bounded_integer(action_specs[field], neighbor))
-                    variants.append(variant)
-        for variant in variants[:96]:
-            for mask in modes:
-                frame = dict(variant)
-                for index, name in enumerate(boolean_fields):
-                    frame[name] = "1" if mask & (1 << index) else "0"
-                sequence = [dict(frame)] if one_frame_first else [dict(defaults), dict(frame), dict(frame), dict(frame), dict(frame)]
-                if any(task.get("timers") for task in tasks):
-                    sequence.extend(dict(frame) for _ in range(210))
-                for global_task in global_tasks:
-                    global_task.setdefault("seed_prefixes", []).append(sequence)
-    for index, task in enumerate(tasks):
+    global_tasks = [task for task in tasks if (task.get("goal") or {}).get("hazard") == "array_access"] or [
+        task for task in tasks if task.get("goal_class") == "defect"
+    ][:1]
+    boolean_fields = [entry["name"] for entry in action_entries
+                      if entry["spec"].get("name") == "BOOL"][:6]
+    has_timers = any(task.get("timers") for task in tasks)
+    for task in global_tasks:
         prefixes = task["seed_prefixes"]
-        task["seed_prefixes_total"] = len(prefixes)
-        task["seed_prefixes"] = _bounded_prefixes(prefixes, index, len(tasks))
+        added = 0
+        while len(prefixes) < MAX_PLANNED_PREFIXES_PER_TASK:
+            frame = dict(combined)
+            if added == 1 and boolean_fields:
+                frame[boolean_fields[0]] = "1"
+            else:
+                for name in boolean_fields:
+                    frame[name] = "0"
+            sequence = [dict(frame)] if one_frame_first else [dict(defaults)] + [dict(frame) for _ in range(4)]
+            if has_timers and not one_frame_first:
+                sequence.extend(dict(frame) for _ in range(210))
+            prefixes.append(sequence)
+            added += 1
     return {
         "schema_version": "semantist.goal-tasks/1.0.0",
         "contract_id": contract_id,

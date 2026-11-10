@@ -25,7 +25,9 @@ reported in `solver_scope.imprecise`; a failure to find a model is then
 | `LIMIT`, `MAX`, `MIN`, `DATE_AND_TIME_TO_*` | faithful | direct integer/real operations |
 | `ROUND__REAL` | approximating | half-away-from-zero conversion through `int64_t`; extreme values and symbolic floats remain imprecise |
 | `DWORD_TO_REAL`, `REAL_TO_DWORD` | faithful | IEEE-754 bit reinterpretation |
-| `ROL__DWORD` | faithful | 32-bit rotate |
+| `ROL__DWORD`, `ROL__BYTE`, `ROR__BYTE` | faithful | fixed-width rotate |
+| `MAX__TIME` | faithful | maximum of the supplied TIME array |
+| `STRING_TO_DINT` | approximating | bounded signed conversion with RuSTy radix prefixes; native replay remains authoritative |
 | `LEN__STRING`, `MID_EXT__STRING` | faithful | byte string length/substring |
 | `ACOS/ASIN/ATAN/COS/SIN/TAN/LN/SQRT` | havoc | no exact libm bitcode is linked; fresh symbolic result |
 | `EXP__REAL` | approximating | bounded series approximation, with native replay required |

@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[2]
 from compiler.instrumentation.compile import target_name, with_llvm_toolchain_env  # noqa: E402
 from compiler.toolchain.compatibility import load_project  # noqa: E402
 from fuzzer.corpus.store import CorpusStore, append_event, source_constraints  # noqa: E402
-from fuzzer.runtime.paths import build_artifact_dir, cargo_target_dir, runs_artifact_dir  # noqa: E402
+from fuzzer.runtime.paths import build_artifact_dir, runs_artifact_dir  # noqa: E402
 from fuzzer.reporting.report import generate_report  # noqa: E402
 from fuzzer.semantic.planning import generate_semantic_task_plan  # noqa: E402
 from fuzzer.pipeline.campaign import Campaign  # noqa: E402
@@ -243,6 +243,11 @@ def run_campaign(args: argparse.Namespace, layout: Layout, target_bin: Path, con
         "fuzz_timeout": args.fuzz_timeout,
         "max_evaluations": args.fuzz_iterations,
         "seed": args.seed,
+        "fb_max_cycles": getattr(args, "fb_max_cycles", None),
+        "fb_stale_threshold": getattr(args, "fb_stale_threshold", None),
+        "fb_state_trace": getattr(args, "fb_state_trace", False),
+        "fb_state_trace_file": (str(args.fb_state_trace_file)
+                                 if getattr(args, "fb_state_trace_file", None) else None),
         "ablations": {
             "no_symbolic": args.no_symbolic,
             "symbolic_initial_only": args.symbolic_initial_only,
@@ -264,6 +269,8 @@ def run_campaign(args: argparse.Namespace, layout: Layout, target_bin: Path, con
         "llm_plan_token_budget": getattr(args, "llm_plan_token_budget", 20000),
         "llm_strict_planning": getattr(args, "llm_strict_planning", False),
         "symbolic_startup_budget_s": getattr(args, "symbolic_startup_budget", 30.0),
+        "symbolic_startup_max_queries": 8,
+        "online_symbolic_max_queries": 4,
         "solver_feedback_margin_s": getattr(args, "solver_feedback_margin", 15.0),
         "llm_offline": args.llm_offline,
         "llm_cooldown_s": 120.0,
@@ -304,72 +311,6 @@ def run_campaign(args: argparse.Namespace, layout: Layout, target_bin: Path, con
         json.dumps({"status": "completed", "execution_status": {"build": "completed",
                     "native": "completed"}, **result}, indent=2, sort_keys=True) + "\n",
         encoding="utf-8")
-
-
-def launch_fuzzer(
-    args: argparse.Namespace,
-    layout: Layout,
-    target_bin: Path,
-) -> None:
-    command = [
-        "cargo",
-        "run",
-        "-p",
-        "semantist",
-        "--release",
-        "--locked",
-        "--",
-        "--target",
-        str(target_bin),
-        "--function",
-        args.function,
-        "--run-dir",
-        str(layout.run_dir),
-        "--metadata-bootstrap",
-        str(layout.bootstrap),
-        "--semantic-task-budget",
-        str(args.semantic_task_budget),
-    ]
-    command += [
-        "--semantic-task-plan",
-        str(layout.run_dir / "semantic-task-plan.json"),
-        "--semantic-model",
-        str(layout.run_dir / "stg" / "stg-model.json"),
-    ]
-    if args.fuzz_iterations is not None:
-        command += ["--fuzz-iterations", str(args.fuzz_iterations)]
-    env = os.environ.copy()
-    env.setdefault("CARGO_TARGET_DIR", str(cargo_target_dir()))
-    env["SEMANTIST_SEMANTIC_TRACE_FILE"] = str(layout.run_dir / "semantic-coverage.jsonl")
-    semantic_debug_artifacts = getattr(args, "semantic_debug_artifacts", False)
-    if args.semantic_runtime_trace or semantic_debug_artifacts:
-        env["SEMANTIST_SEMANTIC_RUNTIME_TRACE_FILE"] = str(
-            layout.run_dir / "semantic-runtime.jsonl"
-        )
-        env["SEMANTIST_SEMANTIC_TRACE_RUNTIME"] = "1"
-    if semantic_debug_artifacts:
-        env["SEMANTIST_SEMANTIC_STATE_DETAIL"] = "1"
-    runtime_ids = layout.run_dir / "stg" / "stg-runtime-ids.json"
-    if runtime_ids.exists():
-        env["SEMANTIST_SEMANTIC_RUNTIME_IDS"] = str(runtime_ids)
-    apply_fb_runtime_env(args, env)
-    try:
-        run_command(command, env=env, timeout=args.fuzz_timeout)
-    except subprocess.TimeoutExpired:
-        append_event(layout, "fuzz_timeout", timeout_seconds=args.fuzz_timeout)
-        print(f"[pipeline] fuzzing reached --fuzz-timeout={args.fuzz_timeout}s; generating report")
-
-
-def apply_fb_runtime_env(args: argparse.Namespace, env: dict[str, str]) -> None:
-    if getattr(args, "fb_max_cycles", None) is not None:
-        env["SEMANTIST_FB_MAX_CYCLES"] = str(args.fb_max_cycles)
-    if getattr(args, "fb_stale_threshold", None) is not None:
-        env["SEMANTIST_FB_STALE_THRESHOLD"] = str(args.fb_stale_threshold)
-    if getattr(args, "fb_state_trace", False):
-        env["SEMANTIST_FB_STATE_TRACE"] = "1"
-        trace_file = getattr(args, "fb_state_trace_file", None)
-        if trace_file is not None:
-            env["SEMANTIST_FB_STATE_TRACE_FILE"] = str(trace_file)
 
 
 def write_vulnerability_report(args: argparse.Namespace, layout: Layout) -> bool:
@@ -444,15 +385,8 @@ def record_campaign_failure(layout: Layout, error: Exception) -> None:
     )
 
 
-def _campaign_mode(value: str) -> str:
-    return "hybrid" if value == "v3" else value
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", type=_campaign_mode, choices=("hybrid", "coverage"),
-                        default="hybrid",
-                        help="goal-directed hybrid campaign (default) or coverage-guided baseline")
     parser.add_argument("--st-file", required=True, type=Path)
     parser.add_argument("--function", required=True)
     parser.add_argument(
@@ -479,12 +413,6 @@ def parse_args() -> argparse.Namespace:
         required=True,
         type=Path,
         help=f"run output directory; use {display_path(runs_artifact_dir())}/NAME to keep artifacts centralized",
-    )
-    parser.add_argument(
-        "--semantic-task-budget",
-        type=int,
-        default=1_000,
-        help="executions per semantic GuideTarget before failure decay",
     )
     parser.add_argument("--fuzz-iterations", type=int)
     parser.add_argument("--fuzz-timeout", type=int,
@@ -613,35 +541,20 @@ def main() -> int:
         record_campaign_failure(layout, error)
         write_vulnerability_report(args, layout)
         return 1
-    if args.mode == "hybrid":
-        try:
-            contract = prepare_bundle(args, layout)
-        except Exception as error:  # noqa: BLE001 - malformed exchange JSON is a failed campaign
-            record_campaign_failure(layout, error)
-            write_vulnerability_report(args, layout)
-            return 1
-        if args.build_only:
-            append_event(layout, "build_only_complete")
-            report_ok = write_vulnerability_report(args, layout)
-            print(f"[pipeline] build-only complete: {layout.run_dir}")
-            return 0 if report_ok else 1
-        report_ok = True
-        try:
-            run_campaign(args, layout, target_bin, contract)
-        finally:
-            # The campaign writes a local report; keep the public report contract
-            # identical to coverage mode even when the campaign fails midway.
-            report_ok = write_vulnerability_report(args, layout)
-        return 0 if report_ok else 1
+    try:
+        contract = prepare_bundle(args, layout)
+    except Exception as error:  # noqa: BLE001 - malformed exchange JSON is a failed campaign
+        record_campaign_failure(layout, error)
+        write_vulnerability_report(args, layout)
+        return 1
     if args.build_only:
         append_event(layout, "build_only_complete")
         report_ok = write_vulnerability_report(args, layout)
         print(f"[pipeline] build-only complete: {layout.run_dir}")
         return 0 if report_ok else 1
-
     report_ok = True
     try:
-        launch_fuzzer(args, layout, target_bin)
+        run_campaign(args, layout, target_bin, contract)
     finally:
         report_ok = write_vulnerability_report(args, layout)
     return 0 if report_ok else 1
