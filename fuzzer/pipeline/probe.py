@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import os
 import signal
 import subprocess
@@ -215,13 +216,31 @@ def probe(
     )
 
 
-def classify(observation: Observation, runtime_index: dict[int, dict[str, Any]]) -> dict[str, Any] | None:
-    """Return the first semantically justified candidate, if any."""
+def classify(observation: Observation, runtime_index: dict[int, dict[str, Any]], *,
+             expected_runtime_id: int | None = None) -> dict[str, Any] | None:
+    """Return a justified candidate, optionally for one saved runtime goal."""
     if observation.timed_out:
         return None
-    for runtime_id, cycles in sorted(observation.hits.items()):
+    marker = re.search(r"(?m)^SEMANTIST_PROPERTY_VIOLATION:([A-Za-z][A-Za-z0-9_-]{0,63}):(\d+)\s*$",
+                       observation.stderr)
+    if marker and observation.crashed and expected_runtime_id is None:
+        return {
+            "oracle": "generated_property", "hazard": "functional_output",
+            "runtime_id": None, "cycle": int(marker.group(2)),
+            "source": None, "kind": "property_violation",
+            "property_id": marker.group(1), "modeling": "generated_checker",
+            "diagnostic": marker.group(0).strip(),
+        }
+    hits = ([(expected_runtime_id, observation.hits[expected_runtime_id])]
+            if expected_runtime_id is not None and expected_runtime_id in observation.hits
+            else [] if expected_runtime_id is not None else sorted(observation.hits.items()))
+    for runtime_id, cycles in hits:
         entry = runtime_index.get(runtime_id)
         if not entry or entry.get("kind") != "hazard_violation":
+            continue
+        # Numeric boundary probes guide search, but the execution contract
+        # treats integer wrap as exploration and declares no nonfinite oracle.
+        if entry.get("hazard") == "arithmetic_boundary":
             continue
         predicate = entry.get("violation_predicate") or {}
         observed_conversion = (
@@ -257,6 +276,8 @@ def classify(observation: Observation, runtime_index: dict[int, dict[str, Any]])
             "kind": "scan_budget",
             "diagnostic": "semantist-scan-budget-exceeded",
         }
+    if expected_runtime_id is not None:
+        return None
     if observation.crashed:
         stderr = observation.stderr
         oracle = "crash"

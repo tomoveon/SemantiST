@@ -1,0 +1,19 @@
+{
+  "schema_version": "semantist.output-properties/1.0.0",
+  "targets": {
+    "FILTER_MAV_DW": [
+      {
+        "id": "initialized-window-output-range",
+        "kind": "initialized_window_range",
+        "input": "X",
+        "window": "N",
+        "reset": "RST",
+        "output": "Y",
+        "source": {
+          "file": "benchmarks/oscat_basic/source/oscat.st",
+          "start_line": 8658
+        }
+      }
+    ]
+  }
+}

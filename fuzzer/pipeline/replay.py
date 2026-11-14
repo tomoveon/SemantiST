@@ -10,8 +10,11 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 from fuzzer.pipeline.probe import Observation, classify, load_runtime_index, probe
+from fuzzer.pipeline.properties import evaluate_properties
+from fuzzer.pipeline.model import _ParamLike
 
 REPLAY_BUILD_TIMEOUT_S = 180.0
 
@@ -196,6 +199,18 @@ def main(argv: list[str] | None = None) -> int:
     observation = probe(target, testcase, work_dir=package / ".replay")
     candidate = classify(observation, runtime_index)
     expected = finding.get("oracle")
+    if expected == "output_invariant" and isinstance(finding.get("property_spec"), dict):
+        try:
+            abi = json.loads((package / "source" / "abi.json").read_text(encoding="utf-8"))
+            fields = abi.get("frame_fields", [])
+            abi_like = SimpleNamespace(
+                params=[_ParamLike(field["name"], field["spec"], field.get("block_kind", "VAR_INPUT"))
+                        for field in fields], state_fields=[])
+            candidate = evaluate_properties(
+                observation, testcase, abi_like, [finding["property_spec"]],
+                expected_id=finding.get("property_id"))
+        except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+            candidate = None
     status = _replay_status(observation, candidate, expected)
     print(json.dumps({"expected": expected, "observed": candidate, "returncode": observation.returncode,
                       "status": status,

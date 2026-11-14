@@ -106,7 +106,12 @@ impl GoalStateObserver {
             let mut abstractions = std::collections::BTreeMap::new();
             let mut polarities = std::collections::BTreeMap::new();
             for task in &self.tasks.tasks {
-                let (distance, buckets) = self.score_task_values(task, &values);
+                let (mut distance, buckets) = self.score_task_values(task, &values);
+                if task.goal_class == "defect" && task.goal.runtime_id
+                    .is_some_and(|id| !observation.goal_hits.contains(&id))
+                    && distance.is_finite() {
+                    distance += 1.0;
+                }
                 distances.insert(task.task_id.clone(), distance);
                 abstractions.insert(task.task_id.clone(), buckets.clone());
                 polarities.insert(task.task_id.clone(), task.polarity.clone().unwrap_or_else(|| "unknown".to_string()));
@@ -183,7 +188,7 @@ impl GoalStateObserver {
             }
             if known { path_distance = path_distance.min(total); }
         }
-        (path_distance.min(abstraction_distance), buckets)
+        (if path_distance.is_finite() { path_distance } else { abstraction_distance }, buckets)
     }
 
     fn condition_distance(&self, condition: &V3Condition, values: &std::collections::BTreeMap<String, i128>, polarity: Option<&str>) -> Option<f64> {
@@ -388,6 +393,39 @@ mod v3_observer_tests {
         let mut unknown = task.clone();
         unknown.state_slice.pop();
         assert!(observer.score_task(&unknown).0.is_infinite());
+    }
+
+    #[test]
+    fn unmatched_defect_probe_keeps_positive_distance_at_matching_threshold() {
+        let task = serde_json::from_value(serde_json::json!({
+            "task_id": "defect", "goal_class": "defect",
+            "goal": {"runtime_id": 7, "stable_id": null, "kind": "hazard_violation", "hazard": "array_access"},
+            "state_slice": [],
+            "candidate_paths": [{"path_id": "p", "conditions": [
+                {"lhs": {"field": "X"}, "op": "=", "rhs": {"const": 0}}
+            ]}]
+        })).unwrap();
+        let mut observer = GoalStateObserver {
+            name: Cow::Borrowed("test"),
+            tasks: V3Tasks { schema_version: "x".into(), contract_id: None, target: None,
+                single_cycle: false, unknown_cycle_effects: false, tasks: vec![task] },
+            layout: V3Layout { total_size: 0, snapshot_schema_version: 1,
+                harness_region_index: None, regions: vec![] },
+            state: Vec::new(), distances: HashMap::new(), abstractions: HashMap::new(),
+            best_frames: HashMap::new(), frame_feedback: Vec::new(), active: true,
+        };
+        let outcome = ExecOutcome { observations: vec![FrameObservation {
+            frame_index: 0, logical_time_ns: 0, values: [("X".into(), 0)].into(),
+            goal_hits: vec![],
+        }], ..ExecOutcome::default() };
+        observer.observe_trace(&outcome);
+        assert_eq!(observer.distance("defect"), 1.0);
+        let reached = ExecOutcome { observations: vec![FrameObservation {
+            frame_index: 0, logical_time_ns: 0, values: [("X".into(), 0)].into(),
+            goal_hits: vec![7],
+        }], ..ExecOutcome::default() };
+        observer.observe_trace(&reached);
+        assert_eq!(observer.distance("defect"), 0.0);
     }
 
     #[test]

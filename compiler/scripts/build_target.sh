@@ -97,9 +97,16 @@ if [[ -n "${SEMANTIST_COMPATIBILITY_MANIFEST:-}" ]]; then
   # The dialect's execution settings decide which bytes STRING inputs may hold.
   STRING_BYTES="$(python3 -c 'import sys; from compiler.toolchain.compatibility import load_project; print(load_project(sys.argv[1]).string_bytes)' "$SEMANTIST_COMPATIBILITY_MANIFEST")"
 fi
-python3 -m compiler.harness.generator "$ST_FUNCTION" --ir "$OUT_LL" --stg-model "$STG_MODEL" \
-  --out "$HARNESS_OUT" --seed-out "$GENERATED_SEED_DIR/seed1" --string-bytes "$STRING_BYTES" \
+HARNESS_ARGS=(
+  "$ST_FUNCTION" --ir "$OUT_LL" --stg-model "$STG_MODEL"
+  --out "$HARNESS_OUT" --seed-out "$GENERATED_SEED_DIR/seed1"
+  --string-bytes "$STRING_BYTES"
   --frame-header-out "$(dirname "$HARNESS_OUT")/semantist_frame.h"
+)
+if [[ -n "${SEMANTIST_ORACLE_SPEC:-}" ]]; then
+  HARNESS_ARGS+=(--oracle-spec "$SEMANTIST_ORACLE_SPEC")
+fi
+python3 -m compiler.harness.generator "${HARNESS_ARGS[@]}"
 PREPARE_ARGS=(
   "$OUT_LL"
   "$ST_FUNCTION"

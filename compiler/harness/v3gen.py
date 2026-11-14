@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from compiler.harness.abi import Param, TargetAbi, frame_params, shared_params
 from compiler.harness.contract import POINTER_STORAGE_CAPACITY, harness_fields, region_layout
+from compiler.harness.oracle import history_fields, render_monitor
 
 _FIELD_BASE = 1
 FRAME_NAME = "semantist_frame_t"
@@ -175,7 +176,9 @@ def state_declarations(abi: TargetAbi) -> list[str]:
         "uint64_t loop_ticks;",
         "uint8_t initialized;",
         "uint8_t budget_exceeded;",
+        "uint8_t oracle_previous_valid;",
     ]
+    lines += [f"long double {field.state_name};" for field in history_fields(abi)]
     return lines
 
 
@@ -932,7 +935,8 @@ SEMANTIST_DRIVER int semantist_apply_raw_shared_field(const char *name,
 """
 
 
-def generate_function_block_harness(abi: TargetAbi) -> str:
+def generate_function_block_harness(abi: TargetAbi,
+                                    oracle_document: dict | None = None) -> str:
     global _FIELD_BASE
     _FIELD_BASE = 1
     g = _generator()
@@ -962,6 +966,7 @@ def generate_function_block_harness(abi: TargetAbi) -> str:
     )
     ctor = f"{name}__ctor(&{STATE_VAR}.inst);"
     target = f"{name}(&{STATE_VAR}.inst);"
+    oracle_definitions, oracle_hook = render_monitor(abi, oracle_document)
     return f"""{g.HEADER}
 {g.INCLUDES}
 {g.COMMON_C}{g.FB_RUNTIME_C}
@@ -974,6 +979,7 @@ typedef struct {{
 extern void {name}(semantist_fb_state_t *);
 extern void {name}__ctor(semantist_fb_state_t *);
 {_preamble(abi)}
+{oracle_definitions}
 {chr(10).join(external_backing_declarations(abi))}
 {_accessor_declarations(abi)}
 {_inout_accessor(abi)}
@@ -1046,6 +1052,7 @@ SEMANTIST_DRIVER int semantist_step(const semantist_frame_t *frame, uint64_t dt_
     SEMANTIST_TIMING_BEGIN();
     {target}
     SEMANTIST_TIMING_END(semantist_timing_call_ns);
+{oracle_hook}
     __semantist_semantic_state(abstract_before, semantist_fb_abstract_state(&{STATE_VAR}.inst));
 {chr(10).join(escape_lines)}
 #ifndef SEMANTIST_KLEE
@@ -1068,7 +1075,8 @@ SEMANTIST_INPUT static int semantist_run_input(char *data) {{
 {g.DRIVER_C}"""
 
 
-def generate_function_harness(abi: TargetAbi) -> str:
+def generate_function_harness(abi: TargetAbi,
+                              oracle_document: dict | None = None) -> str:
     global _FIELD_BASE
     _FIELD_BASE = 0
     g = _generator()
@@ -1076,12 +1084,14 @@ def generate_function_harness(abi: TargetAbi) -> str:
     ret_c = "void" if abi.ret_by_value is None else abi.ret.spec.c_type
     proto_args = ", ".join(g.c_argument_type(slot) for slot in abi.call_slots) or "void"
     frame_call = _function_frame_call(abi)
+    oracle_definitions, oracle_hook = render_monitor(abi, oracle_document)
     shared_cases = "\n    ".join(_shared_case_lines(abi, "semantist_harness_state"))
     dump_lines = _function_state_dump_lines(abi)
     return f"""{g.HEADER}
 {g.INCLUDES}
 {g.COMMON_C}
 {_preamble(abi)}
+{oracle_definitions}
 {chr(10).join(external_backing_declarations(abi))}
 {_accessor_declarations(abi)}
 {_inout_accessor(abi)}
@@ -1158,6 +1168,7 @@ SEMANTIST_DRIVER int semantist_step(const semantist_frame_t *frame, uint64_t dt_
     SEMANTIST_TIMING_BEGIN();
     semantist_function_call(&local);
     SEMANTIST_TIMING_END(semantist_timing_call_ns);
+{oracle_hook}
 #ifndef SEMANTIST_KLEE
     semantist_trace_mark('|');
     {{

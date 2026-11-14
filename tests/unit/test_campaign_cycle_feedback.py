@@ -1,16 +1,42 @@
 import json
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from compiler.harness.abi import Param, TargetAbi, scalar_spec
-from fuzzer.pipeline.campaign import (Campaign, solver_feedback_cutoff,
+from fuzzer.corpus.frames import parse_testcase
+from fuzzer.pipeline.campaign import (Campaign, Candidate, solver_feedback_cutoff,
                                 solver_prefix_priority, solver_prefix_skip_reason)
-from fuzzer.pipeline.goal_tasks import build_goal_tasks, cycle_effects
+from fuzzer.pipeline.goal_tasks import _conditions, build_goal_tasks, cycle_effects
 from fuzzer.pipeline.metrics import Metrics
-from fuzzer.pipeline.probe import Observation
+from fuzzer.pipeline.probe import Observation, classify
+
+
+def test_negated_branch_obligations_keep_required_polarity():
+    def field(name):
+        return {"kind": {"kind": "member_access", "member": name},
+                "type_name": "BOOL" if name in ("init", "RST") else "UINT",
+                "operands": []}
+
+    def negated(node):
+        return {"kind": {"kind": "unary", "operator": "NOT"}, "operands": [node]}
+
+    def either(left, right):
+        return {"kind": {"kind": "binary", "operator": "OR"},
+                "operands": [left, right]}
+
+    zero = {"kind": {"kind": "literal", "value": {"kind": "integer", "value": "0"}}}
+    n_is_zero = {"kind": {"kind": "binary", "operator": "="},
+                 "operands": [field("N"), zero]}
+    expression = negated(either(negated(field("init")), either(field("RST"), n_is_zero)))
+    assert _conditions(expression) == [
+        {"lhs": {"field": "init"}, "op": "=", "rhs": {"const": 1}},
+        {"lhs": {"field": "RST"}, "op": "=", "rhs": {"const": 0}},
+        {"lhs": {"field": "N"}, "op": "<>", "rhs": {"const": 0}},
+    ]
 
 
 @pytest.mark.parametrize("name,width,fields", [
@@ -185,6 +211,22 @@ def _campaign(tmp_path: Path) -> Campaign:
     return campaign
 
 
+def test_array_boundary_distance_keeps_pre_access_frontier_one_step_away(tmp_path):
+    campaign = _campaign(tmp_path)
+    (campaign.bundle / "goal-tasks.json").write_text(json.dumps({"tasks": [{
+        "task_id": "array", "goal": {"runtime_id": 2},
+        "array_boundary": {"field": "STATE", "lower": 0, "upper": 63,
+                           "lower_guarded": True},
+        "candidate_paths": [{"conditions": [{"lhs": {"field": "STATE"},
+                                              "op": ">=", "rhs": {"const": 0}}]}],
+    }]}))
+    case = parse_testcase(b"0.N,INT,1\n", campaign._abi_like())
+    assert campaign._solver_task_distance("array", case, Observation(0, False, "", states=[{"STATE": -1}])) == 65
+    assert campaign._solver_task_distance("array", case, Observation(0, False, "", states=[{"STATE": 64}])) == 1
+    assert campaign._solver_task_distance("array", case, Observation(0, False, "", hits={2: [0]},
+                                                                      states=[{"STATE": 64}])) == 0
+
+
 def test_solver_queue_defers_distance_feedback_to_native_engine(tmp_path):
     campaign = _campaign(tmp_path)
     assert campaign._enqueue_solver_seed(b"0.N,INT,20\n", query_id="q0", task_id="task")
@@ -240,3 +282,94 @@ def test_native_goal_reached_after_queueing_blocks_stale_query(tmp_path):
     campaign.metrics.event("goal_reached", task_id="task", source="fuzz")
     assert campaign._native_task_reached("task")
     assert not campaign._native_task_reached("unrelated")
+
+
+def test_engine_candidate_replay_recovers_exact_semantic_hit(tmp_path):
+    campaign = _campaign(tmp_path)
+    campaign.model.runtime_index = {
+        7: {"kind": "hazard_violation", "hazard": "division", "modeling": "exact",
+            "source": {"file": "target.st", "start_line": 3}},
+        12: {"kind": "hazard_violation", "hazard": "division", "modeling": "exact",
+             "source": {"file": "target.st", "start_line": 4}},
+    }
+    plain = Observation(returncode=0, timed_out=False, stderr="")
+    traced = Observation(returncode=0, timed_out=False, stderr="", hits={7: [0], 12: [0]})
+    modes = []
+
+    def observe(_testcase, *, semantic=False):
+        modes.append(semantic)
+        return traced if semantic else plain
+
+    campaign._observe_again = observe
+    observation, info = campaign._replay_engine_candidate(
+        b"0.N,INT,1\n", expected_runtime_id=12)
+    assert modes == [False, True]
+    assert observation is traced
+    assert info["kind"] == "hazard_violation"
+    assert info["runtime_id"] == 12
+
+
+def test_numeric_boundary_observation_does_not_mask_declared_oracle():
+    index = {
+        2: {"kind": "hazard_violation", "hazard": "arithmetic_boundary", "modeling": "exact"},
+        7: {"kind": "hazard_violation", "hazard": "division", "modeling": "exact"},
+        12: {"kind": "hazard_violation", "hazard": "division", "modeling": "exact"},
+    }
+    observation = Observation(returncode=0, timed_out=False, stderr="", hits={2: [0]})
+    assert classify(observation, index) is None
+    assert classify(observation, index, expected_runtime_id=2) is None
+    observation.hits[7] = [1]
+    assert classify(observation, index)["runtime_id"] == 7
+    observation.hits[12] = [1]
+    assert classify(observation, index, expected_runtime_id=12)["runtime_id"] == 12
+    assert classify(observation, index, expected_runtime_id=99) is None
+    budget_abort = Observation(returncode=1, timed_out=False,
+                               stderr="semantist-scan-budget-exceeded", scan_budget=True)
+    assert classify(budget_abort, index, expected_runtime_id=99)["kind"] == "scan_budget"
+
+
+def test_numeric_boundary_task_is_exploration_not_defect():
+    abi = {"target": {"name": "NUMERIC", "kind": "FUNCTION_BLOCK"},
+           "frame_fields": [], "shared_fields": [], "state_fields": []}
+    plan = {"tasks": [{"task_id": "boundary", "terminal_kind": "hazard_violation",
+                       "terminal_hazard": "arithmetic_boundary", "terminal_runtime_id": 3,
+                       "candidate_paths": [], "control_obligations": []}]}
+    result = build_goal_tasks(plan, abi, {"regions": []})
+    assert result["tasks"][0]["goal_class"] == "exploration"
+
+
+def test_exact_semantic_confirmation_uses_traced_cold_replay(tmp_path, monkeypatch):
+    campaign = _campaign(tmp_path)
+    campaign.model.runtime_index = {
+        7: {"kind": "hazard_violation", "hazard": "division", "modeling": "exact",
+            "source": {"file": "target.st", "start_line": 3}},
+        12: {"kind": "hazard_violation", "hazard": "division", "modeling": "exact",
+             "source": {"file": "target.st", "start_line": 4}},
+    }
+    traced = Observation(returncode=0, timed_out=False, stderr="", hits={7: [0], 12: [0]})
+    candidate = Candidate("finding-1", b"0.N,INT,1\n", traced,
+                          {"kind": "hazard_violation", "oracle": "division_by_zero",
+                           "runtime_id": 12, "source": {"file": "target.st", "start_line": 4}},
+                          {}, 1.0)
+    campaign.candidates = [candidate]
+    campaign.confirmed = []
+    campaign.jobs = 1
+    campaign.started = time.monotonic()
+    campaign.contract = {"semantic_fidelity": "exact"}
+    campaign.function = "RENAMED"
+    campaign.target_binary = tmp_path / "fuzz_target"
+    (tmp_path / "findings/candidates").mkdir(parents=True)
+    modes = []
+
+    def observe(_testcase, *, semantic=False):
+        modes.append(semantic)
+        return traced if semantic else Observation(returncode=0, timed_out=False, stderr="")
+
+    campaign._observe_again = observe
+    campaign._write_repro = lambda *_args: None
+    monkeypatch.setattr("fuzzer.pipeline.probe_audit.audit_probe_completeness",
+                        lambda _path: {})
+    campaign._run_confirmation()
+    assert modes == [True]
+    assert len(campaign.confirmed) == 1
+    assert campaign.confirmed[0]["goal"]["runtime_id"] == 12

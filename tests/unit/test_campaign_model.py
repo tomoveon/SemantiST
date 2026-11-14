@@ -312,6 +312,30 @@ def test_goal_tasks_preserve_modeling_status():
         build_goal_tasks(plan, abi, {"regions": []}, runtime_index={})
 
 
+def test_goal_tasks_keep_guard_conditions_on_their_own_paths():
+    def condition(field, value):
+        return {"kind": {"kind": "binary", "operator": "="}, "operands": [
+            {"kind": {"kind": "member_access", "member": field}},
+            {"kind": {"kind": "literal", "value": {"value": str(value)}}},
+        ]}
+
+    plan = {"tasks": [{
+        "task_id": "risk", "terminal_kind": "hazard_violation",
+        "terminal_hazard": "array_access", "terminal_runtime_id": 1,
+        "control_obligations": [
+            {"evaluation_edge_id": "a", "goal_expression": condition("A", 1)},
+            {"evaluation_edge_id": "b", "goal_expression": condition("B", 2)},
+        ],
+        "candidate_paths": [
+            {"path_id": "left", "edge_ids": ["a"]},
+            {"path_id": "right", "edge_ids": ["b"]},
+        ],
+    }]}
+    abi = {"frame_fields": [], "shared_fields": []}
+    paths = build_goal_tasks(plan, abi, {"regions": []})["tasks"][0]["candidate_paths"]
+    assert [path["conditions"][0]["lhs"]["field"] for path in paths] == ["A", "B"]
+
+
 def test_goal_seed_order_is_independent_of_python_hash_seed():
     script = """
 import json

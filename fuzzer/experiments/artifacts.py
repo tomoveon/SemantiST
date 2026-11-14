@@ -12,11 +12,12 @@ from pathlib import Path
 
 from fuzzer.experiments.matrix import ROOT
 from fuzzer.llm.config import load_config
+from fuzzer.llm.oracle_synthesis import synthesize_oracle
 from fuzzer.pipeline.campaign import Campaign
 from fuzzer.pipeline.plan_batches import PLANNER_SYSTEM_MESSAGE, run_plan_batches
 
 
-BUILD_INPUT_DIRS = ("compiler", "fuzzer/engine", "fuzzer/pipeline", "fuzzer/corpus",
+BUILD_INPUT_DIRS = ("compiler", "fuzzer/engine", "fuzzer/llm", "fuzzer/pipeline", "fuzzer/corpus",
                     "fuzzer/runtime", "fuzzer/semantic", "fuzzer/stages", "fuzzer/scheduler")
 BUILD_INPUT_SUFFIXES = {".py", ".rs", ".c", ".h", ".sh", ".st", ".json", ".toml"}
 BUILD_CONFIGURATION = {"engine": "rust-v3", "instrumentation": "stg-ir", "profile": "release"}
@@ -24,7 +25,7 @@ BUILD_CONFIGURATION = {"engine": "rust-v3", "instrumentation": "stg-ir", "profil
 
 def build_input_stats(target: dict) -> dict[str, list[int]]:
     inputs = {ROOT / target["st_file"], ROOT / "Cargo.lock", ROOT / "Dockerfile"}
-    for key in ("source_file", "normalized_file", "compatibility_manifest"):
+    for key in ("source_file", "normalized_file", "compatibility_manifest", "property_file"):
         if target.get(key):
             inputs.add(ROOT / target[key])
     if target.get("compatibility_manifest"):
@@ -132,6 +133,8 @@ def prepare_build(root: Path, target: dict, *, timeout_s: int = 86400) -> Path:
     frozen_source = staging / "source"
     frozen_source.mkdir()
     shutil.copy2(source, frozen_source / "target.st")
+    if target.get("property_file"):
+        shutil.copy2(ROOT / target["property_file"], frozen_source / "output-properties.json")
     original_source = None
     if target.get("source_file"):
         original = ROOT / target["source_file"]
@@ -190,6 +193,46 @@ def _version(command: str) -> str:
         return "unavailable"
 
 
+def _prepare_checked_binary(root: Path, target: dict, build: Path, staging: Path) -> Path:
+    checked = staging / "checked-build"
+    checked.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    env.update({
+        "CARGO_TARGET_DIR": str(root / "cargo-target"),
+        "SEMANTIST_ARTIFACT_DIR": str(staging / "checked-artifacts"),
+        "SEMANTIST_BUILD_ARTIFACT_DIR": str(checked),
+        "SEMANTIST_STG_DIR": str(build / "template" / "stg"),
+        "SEMANTIST_ORACLE_SPEC": str(staging / "generated-oracle.json"),
+        "SEMANTIST_SYMBOLIC": "0",
+        "SEMANTIST_BUILD_COMMON": "0",
+        "SEMANTIST_INPROCESS_LIB": str(root / "cargo-target" / "release" / "libsemantist_inprocess.a"),
+        "OUT_LL": str(build / "build" / "target.ll"),
+        "PREPARED_LL": str(checked / "target.prepared.ll"),
+        "STATE_LL": str(checked / "target.prepared.state.ll"),
+        "OUT_OBJ": str(checked / "target.o"),
+        "OUT_BIN": str(checked / "fuzz_target"),
+        "HARNESS_OUT": str(checked / "harness.c"),
+    })
+    if target.get("compatibility_manifest"):
+        env["SEMANTIST_COMPATIBILITY_MANIFEST"] = str(ROOT / target["compatibility_manifest"])
+    started = time.monotonic()
+    with (staging / "checked-build.log").open("w", encoding="utf-8") as log:
+        result = subprocess.run(["./compiler/scripts/build_target.sh",
+                                 str(build / "source" / "target.st"), target["function"]],
+                                cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT,
+                                check=False)
+    if result.returncode:
+        raise RuntimeError(f"generated checker build failed for {target['id']}; see {staging / 'checked-build.log'}")
+    for name in ("abi.json", "state-layout.json"):
+        original = json.loads((build / "template" / "bundle" / name).read_text(encoding="utf-8"))
+        generated = json.loads((checked / "bundle" / name).read_text(encoding="utf-8"))
+        if original != generated:
+            raise RuntimeError(f"generated checker changed the {name} execution contract")
+    if not (checked / "semantist-inprocess").is_file():
+        raise RuntimeError("generated checker build lacks the in-process engine")
+    return checked
+
+
 def prepare_plan(root: Path, target: dict, *, timeout_s: int | None = None,
                  max_calls: int = 40, token_budget: int = 20000) -> Path:
     if not load_config().available:
@@ -208,6 +251,14 @@ def prepare_plan(root: Path, target: dict, *, timeout_s: int | None = None,
         raise FileExistsError(f"incomplete planning staging directory: {staging}")
     staging.parent.mkdir(parents=True, exist_ok=True)
     _copy_template(build, staging)
+    oracle_started = time.monotonic()
+    oracle_summary = synthesize_oracle(root, target, build, staging)
+    oracle_seconds = round(time.monotonic() - oracle_started, 3)
+    checker_started = time.monotonic()
+    target_binary = (build / "build" / "fuzz_target")
+    if oracle_summary["properties"]:
+        target_binary = _prepare_checked_binary(root, target, build, staging) / "fuzz_target"
+    checker_seconds = round(time.monotonic() - checker_started, 3)
     config = {
         "engine": "rust", "contract_id": _contract_id(staging),
         "ablations": {"llm": True}, "llm_max_calls": max_calls,
@@ -216,8 +267,14 @@ def prepare_plan(root: Path, target: dict, *, timeout_s: int | None = None,
         "llm_strict_planning": True,
         "llm_preparation_unbounded": timeout_s is None,
         "llm_cache_dirs": [str(staging / "llm" / "cache")],
+        "generated_oracle_file": str(staging / "generated-oracle.json"),
     }
-    campaign = Campaign(staging, staging / "bundle", build / "build" / "fuzz_target",
+    if target.get("property_file"):
+        frozen_property = build / "source" / "output-properties.json"
+        if not frozen_property.is_file():
+            raise FileNotFoundError(f"frozen output property missing: {frozen_property}")
+        config["property_file"] = str(frozen_property)
+    campaign = Campaign(staging, staging / "bundle", target_binary,
                         function=target["function"], st_file=ROOT / target["st_file"],
                         config=config, time_budget_s=timeout_s or 86400, jobs=2, seed=0,
                         max_evaluations=0)
@@ -262,6 +319,10 @@ def prepare_plan(root: Path, target: dict, *, timeout_s: int | None = None,
         "symbolic_suggestions": campaign.llm_symbolic_suggestions,
         "solver_hints": campaign.llm_solver_hints,
         "planning_seconds": planning_seconds,
+        "oracle_generation_seconds": oracle_seconds,
+        "checker_build_seconds": checker_seconds,
+        "oracle_generation": oracle_summary,
+        "checked_binary": ("checked-build/fuzz_target" if oracle_summary["properties"] else None),
         "planning_retried": planning_retried,
         "offline_solver_seconds": offline_solver_seconds,
         "offline_solver_results": [

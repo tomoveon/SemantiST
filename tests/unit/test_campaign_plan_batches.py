@@ -6,9 +6,11 @@ from types import SimpleNamespace
 import pytest
 
 from compiler.harness.abi import Param, TargetAbi, scalar_spec
+from fuzzer.corpus.frames import build_testcase, parse_testcase
 from fuzzer.llm.plan import PlanRejected, validate_plan_batch
 from fuzzer.pipeline.metrics import Metrics
-from fuzzer.pipeline.plan_batches import run_plan_batches
+from fuzzer.pipeline.plan_batches import _native_plan_observation, run_plan_batches
+from fuzzer.pipeline.campaign import Campaign
 from fuzzer.pipeline.probe import Observation
 
 
@@ -48,6 +50,67 @@ def test_batch_rejects_invalid_peer_and_duplicate_actions():
                             tasks=tasks, seen_actions=seen, max_plans=2)
 
 
+def test_native_plan_feedback_includes_semantic_hits_without_losing_plain_validity():
+    calls = []
+    plain = Observation(returncode=0, timed_out=False, stderr="")
+    traced = Observation(returncode=0, timed_out=False, stderr="", hits={7: [0]})
+    campaign = SimpleNamespace(model=SimpleNamespace(runtime_index={}),
+                               _probe_with_deadline=lambda _case, **kwargs:
+                               calls.append(kwargs["trace"]) or
+                               (traced if kwargs["trace"] else plain))
+    assert _native_plan_observation(campaign, b"case", time.monotonic() + 5) is traced
+    assert calls == [False, True]
+    campaign._probe_with_deadline = lambda _case, **kwargs: (
+        Observation(returncode=None, timed_out=True, stderr="") if kwargs["trace"] else plain)
+    assert _native_plan_observation(campaign, b"case", time.monotonic() + 5) is plain
+
+
+def test_array_frontier_plan_executes_one_more_frame_and_keeps_goal_id(tmp_path, monkeypatch):
+    campaign = _campaign(tmp_path)
+    task = {**TASK, "goal": {"stable_id": "stg-goal", "runtime_id": 2,
+                              "hazard": "array_access"},
+            "array_boundary": {"field": "STATE", "lower": 0, "upper": 63,
+                               "lower_guarded": True},
+            "state_slice": [{"name": "STATE"}]}
+    (campaign.bundle / "goal-tasks.json").write_text(json.dumps({
+        "cycle_effects": {"mode": "multi_cycle"}, "tasks": [task]}), encoding="utf-8")
+    campaign.config.update(llm_max_calls=1, llm_plan_batch_size=1)
+    campaign.model = SimpleNamespace(runtime_index={2: {
+        "kind": "hazard_violation", "hazard": "array_access", "modeling": "exact"}},
+        build=lambda frames: build_testcase(campaign._abi_like(), frames))
+    campaign._probe_with_deadline = lambda testcase, **kwargs: (
+        Observation(0, False, "", hits={2: [65]} if kwargs["trace"] and
+                    len(parse_testcase(testcase, campaign._abi_like()).frames) == 66 else {},
+                    states=[{"STATE": len(parse_testcase(testcase, campaign._abi_like()).frames) - 1}])
+    )
+    captured = []
+    campaign._register_candidate = lambda testcase, *args, **kwargs: captured.append(testcase)
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def complete(self, messages, **kwargs):
+            plan = {**_plan(0), "actions": [{"op": "set", "inputs": {"VALUE": 0}},
+                                           {"op": "wait", "frames": 64}]}
+            return SimpleNamespace(content=json.dumps({"contract_id": "contract", "plans": [plan]}),
+                                   usage={"total_tokens": 1}, cached=False)
+
+    monkeypatch.setattr("fuzzer.pipeline.plan_batches.load_config",
+                        lambda: SimpleNamespace(available=True))
+    monkeypatch.setattr("fuzzer.pipeline.plan_batches.LlmClient", FakeClient)
+    monkeypatch.setattr("fuzzer.pipeline.plan_batches.audit_probe_completeness",
+                        lambda _: {"status": "COMPLETE", "risk_count": 0,
+                                   "incomplete_count": 0, "platform_assumptions": [], "risks": []})
+    run_plan_batches(campaign)
+    assert len(captured) == 1
+    assert len(parse_testcase(captured[0], campaign._abi_like()).frames) == 66
+    events = [json.loads(line) for line in (tmp_path / "metrics/events.jsonl").read_text().splitlines()]
+    replay = next(event for event in events if event["kind"] == "llm_plan_round")["feedback"][0]["native_replay"]
+    assert replay["extended_frontier_frame"] is True
+    assert replay["goal_hit"] is True
+
+
 def _campaign(tmp_path: Path):
     bundle = tmp_path / "bundle"
     bundle.mkdir()
@@ -74,6 +137,58 @@ def _campaign(tmp_path: Path):
         _register_candidate=lambda *args, **kwargs: None,
     )
     return campaign
+
+
+def test_source_excerpt_falls_back_to_executable_body(tmp_path):
+    source = tmp_path / "target.st"
+    source.write_text("FUNCTION_BLOCK FB\nVAR\nX : INT;\nEND_VAR\n"
+                      "(* @END_DECLARATION := '0' *)\n"
+                      "X := X + 1;\nEND_FUNCTION_BLOCK\n", encoding="utf-8")
+    campaign = SimpleNamespace(st_file=source)
+    excerpt = Campaign._source_excerpt(campaign, {"goal": {"source": None}})
+    assert "X := X + 1" in excerpt["text"]
+    assert "VAR" not in excerpt["text"]
+    located = Campaign._source_excerpt(campaign, {"goal": {
+        "source": {"file": str(source), "start_line": 6}}})
+    assert "X := X + 1" in located["text"]
+
+
+def test_plan_rounds_rotate_tasks_and_use_probe_source(tmp_path, monkeypatch):
+    campaign = _campaign(tmp_path)
+    tasks = [{**TASK, "task_id": f"risk-{index}",
+              "goal": {"stable_id": f"goal-{index}", "runtime_id": index}}
+             for index in range(8)]
+    (campaign.bundle / "goal-tasks.json").write_text(json.dumps({
+        "cycle_effects": {"mode": "single_cycle"}, "tasks": tasks}), encoding="utf-8")
+    campaign.config.update(llm_plan_batch_size=1, llm_plan_rounds=3)
+    prompts = []
+    excerpts = []
+    campaign._source_excerpt = lambda task: excerpts.append(task["goal"].get("source")) or {"text": "body"}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def complete(self, messages, **kwargs):
+            prompts.append(json.loads(messages[1]["content"]))
+            return SimpleNamespace(content=json.dumps({"contract_id": "contract", "plans": []}),
+                                   usage={"total_tokens": 1}, cached=False)
+
+    monkeypatch.setattr("fuzzer.pipeline.plan_batches.load_config",
+                        lambda: SimpleNamespace(available=True))
+    monkeypatch.setattr("fuzzer.pipeline.plan_batches.LlmClient", FakeClient)
+    monkeypatch.setattr("fuzzer.pipeline.plan_batches.audit_probe_completeness",
+                        lambda _: {"status": "COMPLETE", "risk_count": 1,
+                                   "incomplete_count": 0, "platform_assumptions": [],
+                                   "risks": [{"runtime_ids": [0], "status": "INSTRUMENTED",
+                                              "source": {"file": "target.st", "start_line": 6}}]})
+    run_plan_batches(campaign)
+    assert excerpts[0] == {"file": "target.st", "start_line": 6}
+    assert [[task["task_id"] for task in prompt["tasks"]] for prompt in prompts] == [
+        ["risk-0", "risk-1", "risk-2"],
+        ["risk-3", "risk-4", "risk-5"],
+        ["risk-6", "risk-7", "risk-0"],
+    ]
 
 
 def test_revisions_receive_original_rejection_and_useful_seed_enters_corpus(tmp_path, monkeypatch):

@@ -118,7 +118,11 @@ def _bounded_integer(spec: dict[str, Any], value: int) -> int:
 
 
 def _condition_value(spec: dict[str, Any], op: str, constant: int | float) -> str:
-    value = constant + (1 if op == ">" else 0)
+    bounds = type_bounds(spec)
+    if op in ("<>", "!="):
+        value = constant + 1 if bounds is None or constant + 1 <= bounds[1] else constant - 1
+    else:
+        value = constant + (1 if op == ">" else -1 if op == "<" else 0)
     if spec.get("name") in ("REAL", "LREAL"):
         return str(float(value))
     return str(_bounded_integer(spec, int(value)))
@@ -169,27 +173,40 @@ def _timers(abi: dict[str, Any], task: dict[str, Any]) -> list[dict[str, Any]]:
     return timers
 
 
-def _conditions(expression: Any) -> list[dict[str, Any]]:
-    found: list[dict[str, Any]] = []
+def _conditions(expression: Any, *, negated: bool = False) -> list[dict[str, Any]]:
     if not isinstance(expression, dict):
-        return found
+        return []
     kind = analysis.kind(expression)
-    if kind.get("kind") == "binary" and kind.get("operator") in ("=", "==", "<>", "!=", ">", ">=", "<", "<="):
-        operands = expression.get("operands") or []
-        if len(operands) >= 2:
-            left, right = operands[0], operands[1]
-            field = analysis.member_name(left)
-            constant = analysis.literal(right)
-            op = str(kind.get("operator"))
-            if field is None and analysis.literal(left) is not None:
-                field = analysis.member_name(right)
-                constant = analysis.literal(left)
-                op = {">": "<", ">=": "<=", "<": ">", "<=": ">="}.get(op, op)
-            if field and constant is not None and isinstance(constant, (int, float)):
-                found.append({"lhs": {"field": field}, "op": op, "rhs": {"const": constant}})
-    for operand in expression.get("operands") or []:
-        found.extend(_conditions(operand))
-    return found
+    operands = expression.get("operands") or []
+    op = str(kind.get("operator") or "").upper()
+    if kind.get("kind") == "unary" and op == "NOT" and operands:
+        return _conditions(operands[0], negated=not negated)
+    if kind.get("kind") == "binary" and op in ("AND", "OR"):
+        parts = [_conditions(item, negated=negated) for item in operands]
+        if (op == "AND") != negated:
+            return [item for part in parts for item in part]
+        common = {json.dumps(item, sort_keys=True) for item in parts[0]} if parts else set()
+        for part in parts[1:]:
+            common.intersection_update(json.dumps(item, sort_keys=True) for item in part)
+        return [item for item in parts[0] if json.dumps(item, sort_keys=True) in common] if parts else []
+    if kind.get("kind") == "binary" and op in ("=", "==", "<>", "!=", ">", ">=", "<", "<=") and len(operands) >= 2:
+        left, right = operands[:2]
+        field = analysis.member_name(left)
+        constant = analysis.literal(right)
+        if field is None and analysis.literal(left) is not None:
+            field = analysis.member_name(right)
+            constant = analysis.literal(left)
+            op = {">": "<", ">=": "<=", "<": ">", "<=": ">="}.get(op, op)
+        if negated:
+            op = {"=": "<>", "==": "!=", "<>": "=", "!=": "==", ">": "<=", ">=": "<", "<": ">=", "<=": ">"}[op]
+        if field and isinstance(constant, (int, float)):
+            return [{"lhs": {"field": field}, "op": op, "rhs": {"const": constant}}]
+    if kind.get("kind") == "member_access" and expression.get("type_name") == "BOOL":
+        field = analysis.member_name(expression)
+        return [{"lhs": {"field": field}, "op": "=", "rhs": {"const": 0 if negated else 1}}] if field else []
+    if kind.get("kind") == "list" and not negated:
+        return [item for operand in operands for item in _conditions(operand)]
+    return []
 
 
 def _array_guard_values(expression: Any, specs: dict[str, dict[str, Any]]) -> dict[str, str]:
@@ -511,6 +528,8 @@ def build_goal_tasks(
             "output": "output",
             "exploration": "exploration",
         }.get(str(kind), "exploration")
+        if hazard == "arithmetic_boundary":
+            goal_class = "exploration"
         objective = hazard in ("array_access", "pointer_access", "division", "modulo", "dangerous_conversion")
         requires_history = not one_frame_first or bool(task.get("temporal_requirements"))
         edge_inputs = []
@@ -540,6 +559,38 @@ def build_goal_tasks(
             if key not in seen_conditions:
                 seen_conditions.add(key)
                 deduped.append(condition)
+        candidate_paths = []
+        for path in task.get("candidate_paths", []):
+            edges = set(path.get("edge_ids") or [])
+            conditions = []
+            for obligation in task.get("control_obligations") or []:
+                if obligation.get("evaluation_edge_id") in edges:
+                    conditions.extend(_conditions(obligation.get("goal_expression")))
+            conditions.extend(_conditions(task.get("terminal_goal_expression")))
+            path_conditions = list({
+                (item["lhs"]["field"], item["op"], item["rhs"]["const"]): item
+                for item in conditions
+            }.values())
+            candidate_paths.append({"path_id": path.get("path_id"),
+                                    "conditions": path_conditions if edges else deduped})
+        boundary = None
+        if hazard == "array_access" and runtime_index is not None and runtime_id is not None:
+            predicate = runtime_index.get(int(runtime_id), {}).get("violation_predicate") or {}
+            dimensions = predicate.get("dimensions") or []
+            operands = (task.get("terminal_goal_expression") or {}).get("operands") or []
+            index_field = analysis.member_name(operands[1]) if len(operands) > 1 else None
+            if (len(dimensions) == 1 and index_field
+                    and isinstance(dimensions[0].get("upper"), int)
+                    and isinstance(dimensions[0].get("lower"), int)):
+                boundary = {"field": index_field, "lower": dimensions[0]["lower"],
+                            "upper": dimensions[0]["upper"],
+                            "lower_guarded": any(
+                                condition.get("lhs", {}).get("field") == index_field
+                                and condition.get("op") in (">=", ">")
+                                and condition.get("rhs", {}).get("const") >= dimensions[0]["lower"]
+                                for path in candidate_paths
+                                for condition in path.get("conditions") or []
+                                if isinstance(condition.get("rhs", {}).get("const"), (int, float)))}
         tasks.append(
             {
                 "task_id": task.get("task_id"),
@@ -558,13 +609,8 @@ def build_goal_tasks(
                 "requires_history": requires_history,
                 "controllable_fields": inputs,
                 "state_slice": state_slice,
-                "candidate_paths": [
-                    {
-                        "path_id": path.get("path_id"),
-                        "conditions": deduped,
-                    }
-                    for path in task.get("candidate_paths", [])
-                ],
+                "candidate_paths": candidate_paths,
+                "array_boundary": boundary,
                 "abstraction": thresholds,
                 "edge_inputs": edge_inputs,
                 "timers": _timers(abi, task),

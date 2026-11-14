@@ -80,6 +80,7 @@ def make_matrix(manifest: Path = MANIFEST, selection: Path = SELECTION) -> list[
 
 CONFIGURATIONS = {
     "full": {"llm": True},
+    "improved": {"llm": True, "no_symbolic": True},
     "no_llm": {"llm": False},
     "no_klee": {"llm": True, "no_symbolic": True},
     "no_native_stg": {"llm": True, "no_stg_guidance": True},

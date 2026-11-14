@@ -156,6 +156,7 @@ pub struct V3GoalStage {
     active_task_id: Option<String>,
     task_cursor: usize,
     task_attempts: HashMap<String, u64>,
+    task_epoch_attempts: HashMap<String, u64>,
     task_stagnation: HashMap<String, u64>,
     task_progress_count: HashMap<String, u64>,
     task_stagnation_queued: HashSet<String>,
@@ -183,6 +184,14 @@ pub struct V3GoalStage {
 }
 
 impl V3GoalStage {
+    fn reportable_semantic_goal(task: &V3Task) -> bool {
+        task.goal_class == "defect"
+            && task.goal.hazard.as_deref() != Some("arithmetic_boundary")
+            && (task.goal.modeling.as_deref() == Some("exact")
+                || (task.goal.hazard.as_deref() == Some("dangerous_conversion")
+                    && task.goal.modeling.as_deref() == Some("conservative")))
+    }
+
     pub fn new(
         bundle: impl Into<SharedV3Bundle>,
         run_dir: PathBuf,
@@ -312,6 +321,7 @@ impl V3GoalStage {
             active_task_id: None,
             task_cursor: 0,
             task_attempts: HashMap::new(),
+            task_epoch_attempts: HashMap::new(),
             task_stagnation: HashMap::new(),
             task_progress_count: HashMap::new(),
             task_stagnation_queued: HashSet::new(),
@@ -389,21 +399,35 @@ impl V3GoalStage {
             self.active_task_id = None;
             return None;
         }
-        for _ in 0..len {
-            let index = self.task_cursor % len;
-            self.task_cursor += 1;
+        let cursor = self.task_cursor;
+        self.task_cursor = self.task_cursor.wrapping_add(1);
+        let eligible = |attempts: &HashMap<String, u64>| (0..len)
+            .map(|offset| (cursor + offset) % len)
+            .filter(|&index| {
             let task = &self.bundle.tasks.tasks[index];
             let limit = task.budget.as_ref().and_then(|budget| budget.get("attempts"))
                 .and_then(serde_json::Value::as_u64).unwrap_or(u64::MAX);
-            if self.stats.reached.contains(&task.task_id)
-                || self.task_attempts.get(&task.task_id).copied().unwrap_or(0) >= limit {
-                continue;
-            }
-            self.active_task_id = Some(task.task_id.clone());
-            return self.active_task_id.clone();
+            !self.stats.reached.contains(&task.task_id)
+                && attempts.get(&task.task_id).copied().unwrap_or(0) < limit
+        }).collect::<Vec<_>>();
+        let mut candidates = eligible(&self.task_epoch_attempts);
+        if candidates.is_empty() && self.bundle.tasks.tasks.iter()
+            .any(|task| !self.stats.reached.contains(&task.task_id)) {
+            self.task_epoch_attempts.clear();
+            candidates = eligible(&self.task_epoch_attempts);
         }
-        self.active_task_id = None;
-        None
+        let choice = if cursor % 2 == 0 {
+            candidates.iter().copied().find(|&index| {
+                let task = &self.bundle.tasks.tasks[index];
+                task.goal_class == "defect" && self.seen_task_reaches.iter()
+                    .any(|(task_id, _)| task_id == &task.task_id)
+            })
+        } else { None }.or_else(|| if cursor % 4 != 0 {
+            candidates.iter().copied().find(|&index|
+                self.bundle.tasks.tasks[index].goal_class == "defect")
+        } else { None }).or_else(|| candidates.first().copied());
+        self.active_task_id = choice.map(|index| self.bundle.tasks.tasks[index].task_id.clone());
+        self.active_task_id.clone()
     }
 
     pub fn all_goals_reached(&self) -> bool {
@@ -1540,6 +1564,7 @@ impl V3GoalStage {
         }
         if let Some(task_id) = task {
             *self.task_attempts.entry(task_id.to_string()).or_insert(0) += 1;
+            *self.task_epoch_attempts.entry(task_id.to_string()).or_insert(0) += 1;
         }
         self.stats.scans += outcome.map_or(0, |executed| executed.scans as u64);
         self.stats.suffix_scans += outcome.map_or(0, |executed| executed.suffix as u64);
@@ -1554,8 +1579,33 @@ impl V3GoalStage {
             self.stats.worker_launch_ns += executed.worker_launch_ns;
         }
         if matches!(exit_kind, libafl::executors::ExitKind::Crash | libafl::executors::ExitKind::Timeout) {
+            let mut semantic_goal_hit = false;
+            if matches!(exit_kind, libafl::executors::ExitKind::Crash) {
+                for goal in &self.bundle.tasks.tasks {
+                    let Some(runtime_id) = goal.goal.runtime_id else { continue };
+                    if semantic.get(runtime_id as usize).copied().unwrap_or(0) == 0 {
+                        continue;
+                    }
+                    let first_hit = self.stats.reached.insert(goal.task_id.clone());
+                    let reportable = Self::reportable_semantic_goal(goal);
+                    semantic_goal_hit |= reportable;
+                    if first_hit && reportable {
+                        write_candidate(&self.run_dir, &self.current_path, "semantic_goal",
+                                        Some(&goal.task_id), Some(runtime_id))
+                            .map_err(|error| error.to_string())?;
+                        self.stats.candidates += 1;
+                        append_event(&self.metrics_file, serde_json::json!({
+                            "kind": "goal_reached", "task_id": goal.task_id,
+                            "runtime_id": runtime_id, "depth": self.current.as_ref()
+                                .map_or(0, |input| input.frames.len()),
+                            "exit_kind": "Crash", "source": "fuzz",
+                        })).expect("failed to append goal reached event");
+                    }
+                }
+            }
             if matches!(exit_kind, libafl::executors::ExitKind::Crash)
-                && self.current_new_crash_coverage && !self.current_path.is_empty() {
+                && !semantic_goal_hit && self.current_new_crash_coverage
+                && !self.current_path.is_empty() {
                 write_candidate(&self.run_dir, &self.current_path, "crash", None, None)
                     .map_err(|error| error.to_string())?;
                 self.stats.candidates += 1;
@@ -1589,7 +1639,7 @@ impl V3GoalStage {
             let Some(runtime_id) = task.goal.runtime_id else { continue };
             if semantic.get(runtime_id as usize).copied().unwrap_or(0) > 0 {
                 let first_hit = self.stats.reached.insert(task.task_id.clone());
-                if task.goal_class == "defect" && task.goal.modeling.as_deref() == Some("exact") && first_hit {
+                if Self::reportable_semantic_goal(task) && first_hit {
                     hit_tasks.push((task.task_id.clone(), runtime_id));
                 }
             }
@@ -1802,6 +1852,7 @@ impl V3GoalStage {
     pub fn write_summary(&self, total: Duration, budget: Duration) -> Result<(), String> {
         let task_progress = self.bundle.tasks.tasks.iter().map(|task| {
             let used = self.task_attempts.get(&task.task_id).copied().unwrap_or(0);
+            let epoch_used = self.task_epoch_attempts.get(&task.task_id).copied().unwrap_or(0);
             let limit = task.budget.as_ref().and_then(|value| value.get("attempts"))
                 .and_then(serde_json::Value::as_u64);
             serde_json::json!({
@@ -1815,7 +1866,7 @@ impl V3GoalStage {
                 "native_state_novelty": self.task_novel_states.get(&task.task_id).copied().unwrap_or(0),
                 "consecutive_no_progress": self.task_stagnation.get(&task.task_id).copied().unwrap_or(0),
                 "fuzz_attempts_used": used,
-                "fuzz_attempts_remaining": limit.map(|max| max.saturating_sub(used)),
+                "fuzz_attempts_remaining": limit.map(|max| max.saturating_sub(epoch_used)),
                 "remaining_time_s": budget.saturating_sub(total).as_secs_f64(),
             })
         }).collect::<Vec<_>>();
@@ -2866,7 +2917,7 @@ mod v3_stage_tests {
     }
 
     #[test]
-    fn scheduler_visits_exploration_and_defect_tasks_with_attempt_limits() {
+    fn scheduler_revisits_unresolved_tasks_after_soft_attempt_limits() {
         let mut stage = stage(false, false);
         stage.bundle.tasks.tasks = ["exploration", "defect"].into_iter().enumerate().map(|(index, class)| {
             serde_json::from_value(serde_json::json!({
@@ -2876,10 +2927,11 @@ mod v3_stage_tests {
             })).unwrap()
         }).collect();
         assert_eq!(stage.select_task().as_deref(), Some("task-0"));
-        stage.task_attempts.insert("task-0".into(), 1);
+        stage.task_epoch_attempts.insert("task-0".into(), 1);
         assert_eq!(stage.select_task().as_deref(), Some("task-1"));
-        stage.task_attempts.insert("task-1".into(), 1);
-        assert!(stage.select_task().is_none());
+        stage.task_epoch_attempts.insert("task-1".into(), 1);
+        assert_eq!(stage.select_task().as_deref(), Some("task-1"));
+        assert!(stage.task_epoch_attempts.is_empty());
     }
 
     #[test]
@@ -2918,6 +2970,29 @@ mod v3_stage_tests {
     }
 
     #[test]
+    fn isolated_exact_hazard_is_recorded_as_semantic_candidate() {
+        let mut stage = stage(false, false);
+        stage.bundle.tasks.tasks = vec![serde_json::from_value(serde_json::json!({
+            "task_id": "hazard", "goal_class": "defect",
+            "goal": {"runtime_id": 0, "kind": "hazard_violation",
+                     "hazard": "division", "modeling": "exact"}
+        })).unwrap()];
+        for _ in 0..2 {
+            stage.next_input();
+            stage.record_native_edges(&[1, 1], true);
+            stage.on_result(&libafl::executors::ExitKind::Crash, &[1], 0.0, None,
+                Some("hazard"), BTreeMap::new(), None, &[]).unwrap();
+        }
+        assert_eq!(stage.stats.candidates, 1);
+        assert!(stage.stats.reached.contains("hazard"));
+        let metadata = stage.run_dir.join("findings/candidates/candidate-000001.json");
+        let saved: serde_json::Value = serde_json::from_slice(&fs::read(metadata).unwrap()).unwrap();
+        assert_eq!(saved["kind"], "semantic_goal");
+        assert_eq!(saved["runtime_id"], 0);
+        fs::remove_dir_all(stage.run_dir).unwrap();
+    }
+
+    #[test]
     fn conservative_goal_reaches_without_claiming_a_candidate() {
         let mut stage = stage(false, false);
         stage.bundle.tasks.tasks = vec![serde_json::from_value(serde_json::json!({
@@ -2930,6 +3005,41 @@ mod v3_stage_tests {
             Some("hazard"), BTreeMap::new(), None, &[]).unwrap();
         assert!(stage.stats.reached.contains("hazard"));
         assert_eq!(stage.stats.candidates, 0);
+    }
+
+    #[test]
+    fn numeric_boundary_is_reached_without_claiming_a_defect() {
+        let mut stage = stage(false, false);
+        stage.bundle.tasks.tasks = vec![serde_json::from_value(serde_json::json!({
+            "task_id": "boundary", "goal_class": "defect",
+            "goal": {"runtime_id": 0, "kind": "hazard_violation",
+                     "hazard": "arithmetic_boundary", "modeling": "exact"}
+        })).unwrap()];
+        stage.next_input();
+        stage.on_result(&libafl::executors::ExitKind::Ok, &[1], 0.0, None,
+            Some("boundary"), BTreeMap::new(), None, &[]).unwrap();
+        assert!(stage.stats.reached.contains("boundary"));
+        assert_eq!(stage.stats.candidates, 0);
+        fs::remove_dir_all(stage.run_dir).unwrap();
+    }
+
+    #[test]
+    fn typed_conservative_conversion_is_saved_for_native_verification() {
+        let mut stage = stage(false, false);
+        stage.bundle.tasks.tasks = vec![serde_json::from_value(serde_json::json!({
+            "task_id": "conversion", "goal_class": "defect",
+            "goal": {"runtime_id": 0, "kind": "hazard_violation",
+                     "hazard": "dangerous_conversion", "modeling": "conservative"}
+        })).unwrap()];
+        stage.next_input();
+        stage.on_result(&libafl::executors::ExitKind::Ok, &[1], 0.0, None,
+            Some("conversion"), BTreeMap::new(), None, &[]).unwrap();
+        assert_eq!(stage.stats.candidates, 1);
+        let metadata = stage.run_dir.join("findings/candidates/candidate-000001.json");
+        let saved: serde_json::Value = serde_json::from_slice(&fs::read(metadata).unwrap()).unwrap();
+        assert_eq!(saved["kind"], "semantic_goal");
+        assert_eq!(saved["runtime_id"], 0);
+        fs::remove_dir_all(stage.run_dir).unwrap();
     }
 
     #[test]

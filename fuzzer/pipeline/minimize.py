@@ -23,7 +23,9 @@ class Minimized:
 def _signature(candidate: dict[str, Any] | None) -> tuple[Any, ...] | None:
     if candidate is None:
         return None
-    return (candidate.get("oracle"), candidate.get("runtime_id"), str(candidate.get("source")))
+    result = (candidate.get("oracle"), candidate.get("runtime_id"),
+              str(candidate.get("source")))
+    return result + (candidate["property_id"],) if candidate.get("property_id") else result
 
 
 def _encode(abi_like, original: TestCase, frames: list[Frame]) -> bytes:
@@ -52,6 +54,7 @@ def minimize(
     work_dir: Path,
     probe_fn,
     signature: tuple[Any, ...],
+    classify_fn: Callable[[Any, bytes], dict[str, Any] | None] | None = None,
     max_rounds: int = 6,
     deadline: float | None = None,
 ) -> Minimized:
@@ -67,7 +70,8 @@ def minimize(
             return False, None
         observation = probe_fn(target_binary, data, work_dir=work_dir,
                                timeout_s=_probe_timeout(deadline))
-        candidate = classify(observation, runtime_index)
+        candidate = (classify_fn(observation, data) if classify_fn
+                     else classify(observation, runtime_index))
         return _signature(candidate) == signature, candidate
 
     for _ in range(max_rounds):
@@ -114,7 +118,8 @@ def minimize(
     data = _encode(abi_like, parsed, frames)
     observation = probe_fn(target_binary, data, work_dir=work_dir,
                            timeout_s=_probe_timeout(deadline))
-    candidate = classify(observation, runtime_index)
+    candidate = (classify_fn(observation, data) if classify_fn
+                 else classify(observation, runtime_index))
     if _signature(candidate) != signature:
         return Minimized(testcase, len(parsed.frames), None, 0, 0)
     cycle = candidate.get("cycle") if candidate else None
@@ -130,6 +135,7 @@ def history_ablation(
     work_dir: Path,
     probe_fn,
     signature: tuple[Any, ...],
+    classify_fn: Callable[[Any, bytes], dict[str, Any] | None] | None = None,
     deadline: float | None = None,
 ) -> dict[str, Any]:
     parsed = parse_testcase(testcase, abi_like)
@@ -143,7 +149,8 @@ def history_ablation(
         data = _encode(abi_like, parsed, trial)
         observation = probe_fn(target_binary, data, work_dir=work_dir,
                                timeout_s=_probe_timeout(deadline))
-        candidate = classify(observation, runtime_index)
+        candidate = (classify_fn(observation, data) if classify_fn
+                     else classify(observation, runtime_index))
         still = _signature(candidate) == signature
         ablation.append({"frame": index, "replaced_with": "baseline", "still_triggers": still})
         if not still:

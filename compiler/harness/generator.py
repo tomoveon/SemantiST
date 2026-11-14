@@ -1218,13 +1218,13 @@ SEMANTIST_INPUT static int semantist_run_input(char *data) {{
 {DRIVER_C}"""
 
 
-def generate_harness(abi: TargetAbi) -> str:
+def generate_harness(abi: TargetAbi, oracle_document: dict | None = None) -> str:
     from compiler.harness.v3gen import generate_function_block_harness as v3_fb
     from compiler.harness.v3gen import generate_function_harness as v3_function
 
     if abi.kind == "FUNCTION_BLOCK":
-        return v3_fb(abi)
-    return v3_function(abi)
+        return v3_fb(abi, oracle_document)
+    return v3_function(abi, oracle_document)
 
 
 # ---------------------------------------------------------------------------
@@ -1269,13 +1269,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--state-layout-out", type=Path, help="write state-layout.json")
     parser.add_argument("--state-ir", type=Path, help="prepared IR that contains the state region table")
     parser.add_argument("--frame-header-out", type=Path, help="write semantist_frame.h for KLEE drivers")
+    parser.add_argument("--oracle-spec", type=Path, help="validated generated output monitor JSON")
     args = parser.parse_args(argv)
     try:
         abi = load_target_abi(args.stg_model, args.ir, args.function)
     except AbiError as error:
         print(f"[harness] {args.function}: {error}", file=sys.stderr)
         return 1
-    harness = generate_harness(abi)
+    oracle_document = (json.loads(args.oracle_spec.read_text(encoding="utf-8"))
+                       if args.oracle_spec is not None else None)
+    harness = generate_harness(abi, oracle_document)
     if args.abi_out is not None:
         from compiler.harness.contract import abi_json
         args.abi_out.parent.mkdir(parents=True, exist_ok=True)

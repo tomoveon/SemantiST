@@ -238,6 +238,7 @@ def run_campaign(args: argparse.Namespace, layout: Layout, target_bin: Path, con
                                    if getattr(args, "compatibility_manifest", None) else None),
         "profile": getattr(args, "profile", None),
         "contract_id": contract.get("contract_id"),
+        "property_file": str(args.property_file) if getattr(args, "property_file", None) else None,
         "scan_period_ns": contract.get("time", {}).get("scan_period_ns"),
         "timer_semantics": contract.get("time", {}).get("timer_semantics"),
         "fuzz_timeout": args.fuzz_timeout,
@@ -389,6 +390,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--st-file", required=True, type=Path)
     parser.add_argument("--function", required=True)
+    parser.add_argument("--property-file", type=Path,
+                        help="declared output properties checked on native frame traces")
     parser.add_argument(
         "--library",
         type=Path,

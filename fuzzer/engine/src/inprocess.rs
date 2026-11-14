@@ -266,8 +266,9 @@ fn v3_semantic_snapshot() -> Vec<u8> {
     unsafe { std::slice::from_raw_parts(__semantist_semantic_buffer.as_mut_ptr(), size).to_vec() }
 }
 
-fn v3_preflight_hazard(kind: Option<&str>, modeling: Option<&str>) -> bool {
+fn v3_preflight_hazard(kind: Option<&str>, modeling: Option<&str>, hazard: Option<&str>) -> bool {
     kind == Some("hazard_violation") && modeling == Some("exact")
+        && hazard != Some("arithmetic_boundary")
 }
 
 fn v3_stage_exit_kind(worker_crashed: bool, observed: libafl::executors::ExitKind)
@@ -279,9 +280,10 @@ fn v3_stage_exit_kind(worker_crashed: bool, observed: libafl::executors::ExitKin
 #[cfg(test)]
 #[test]
 fn preflight_only_blocks_replayable_exact_violations() {
-    assert!(v3_preflight_hazard(Some("hazard_violation"), Some("exact")));
-    assert!(!v3_preflight_hazard(Some("hazard_violation"), Some("conservative")));
-    assert!(!v3_preflight_hazard(Some("hazard_reach"), Some("exact")));
+    assert!(v3_preflight_hazard(Some("hazard_violation"), Some("exact"), Some("division")));
+    assert!(!v3_preflight_hazard(Some("hazard_violation"), Some("conservative"), Some("division")));
+    assert!(!v3_preflight_hazard(Some("hazard_reach"), Some("exact"), Some("division")));
+    assert!(!v3_preflight_hazard(Some("hazard_violation"), Some("exact"), Some("arithmetic_boundary")));
 }
 
 #[cfg(test)]
@@ -326,7 +328,8 @@ fn run_v3_inprocess(setup: CampaignSetup) -> Result<(), Error> {
         || std::env::var("SEMANTIST_EXPERIMENT_NO_GOAL_TASKS").as_deref() == Ok("1");
     let hazard_ids = bundle.tasks.tasks.iter()
         .filter(|task| v3_preflight_hazard(task.goal.kind.as_deref(),
-                                           task.goal.modeling.as_deref()))
+                                           task.goal.modeling.as_deref(),
+                                           task.goal.hazard.as_deref()))
         .filter_map(|task| task.goal.runtime_id)
         .collect::<std::collections::HashSet<_>>();
     if setup.semantic_map_size > SEMANTIC_BUFFER_CAPACITY {

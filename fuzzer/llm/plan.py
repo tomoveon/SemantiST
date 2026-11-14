@@ -201,11 +201,35 @@ def _member_bytes(spec: dict[str, Any], value: Any) -> bytes:
     return data + b"\x00" * max(0, size - len(data))
 
 
+def _array_bytes(spec: dict[str, Any], value: list[Any]) -> bytes:
+    element = spec.get("element") or {}
+    count = int(spec.get("count") or 0)
+    if not count or element.get("kind") != "scalar":
+        raise PlanRejected("typed array values require a scalar element ABI")
+    if len(value) > count:
+        raise PlanRejected(f"array has {len(value)} elements, capacity is {count}")
+    data = bytearray()
+    for index, item in enumerate(value):
+        if not _value_ok(element, item):
+            raise PlanRejected(f"array element {index} outside its {element.get('name')} type domain")
+        data.extend(_member_bytes(element, item))
+    capacity = int(spec.get("byte_size") or 0)
+    if capacity and len(data) > capacity:
+        raise PlanRejected(f"array bytes exceed {capacity}")
+    return bytes(data)
+
+
 def _expand_aggregate_inputs(inputs: dict[str, Any], abi: dict[str, Any]) -> dict[str, Any]:
     """Merge member assignments into fixed-size parent raw-byte fields."""
     layout = _aggregate_member_layout(abi)
     if not layout:
-        return dict(inputs)
+        fields = _field_map(abi)
+        return {
+            name: ("0x" + _array_bytes(fields[name]["spec"], value).hex()
+                   if name in fields and fields[name]["spec"].get("kind") == "array"
+                   and isinstance(value, list) else value)
+            for name, value in inputs.items()
+        }
     top_specs = {entry["name"]: entry.get("spec") or {}
                  for entry in list(abi.get("frame_fields", [])) + list(abi.get("shared_fields", []))
                  if isinstance(entry, dict) and entry.get("name")}
@@ -215,6 +239,8 @@ def _expand_aggregate_inputs(inputs: dict[str, Any], abi: dict[str, Any]) -> dic
         if not (spec.get("kind") in {"opaque", "array"} and spec.get("byte_size")):
             continue
         raw = inputs.get(parent)
+        if spec.get("kind") == "array" and isinstance(raw, list):
+            raw = "0x" + _array_bytes(spec, raw).hex()
         if isinstance(raw, str) and raw.lower().startswith("0x"):
             digits = raw[2:]
             if len(digits) % 2 or re.fullmatch(r"[0-9a-fA-F]*", digits) is None:
@@ -281,6 +307,12 @@ def _value_ok(spec: dict[str, Any], value: Any) -> bool:
     if kind == "pointer":
         return isinstance(value, str) and (value == "" or value.startswith(("0x", "0X")))
     if kind == "array":
+        if isinstance(value, list):
+            try:
+                _array_bytes(spec, value)
+            except (PlanRejected, OverflowError, ValueError, TypeError):
+                return False
+            return True
         if not isinstance(value, str) or not value.lower().startswith("0x"):
             return False
         digits = value[2:]
@@ -394,7 +426,13 @@ def validate_plan(
                 if entry is None:
                     reasons.append(f"unknown input {name!r}")
                 elif not _value_ok(entry["spec"], value):
-                    reasons.append(f"{name} value outside its type domain")
+                    if entry["spec"].get("kind") == "array" and isinstance(value, list):
+                        try:
+                            _array_bytes(entry["spec"], value)
+                        except (PlanRejected, OverflowError, ValueError, TypeError) as error:
+                            reasons.append(f"{name}: {error}")
+                    else:
+                        reasons.append(f"{name} value outside its type domain")
             try:
                 _expand_aggregate_inputs(inputs, abi)
             except PlanRejected as error:

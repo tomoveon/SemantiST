@@ -16,6 +16,54 @@ The runner defaults to a dry run. Build the combined image once:
 podman build --no-cache --format docker -f benchmarks/experiments/Containerfile -t semantist:experiment .
 ```
 
+For a preliminary core-ablation check, run `bash benchmarks/experiments/run_ablation_quick.sh`.
+It prepares 100 targets once and runs `full`, `no_llm`, `no_klee`, and
+`no_native_stg` with seed 0 at 300 seconds each (400 trials). The four groups
+run concurrently on physical CPU IDs 0-7, 8-15, 16-23, and 24-31, respectively.
+Each group runs four two-core trials at a time. The script checks that all 32
+CPU IDs are available and refer to distinct physical cores, then writes one
+summary after all four groups finish. This single-seed check is not the formal
+five-seed ablation result. Keep heavy host work off CPUs 0-31 and sibling
+threads 64-95 during the run.
+
+For the full core ablation, run `bash benchmarks/experiments/run_ablation_full.sh`.
+It prepares 100 targets, then runs five seeds for each of four configurations
+(2,000 trials, 300 online seconds each). The groups run concurrently on
+physical CPU IDs 0-9, 10-19, 20-29, and 30-39, with five two-core trials
+per group. The script uses `localhost/semantist:exp1` by default; set
+`SEMANTIST_ABLATION_IMAGE` to use another installed image.
+
+Before each frozen LLM plan, preparation retrieves target-specific chunks
+from the three OSCAT PDF manuals through a page-addressed SQLite FTS5 index.
+It also supplies the frozen target ST source and comments. The first LLM phase
+proposes up to three typed output requirements, marked `exact` or `estimated`
+and tied to evidence. A fixed generator validates and compiles them into a C
+harness monitor. The second LLM phase plans tests against that checked binary.
+`no_llm` uses the base binary; the other configurations share the checked
+binary and frozen plan. Generated property violations are reported separately
+from native crash and bounds findings. PDFs are cached under
+`artifacts/oscat-manual-cache`; each experiment freezes its own index and
+source excerpts. Other libraries require their own supplied documentation.
+
+For the development improvement check, run `bash benchmarks/experiments/run_improvement.sh`.
+`improvement_targets.json` freezes the 36 FUNCTION_BLOCK targets with zero
+confirmed SemantiST findings across all five `overall/full/300s` trials in
+`overall-20261110T111746`. The script verifies this selection against that
+result, then prepares and runs one `seed=0`, 100-second SemantiST trial per
+target in a new `artifacts/experiments/improvement-*` root. The `improved`
+configuration keeps LLM planning and offline KLEE seeds, with online KLEE
+disabled. Four concurrent trials use eight distinct physical cores. This is
+an exploratory development run, not a matched overall comparison. The script
+also writes `candidate_recheck.json` after independently replaying saved
+native candidates. Numeric boundary observations are tracked separately from
+findings because integer wrapping is exploratory under the execution contract.
+
+The earlier hand-written `FILTER_MAV_DW` property remains available for
+standalone opt-in use through `--property-file`; it is not part of the formal
+ablation manifest. Generated and opt-in property findings appear under
+`declared_property_findings`, while shared crash and bounds rates use only
+`findings`. A changed manifest or source file requires a new experiment root.
+
 SemantiST online trials use one native executor, one feedback stream, and one
 shared corpus. `combined` uses a fixed semantic/raw split of 30%/70%; use
 `--mutation-mode semantic-only|byte-only|combined` and

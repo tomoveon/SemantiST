@@ -1,5 +1,6 @@
 import json
 import hashlib
+import struct
 import tempfile
 import threading
 import time
@@ -256,7 +257,7 @@ class LlmTests(unittest.TestCase):
             "spec": {"kind": "array", "name": "ARRAY OF LREAL", "byte_size": 16,
                      "count": 2, "element": {"kind": "scalar", "name": "LREAL", "size": 8}},
         }]}
-        for invalid in ("0", "0x123", "0x" + "ff" * 17, [0.0, 1.0]):
+        for invalid in ("0", "0x123", "0x" + "ff" * 17, [0.0, 1.0, 2.0]):
             with self.subTest(value=invalid), self.assertRaises(PlanRejected):
                 validate_plan({"plan_id": "array", "actions": [
                     {"op": "set", "inputs": {"InRecv": invalid}},
@@ -271,6 +272,12 @@ class LlmTests(unittest.TestCase):
             {"Enable": "1", "InRecv": "0x00"},
             {"Enable": "1", "InRecv": "0x00"},
         ])
+        typed = {"plan_id": "typed-array", "actions": [
+            {"op": "set", "inputs": {"InRecv": [0.0, 1.0]}},
+        ]}
+        validate_plan(typed, abi=abi, contract_id=None)
+        self.assertEqual(expand_plan(typed, {}, abi)[0]["InRecv"],
+                         "0x" + struct.pack("<dd", 0.0, 1.0).hex())
 
     def test_evidence_references_are_bound_to_request(self):
         plan = {"plan_id": "p", "evidence_refs": ["source:a:1"],

@@ -18,6 +18,7 @@ from typing import Any
 from fuzzer.corpus.frames import Frame, TestCase, canonicalize_raw, parse_testcase
 from fuzzer.pipeline.metrics import Metrics
 from fuzzer.pipeline.probe import Observation, classify, is_finding_candidate, probe
+from fuzzer.pipeline.properties import evaluate_properties, load_properties
 from fuzzer.pipeline.model import TargetModel
 from fuzzer.pipeline import minimize as minimize_module
 from fuzzer.llm.plan import _field_map
@@ -114,6 +115,13 @@ class Campaign:
         self.st_file = Path(st_file)
         self.config = config or {}
         _normalize_ablations(self.config)
+        self.properties = load_properties(self.config.get("property_file"), function)
+        generated_file = self.config.get("generated_oracle_file")
+        generated_document = (json.loads(Path(generated_file).read_text(encoding="utf-8"))
+                              if generated_file else {"properties": []})
+        self.generated_properties = {
+            spec["id"]: spec for spec in generated_document.get("properties", [])
+        }
         self.time_budget_s = time_budget_s
         self.jobs = jobs
         self.seed = seed
@@ -414,6 +422,22 @@ class Campaign:
                      if item.get("task_id") == task_id), None)
         if task is None:
             return None
+        boundary = task.get("array_boundary") or {}
+        if boundary and observation.states:
+            runtime_id = (task.get("goal") or {}).get("runtime_id")
+            if runtime_id in observation.hits:
+                return 0.0
+            state = {str(name).upper(): value for name, value in observation.states[-1].items()}
+            try:
+                index = int(state[str(boundary["field"]).upper()])
+                lower, upper = int(boundary["lower"]), int(boundary["upper"])
+            except (KeyError, TypeError, ValueError):
+                pass
+            else:
+                upper_distance = max(1, upper + 1 - index)
+                if boundary.get("lower_guarded"):
+                    return float(upper_distance)
+                return float(min(upper_distance, max(1, index - (lower - 1))))
         values = {name.upper(): value for name, value in case.frames[-1].values.items()}
         if observation.states:
             values.update({name.upper(): value for name, value in observation.states[-1].items()})
@@ -502,10 +526,119 @@ class Campaign:
             candidate.get("oracle"),
             candidate.get("runtime_id"),
             json.dumps(candidate.get("source"), sort_keys=True) if candidate.get("source") else None,
+            candidate.get("property_id"),
         )
 
-    def _observe_again(self, testcase: bytes) -> Observation:
-        return self._probe_with_deadline(testcase, timeout_s=5.0, trace=False)
+    def _observe_again(self, testcase: bytes, *, semantic: bool = False) -> Observation:
+        return self._probe_with_deadline(testcase, timeout_s=5.0, trace=semantic)
+
+    def _replay_engine_candidate(self, testcase: bytes, *, expected_runtime_id: int | None = None
+                                 ) -> tuple[Observation, dict[str, Any] | None]:
+        observation = self._observe_again(testcase)
+        info = self._classify_testcase(
+            observation, testcase, expected_runtime_id=expected_runtime_id)
+        if not is_finding_candidate(info) and observation.returncode == 0 and not observation.timed_out:
+            traced = self._observe_again(testcase, semantic=True)
+            traced_info = self._classify_testcase(
+                traced, testcase, expected_runtime_id=expected_runtime_id)
+            if is_finding_candidate(traced_info) or traced.timed_out:
+                return traced, traced_info
+        return observation, info
+
+    def _verify_planned_prefixes(self) -> None:
+        try:
+            tasks = json.loads((self.bundle / "goal-tasks.json").read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            return
+        checked = 0
+        for task in tasks.get("tasks", []):
+            goal = task.get("goal") or {}
+            if goal.get("hazard") != "array_access" or not isinstance(goal.get("runtime_id"), int):
+                continue
+            for prefix in (task.get("seed_prefixes") or [])[:2]:
+                if checked >= 4 or time.monotonic() >= self.engine_deadline:
+                    return
+                checked += 1
+                try:
+                    testcase = self.model.build(prefix)
+                    observation = self._probe_with_deadline(testcase, trace=True)
+                    info = self._classify_testcase(
+                        observation, testcase, expected_runtime_id=goal["runtime_id"])
+                except (OSError, ValueError, TypeError):
+                    continue
+                self.metrics.event("planned_prefix_probe", task_id=task.get("task_id"),
+                                   runtime_id=goal["runtime_id"], frames=len(prefix),
+                                   goal_hit=is_finding_candidate(info))
+                if is_finding_candidate(info):
+                    self._register_candidate(testcase, observation, info,
+                                             provenance_source="planned_prefix", depth=len(prefix),
+                                             task_id=task.get("task_id"))
+                    self._run_confirmation()
+                    break
+
+    def _verify_property_witnesses(self) -> None:
+        if not getattr(self, "properties", []):
+            return
+        abi = json.loads((self.bundle / "abi.json").read_text(encoding="utf-8"))
+        names = {entry["name"].upper(): entry["name"] for entry in abi.get("frame_fields", [])}
+        base = self._default_action_frame(abi)
+        for spec in self.properties[:4]:
+            value, window, reset = (spec[key].upper() for key in ("input", "window", "reset"))
+            if not {value, window, reset}.issubset(names) or time.monotonic() >= self.engine_deadline:
+                continue
+            first = {**base, names[value]: "1", names[window]: "2", names[reset]: "1"}
+            second = {**first, names[value]: "0", names[reset]: "0"}
+            try:
+                testcase = self.model.build([first, second])
+                observation = self._probe_with_deadline(testcase, trace=True)
+                info = self._classify_testcase(
+                    observation, testcase, expected_property_id=spec["id"])
+            except (OSError, ValueError, TypeError):
+                continue
+            self.metrics.event("property_witness_probe", property_id=spec["id"],
+                               goal_hit=is_finding_candidate(info))
+            if is_finding_candidate(info):
+                self._register_candidate(testcase, observation, info,
+                                         provenance_source="property_witness", depth=2,
+                                         task_id=f"property:{spec['id']}")
+                self._run_confirmation()
+
+    def _classify_testcase(self, observation: Observation, testcase: bytes, *,
+                           expected_runtime_id: int | None = None,
+                           expected_property_id: str | None = None) -> dict[str, Any] | None:
+        def generated(info: dict[str, Any] | None) -> dict[str, Any] | None:
+            if info is None or info.get("oracle") != "generated_property":
+                return info
+            spec = self.generated_properties.get(info.get("property_id"))
+            if spec is None:
+                return None
+            return {**info, "property_spec": spec,
+                    "source": {"file": spec["evidence_refs"][0]},
+                    "modeling": "llm_generated_checker"}
+
+        if expected_property_id is not None:
+            info = generated(classify(observation, self.model.runtime_index))
+            if info and info.get("property_id") == expected_property_id:
+                return info
+            return evaluate_properties(observation, testcase, self._abi_like(),
+                                       getattr(self, "properties", []), expected_id=expected_property_id)
+        info = generated(classify(observation, self.model.runtime_index,
+                                  expected_runtime_id=expected_runtime_id))
+        if is_finding_candidate(info) or expected_runtime_id is not None:
+            return info
+        return evaluate_properties(observation, testcase, self._abi_like(),
+                                   getattr(self, "properties", [])) or info
+
+    def _classify_candidate_observation(self, candidate: Candidate,
+                                        observation: Observation) -> dict[str, Any] | None:
+        property_id = candidate.candidate.get("property_id")
+        if property_id:
+            return self._classify_testcase(
+                observation, candidate.testcase, expected_property_id=property_id)
+        runtime_id = (candidate.candidate.get("runtime_id")
+                      if candidate.candidate.get("kind") == "hazard_violation" else None)
+        return self._classify_testcase(
+            observation, candidate.testcase, expected_runtime_id=runtime_id)
 
     def _probe_with_deadline(self, testcase: bytes, *, timeout_s: float = 5.0,
                              deadline: float | None = None,
@@ -527,19 +660,23 @@ class Campaign:
         """Return a bounded, line-addressed source context for LLM v2."""
         goal = task.get("goal") or {}
         source = goal.get("source") or {}
-        path = source.get("file") if isinstance(source, dict) else None
-        path = Path(path) if path else self.st_file
-        if not path.is_absolute():
+        source_path = source.get("file") if isinstance(source, dict) else None
+        path = Path(source_path) if source_path else self.st_file
+        if not path.is_absolute() and not path.is_file():
             path = self.st_file.parent / path
         try:
             lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
         except OSError:
             return {"path": str(path), "start_line": None, "end_line": None,
                     "text": "", "truncated": False}
-        line = source.get("line") if isinstance(source, dict) else None
+        line = (source.get("start_line") or source.get("line")) if isinstance(source, dict) else None
         line = int(line) if isinstance(line, int) and line > 0 else 1
-        start = max(1, line - 12)
-        end = min(len(lines), line + 15)
+        if source_path:
+            start, end = max(1, line - 12), min(len(lines), line + 15)
+        else:
+            start = next((index + 2 for index, text in enumerate(lines)
+                          if "@END_DECLARATION" in text), 1)
+            end = min(len(lines), start + 159)
         truncated = start > 1 or end < len(lines)
         return {"path": str(path), "start_line": start, "end_line": end,
                 "text": "\n".join(f"{index}: {lines[index - 1]}" for index in range(start, end + 1)),
@@ -639,6 +776,7 @@ class Campaign:
         provenance_source: str = "fuzz",
         depth: int = 1,
         query_id: str | None = None,
+        task_id: str | None = None,
         solver_scope: dict[str, Any] | None = None,
         created_s: float | None = None,
     ) -> Candidate:
@@ -648,6 +786,7 @@ class Campaign:
             (candidate_info.get("source") or {}).get("file"),
             (candidate_info.get("source") or {}).get("start_offset"),
             candidate_info.get("diagnostic") if candidate_info.get("kind") == "crash" else None,
+            candidate_info.get("property_id"),
         )
         for existing in self.candidates:
             existing_signature = (
@@ -656,6 +795,7 @@ class Campaign:
                 (existing.candidate.get("source") or {}).get("file"),
                 (existing.candidate.get("source") or {}).get("start_offset"),
                 existing.candidate.get("diagnostic") if existing.candidate.get("kind") == "crash" else None,
+                existing.candidate.get("property_id"),
             )
             if existing_signature == signature:
                 return existing
@@ -673,6 +813,8 @@ class Campaign:
             "source": candidate_info.get("source"),
             "diagnostic": candidate_info.get("diagnostic"),
             "observed_predicate": candidate_info.get("observed_predicate"),
+            "property_id": candidate_info.get("property_id"),
+            "property_spec": candidate_info.get("property_spec"),
             "risk_modeling": candidate_info.get("modeling"),
             "testcase_file": f"findings/candidates/{finding_id}.txt",
             "depth": depth,
@@ -682,6 +824,7 @@ class Campaign:
             "stub_used": self.contract.get("stub_used", []),
             "model_scope": solver_scope or self.contract.get("model_scope", {}),
             "provenance": {"source": provenance_source, "attempt_id": finding_id, "query_id": query_id,
+                           "task_id": task_id,
                            "solver_scope": solver_scope,
                            "solver_model": "approximate" if solver_scope and solver_scope.get("imprecise")
                            else "faithful" if solver_scope else None},
@@ -723,12 +866,14 @@ class Campaign:
         # A failed first replay needs two matching retries to establish an
         # intermittent candidate.
         if observations is None:
-            observations = [self._observe_again(candidate.testcase)]
+            semantic = candidate.candidate.get("kind") in ("hazard_violation", "property_violation")
+            observations = [self._observe_again(candidate.testcase, semantic=semantic)]
             if not self._same_candidate(candidate.candidate,
-                                        classify(observations[0], self.model.runtime_index)):
-                observations.extend(self._observe_again(candidate.testcase) for _ in range(2))
+                                        self._classify_candidate_observation(candidate, observations[0])):
+                observations.extend(self._observe_again(candidate.testcase, semantic=semantic)
+                                    for _ in range(2))
         matches = [self._same_candidate(candidate.candidate,
-                                        classify(observation, self.model.runtime_index))
+                                        self._classify_candidate_observation(candidate, observation))
                    for observation in observations]
         if not matches or not (matches[0] or (len(matches) >= 3 and all(matches[1:3]))):
             return None
@@ -742,6 +887,8 @@ class Campaign:
             parsed = None
             input_validity = "violates_contract"
         cause = "source" if candidate.candidate.get("source") else "undetermined"
+        if candidate.candidate.get("oracle") == "generated_property":
+            cause = "specification"
         if candidate.candidate.get("kind") == "crash" and not candidate.candidate.get("source"):
             cause = "harness" if "semantist" in (candidate.candidate.get("diagnostic") or "").lower() else "runtime"
         nature = {
@@ -751,6 +898,8 @@ class Campaign:
             "division_by_zero": "arithmetic_or_conversion",
             "scan_budget": "scan_budget",
             "crash": "crash",
+            "output_invariant": "functional_output",
+            "generated_property": "functional_output",
         }.get(candidate.candidate.get("oracle"), "crash")
         from fuzzer.pipeline.probe_audit import audit_probe_completeness
 
@@ -763,6 +912,8 @@ class Campaign:
             "function": self.function,
             "target_binary": str(self.target_binary),
             "oracle": candidate.candidate.get("oracle"),
+            "property_id": candidate.candidate.get("property_id"),
+            "property_spec": candidate.candidate.get("property_spec"),
             "goal": {
                 "runtime_id": candidate.candidate.get("runtime_id"),
                 "stable_id": None,
@@ -776,8 +927,13 @@ class Campaign:
             "platform_evidence": ("platform_assumption_model_incomplete" if platform_assumptions
                                   else "declared_profile"),
             "platform_assumptions": platform_assumptions,
-            "vulnerability_status": ("not_established" if platform_assumptions or cause != "source"
-                                     else "source_risk_confirmed_under_model"),
+            "vulnerability_status": (
+                "functional_requirement_violated_under_model"
+                if cause == "specification" and not platform_assumptions
+                and (candidate.candidate.get("property_spec") or {}).get("precision") == "exact"
+                else "hypothesis_violation_under_model" if cause == "specification"
+                else "not_established" if platform_assumptions or cause != "source"
+                else "source_risk_confirmed_under_model"),
             "nature": nature,
             "history_evidence": ("history_dependent" if len(parsed.frames) > 1 else "single_cycle")
                                 if parsed else "undetermined",
@@ -805,6 +961,8 @@ class Campaign:
             candidate.candidate.get("runtime_id"),
             str(candidate.candidate.get("source")),
         )
+        if candidate.candidate.get("property_id"):
+            signature += (candidate.candidate["property_id"],)
         minimized_data = candidate.testcase
         try:
             observed_depth = len(parse_testcase(candidate.testcase, self._abi_like()).frames)
@@ -836,6 +994,12 @@ class Campaign:
                     work_dir=self.run_dir / "probe",
                     probe_fn=bounded_probe,
                     signature=signature,
+                    classify_fn=lambda observation, data: self._classify_testcase(
+                        observation, data,
+                        expected_runtime_id=(candidate.candidate.get("runtime_id")
+                                             if candidate.candidate.get("kind") == "hazard_violation"
+                                             else None),
+                        expected_property_id=candidate.candidate.get("property_id")),
                     deadline=minimization_deadline,
                 )
                 minimized_data = minimized.testcase
@@ -857,6 +1021,12 @@ class Campaign:
                         work_dir=self.run_dir / "probe",
                         probe_fn=bounded_probe,
                         signature=signature,
+                        classify_fn=lambda observation, data: self._classify_testcase(
+                            observation, data,
+                            expected_runtime_id=(candidate.candidate.get("runtime_id")
+                                                 if candidate.candidate.get("kind") == "hazard_violation"
+                                                 else None),
+                            expected_property_id=candidate.candidate.get("property_id")),
                         deadline=minimization_deadline,
                     )
                     history.update({key: value for key, value in ablation.items()
@@ -897,6 +1067,9 @@ class Campaign:
         source_dir = directory / "source"
         source_dir.mkdir(exist_ok=True)
         shutil.copy2(self.st_file, source_dir / "target.st")
+        abi_file = self.bundle / "abi.json"
+        if abi_file.is_file():
+            shutil.copy2(abi_file, source_dir / "abi.json")
         resources: list[dict[str, Any]] = [{"kind": "source", "path": "source/target.st"}]
         for key, label in (("compatibility_manifest", "compatibility-manifest"),
                            ("library", "library"), ("stubs", "stubs")):
@@ -965,16 +1138,23 @@ class Campaign:
         observations: list[list[Observation]] = [[] for _ in candidates]
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="semantist-confirm") as pool:
             futures = [
-                    (candidate_index, pool.submit(self._observe_again, candidate.testcase))
+                    (candidate_index, pool.submit(
+                        self._observe_again, candidate.testcase,
+                        semantic=candidate.candidate.get("kind") in
+                        ("hazard_violation", "property_violation")))
                 for candidate_index, candidate in enumerate(candidates)
             ]
             for candidate_index, future in futures:
                 observations[candidate_index].append(future.result())
             retries = [
-                (candidate_index, pool.submit(self._observe_again, candidate.testcase))
+                (candidate_index, pool.submit(
+                    self._observe_again, candidate.testcase,
+                        semantic=candidate.candidate.get("kind") in
+                        ("hazard_violation", "property_violation")))
                 for candidate_index, candidate in enumerate(candidates)
                 if not self._same_candidate(candidate.candidate,
-                                            classify(observations[candidate_index][0], self.model.runtime_index))
+                                            self._classify_candidate_observation(
+                                                candidate, observations[candidate_index][0]))
                 for _attempt in range(2)
             ]
             for candidate_index, future in retries:
@@ -984,7 +1164,7 @@ class Campaign:
         for candidate, candidate_observations in zip(candidates, observations):
             initial_fast_match = any(
                 self._same_candidate(candidate.candidate,
-                                     classify(observation, self.model.runtime_index))
+                                     self._classify_candidate_observation(candidate, observation))
                 for observation in candidate_observations
             )
             shortening: dict[str, Any] = {
@@ -995,7 +1175,7 @@ class Campaign:
             finding = self.confirm(candidate, observations=candidate_observations)
             attempts = []
             for observation in candidate_observations:
-                actual = classify(observation, self.model.runtime_index)
+                actual = self._classify_candidate_observation(candidate, observation)
                 attempts.append({
                     "round": 1,
                     "status": ("TIMEOUT" if observation.timed_out else
@@ -1349,7 +1529,8 @@ class Campaign:
                         solver_testcase, observation, candidate_info,
                         provenance_source="solver",
                         depth=self._query_result_depth(result, solver_testcase, 1),
-                        query_id=query_id, solver_scope=result.get("model_scope"))
+                        query_id=query_id, task_id=task.get("task_id"),
+                        solver_scope=result.get("model_scope"))
                     self.metrics.event("goal_reached", task_id=task.get("task_id"), depth=1,
                                        oracle=candidate_info.get("oracle"), source="solver")
         if attempted:
@@ -1613,6 +1794,7 @@ class Campaign:
                             provenance_source="solver",
                             depth=self._query_result_depth(result, solver_testcase, len(frames) + 1),
                             query_id=query_id,
+                            task_id=task_id,
                             solver_scope=result.get("model_scope"),
                         )
                         self.metrics.event("goal_reached", task_id=task_id,
@@ -1656,6 +1838,10 @@ class Campaign:
             self.solver_deadline = self.engine_deadline - max(
                 1.0, float(self.config.get("solver_feedback_margin_s", 15.0)))
         self.metrics.event("online_search_started")
+        if not (self.config.get("ablations", {}).get("no_goal_prefix")
+                or self.config.get("ablations", {}).get("no_stg_guidance")):
+            self._verify_planned_prefixes()
+        self._verify_property_witnesses()
         self.symbolic_startup_deadline = min(
             self.engine_deadline, time.monotonic() + max(0.0, float(
                 self.config.get("symbolic_startup_budget_s", 30.0))))
@@ -1915,11 +2101,19 @@ class Campaign:
         if candidate_dir.is_dir():
             for path in sorted(candidate_dir.glob("candidate-*.txt")):
                 testcase = path.read_bytes()
+                metadata_file = path.with_suffix(".json")
+                try:
+                    metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
+                except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                    metadata = {}
+                runtime_id = metadata.get("runtime_id")
+                expected_runtime_id = (runtime_id if metadata.get("kind") == "semantic_goal"
+                                       and type(runtime_id) is int else None)
                 # Candidate confirmation must use the target's native path.
                 # Semantic tracing is an attribution aid and can turn parser
                 # stress into a timeout (notably XML_READER's scan budget).
-                observation = self._probe_with_deadline(testcase, timeout_s=5.0, trace=False)
-                info = classify(observation, self.model.runtime_index)
+                observation, info = self._replay_engine_candidate(
+                    testcase, expected_runtime_id=expected_runtime_id)
                 replay_status = ("candidate" if is_finding_candidate(info) else
                                  "INSTRUMENTATION_ABORT" if info is not None
                                  and info.get("kind") == "scan_budget" else
@@ -1931,9 +2125,8 @@ class Campaign:
                 self.metrics.event("engine_candidate_replay", **result)
                 if is_finding_candidate(info):
                     previous_count = len(self.candidates)
-                    metadata_file = path.with_suffix(".json")
                     try:
-                        created_epoch_ns = json.loads(metadata_file.read_text(encoding="utf-8")).get("created_epoch_ns")
+                        created_epoch_ns = metadata.get("created_epoch_ns")
                         created_s = ((int(created_epoch_ns) - self.started_epoch_ns) / 1e9
                                      if created_epoch_ns is not None else None)
                     except (OSError, ValueError, TypeError, json.JSONDecodeError):
@@ -1944,6 +2137,7 @@ class Campaign:
                         info,
                         provenance_source="fuzz",
                         depth=len(parse_testcase(testcase, self._abi_like()).frames),
+                        task_id=metadata.get("task_id") if isinstance(metadata.get("task_id"), str) else None,
                         created_s=max(0.0, created_s) if created_s is not None else None,
                     )
                     if len(self.candidates) > previous_count:

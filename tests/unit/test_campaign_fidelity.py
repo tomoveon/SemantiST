@@ -46,7 +46,7 @@ def test_approximate_contract_follows_candidate_confirmation_and_report(tmp_path
     campaign.model = SimpleNamespace(runtime_index={7: {"kind": "hazard_violation",
                                                           "modeling": "exact", "hazard": "array_access"}})
     campaign._abi_like = lambda: abi
-    campaign._observe_again = lambda data: Observation(0, False, "", hits={7: [0]})
+    campaign._observe_again = lambda data, **_kwargs: Observation(0, False, "", hits={7: [0]})
     info = {"oracle": "array_access", "hazard": "array_access", "runtime_id": 7,
             "kind": "hazard_violation", "source": None, "cycle": 0}
     candidate = campaign._register_candidate(b"0.X,INT,1\n", Observation(0, False, "", hits={7: [0]}),
@@ -88,7 +88,7 @@ def test_confirmation_records_probe_hit_timeout_and_mismatch(tmp_path: Path) -> 
     (tmp_path / "findings" / "candidates").mkdir(parents=True)
     outcomes = iter([Observation(None, True, "probe timeout"),
                      Observation(0, False, ""), Observation(0, False, "", hits={7: [0]})])
-    campaign._observe_again = lambda _testcase: next(outcomes)
+    campaign._observe_again = lambda _testcase, **_kwargs: next(outcomes)
     campaign._run_confirmation()
     evidence = json.loads((tmp_path / "findings" / "candidates" /
                            "F0001.confirmation.json").read_text(encoding="utf-8"))
@@ -116,7 +116,7 @@ def test_confirmation_stops_after_first_matching_cold_replay(tmp_path: Path) -> 
     campaign.confirmed = []
     (tmp_path / "findings" / "candidates").mkdir(parents=True)
     calls = []
-    campaign._observe_again = lambda testcase: (calls.append(testcase) or Observation(
+    campaign._observe_again = lambda testcase, **_kwargs: (calls.append(testcase) or Observation(
         0, False, "", hits={7: [0]}
     ))
     campaign.confirm = lambda candidate, observations: {"oracle": "array_access"}
@@ -646,7 +646,7 @@ def test_engine_crash_journal_cold_replay_keeps_finding_and_failed_engine_status
     campaign._probe_with_deadline = lambda testcase, **kwargs: object()
     campaign._abi_like = lambda: object()
     monkeypatch.setattr("fuzzer.pipeline.campaign.parse_testcase", lambda testcase, abi: type("Case", (), {"frames": [1, 2]})())
-    monkeypatch.setattr("fuzzer.pipeline.campaign.classify", lambda observation, index: {"oracle": "crash"})
+    monkeypatch.setattr("fuzzer.pipeline.campaign.classify", lambda observation, index, **_kwargs: {"oracle": "crash"})
     observed = {}
 
     def register(testcase, observation, info, **kwargs):
@@ -774,7 +774,7 @@ def test_engine_candidates_get_cold_replay_without_post_engine_solver(tmp_path: 
     campaign._probe_with_deadline = lambda testcase, **kwargs: order.append("probe") or object()
     campaign._abi_like = lambda: object()
     monkeypatch.setattr("fuzzer.pipeline.campaign.parse_testcase", lambda testcase, abi: type("Case", (), {"frames": [1]})())
-    monkeypatch.setattr("fuzzer.pipeline.campaign.classify", lambda observation, index: {"oracle": "crash"})
+    monkeypatch.setattr("fuzzer.pipeline.campaign.classify", lambda observation, index, **_kwargs: {"oracle": "crash"})
 
     def register(testcase, observation, info, **kwargs):
         order.append("register")

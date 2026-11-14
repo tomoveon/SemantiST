@@ -3,11 +3,13 @@
 import json
 import os
 import struct
+import sys
 from argparse import Namespace
 from pathlib import Path
 
 import pytest
 
+from fuzzer.cli import experiment as experiment_cli
 from fuzzer.cli.experiment import _container_command, _validate_trial_request
 from fuzzer.experiments import artifacts, baselines, worker
 from fuzzer.experiments.artifacts import build_input_stats, build_path, plan_path, write_json
@@ -27,6 +29,26 @@ def test_matrix_reuses_runs_across_the_six_comparisons():
     assert {item["kind"] for item in focus} == {"FUNCTION_BLOCK"}
 
 
+def test_deferred_run_leaves_shared_summary_for_explicit_command(tmp_path, monkeypatch):
+    target = load_targets()[0][0]
+    job = Job(target, "semantist", "no_llm", 0, 300, ["core_ablation"])
+    monkeypatch.setattr(experiment_cli, "_select", lambda _args: [job])
+    monkeypatch.setattr(experiment_cli, "_require_prepared", lambda _root, _jobs: None)
+
+    def complete_trial(_args, _items, *, workers):
+        assert workers == 1
+        write_json(worker.result_path(tmp_path, job), {"status": "completed"})
+
+    monkeypatch.setattr(experiment_cli, "_run_parallel", complete_trial)
+    monkeypatch.setattr(sys, "argv", ["experiment", "run", "--execute", "--allow-formal",
+                                      "--defer-summary", "--experiment", "core_ablation",
+                                      "--configuration", "no_llm", "--seed", "0",
+                                      "--jobs", "1", "--root", str(tmp_path)])
+    assert experiment_cli.main() == 0
+    assert not (tmp_path / "scheduled-jobs.json").exists()
+    assert not (tmp_path / "summary.json").exists()
+
+
 def test_frozen_plan_seeds_are_imported_without_importing_prep_findings(tmp_path, monkeypatch):
     target = next(item for item in load_targets()[0] if item["id"] == "oscat_basic_inc2")
     build = build_path(tmp_path, target["id"])
@@ -43,6 +65,8 @@ def test_frozen_plan_seeds_are_imported_without_importing_prep_findings(tmp_path
     plan = plan_path(tmp_path, target["id"])
     (plan / "unified-corpus" / "seeds").mkdir(parents=True)
     (plan / "unified-corpus" / "seeds" / "llm-plan-0001.seed").write_text("0.X,INT,2\n")
+    write_json(plan / "generated-oracle.json",
+               {"schema_version": "semantist.generated-oracle/1", "properties": []})
     write_json(plan / "plan.json", {
         "plan_id": "fixed-plan", "summary": {"status": "useful", "native_valid_plans": 1},
         "symbolic_suggestions": {}, "seed_files": ["llm-plan-0001.seed"],
@@ -111,6 +135,53 @@ def test_semantist_mutation_mode_reaches_campaign_worker(tmp_path, monkeypatch):
     result = worker.run_job(tmp_path, job, mutation_mode="byte")
     assert result["status"] == "completed"
     assert seen == [{"llm": False}, "byte"]
+
+
+def test_declared_property_results_are_separate_from_shared_comparison(tmp_path, monkeypatch):
+    target = dict(next(item for item in load_targets()[0]
+                       if item["id"] == "oscat_basic_filter_mav_dw"))
+    target["property_file"] = "benchmarks/oscat_basic/source/filter_mav_dw.properties.json"
+    build = build_path(tmp_path, target["id"])
+    (build / "build").mkdir(parents=True)
+    (build / "build" / "fuzz_target").write_text("binary")
+    (build / "source").mkdir()
+    (build / "source" / "target.st").write_text("FUNCTION_BLOCK FILTER_MAV_DW END_FUNCTION_BLOCK")
+    property_file = build / "source" / "output-properties.json"
+    property_file.write_text((worker.ROOT / target["property_file"]).read_text())
+    (build / "template" / "bundle").mkdir(parents=True)
+    write_json(build / "template" / "bundle" / "execution-contract.json",
+               {"contract_id": "fixed-contract"})
+    write_json(build / "build.json", {"target": target,
+                                       "build_configuration": artifacts.BUILD_CONFIGURATION,
+                                       "input_stats": build_input_stats(target)})
+
+    class FakeCampaign:
+        def __init__(self, run_dir: Path, *_args, **kwargs):
+            self.run_dir = run_dir
+            self.phase_times_s = {"online_search": 1.0}
+            assert kwargs["config"]["property_file"] == str(property_file)
+
+        def run(self):
+            write_json(self.run_dir / "report.json", {"findings": [
+                {"first_candidate_s": 0.2, "oracle": "output_invariant",
+                 "property_id": "initialized-window-output-range", "finding_id": "F0001",
+                 "goal": {"source": {"file": "oscat.st", "line": 1}}},
+                {"first_candidate_s": 0.4, "oracle": "array_access", "finding_id": "F0002",
+                 "goal": {"source": {"file": "oscat.st", "line": 2}}}],
+                "solver_feedback": {}})
+            write_json(self.run_dir / "metrics" / "engine-summary.json",
+                       {"executions": 1, "scans": 1})
+
+    monkeypatch.setattr(worker, "Campaign", FakeCampaign)
+    job = Job(target, "semantist", "no_llm", 0, 2, ["core_ablation"])
+    result = worker.run_job(tmp_path, job)
+    assert result["confirmed"] == 1
+    assert result["declared_property_confirmed"] == 1
+    assert [item["oracle"] for item in result["findings"]] == ["array_access"]
+    assert [item["oracle"] for item in result["declared_property_findings"]] == ["output_invariant"]
+    group = summarize(tmp_path, [job])["groups"][0]
+    assert group["runs_with_confirmed"] == 1
+    assert group["declared_property_runs_with_confirmed"] == 1
     assert os.environ.get("SEMANTIST_MUTATION_MODE") is None
 
 

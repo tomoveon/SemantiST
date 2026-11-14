@@ -35,6 +35,8 @@ def _preparation_costs(root: Path, entries: list[tuple[Job, dict]],
     common = []
     external = []
     planning = []
+    oracle_generation = []
+    checker_build = []
     offline_klee = []
     planning_review = []
     tokens = []
@@ -51,9 +53,12 @@ def _preparation_costs(root: Path, entries: list[tuple[Job, dict]],
             if plan_file.is_file():
                 plan = json.loads(plan_file.read_text(encoding="utf-8"))
                 planning.append(plan.get("planning_seconds"))
+                oracle_generation.append(plan.get("oracle_generation_seconds"))
+                checker_build.append(plan.get("checker_build_seconds"))
                 offline_klee.append(plan.get("offline_solver_seconds"))
                 planning_review.append(plan.get("planning_review_seconds"))
-                tokens.append(plan.get("tokens"))
+                tokens.append((plan.get("tokens", 0) or 0) +
+                              ((plan.get("oracle_generation") or {}).get("tokens", 0) or 0))
 
     def total(values: list, count: int) -> float | None:
         if len(values) != count or not all(isinstance(value, (int, float)) for value in values):
@@ -65,6 +70,8 @@ def _preparation_costs(root: Path, entries: list[tuple[Job, dict]],
         "unique_common_build_seconds": total(common, len(targets)),
         "unique_adapter_build_seconds": total(external, len(targets)) if tool != "semantist" else None,
         "unique_llm_planning_seconds": total(planning, len(targets)) if llm else 0,
+        "unique_oracle_generation_seconds": total(oracle_generation, len(targets)) if llm else 0,
+        "unique_checker_build_seconds": total(checker_build, len(targets)) if llm else 0,
         "unique_offline_klee_seconds": total(offline_klee, len(targets)) if llm else 0,
         "unique_llm_planning_review_seconds": total(planning_review, len(targets)) if llm else 0,
         "unique_llm_tokens": total(tokens, len(targets)) if llm else 0,
@@ -86,7 +93,8 @@ def summarize(root: Path, jobs: list[Job]) -> dict:
             continue
         plan_file = plan_path(root, target_id) / "plan.json"
         plan = json.loads(plan_file.read_text(encoding="utf-8")) if plan_file.is_file() else {}
-        planning_by_target[target_id] = plan.get("planning_confirmed", [])
+        planning_by_target[target_id] = [finding for finding in plan.get("planning_confirmed", [])
+                                         if finding.get("oracle") != "output_invariant"]
         for finding in planning_by_target[target_id]:
             normalized = {"oracle": finding.get("oracle"),
                           "source": (finding.get("goal") or {}).get("source")}
@@ -187,6 +195,12 @@ def summarize(root: Path, jobs: list[Job]) -> dict:
             "planned_targets": len(target_ids), "supported_targets": len(supported_target_ids),
             "target_support_rate": len(supported_target_ids) / len(target_ids),
             "runs_with_confirmed": len(found),
+            "declared_property_runs_with_confirmed": sum(
+                result.get("declared_property_confirmed", 0) > 0 for _, result in supported),
+            "generated_property_exact_confirmed": sum(
+                result.get("generated_property_exact_confirmed", 0) for _, result in supported),
+            "generated_property_estimated_confirmed": sum(
+                result.get("generated_property_estimated_confirmed", 0) for _, result in supported),
             "native_crash_events": sum(result.get("native_crash_events") or 0 for _, result in supported),
             "native_sequence_saved": sum(result.get("native_sequence_saved") or 0 for _, result in supported),
             "discovery_rate_all": (len(found) / len(entries)
@@ -245,6 +259,15 @@ def summarize(root: Path, jobs: list[Job]) -> dict:
                                                         for item in trials})},
                 "supported_runs": len(target_supported),
                 "runs_with_confirmed": target_found,
+                "declared_property_runs_with_confirmed": sum(
+                    item.get("declared_property_confirmed", 0) > 0
+                    for item in target_supported),
+                "generated_property_exact_confirmed": sum(
+                    item.get("generated_property_exact_confirmed", 0)
+                    for item in target_supported),
+                "generated_property_estimated_confirmed": sum(
+                    item.get("generated_property_estimated_confirmed", 0)
+                    for item in target_supported),
                 "native_crash_events": sum(item.get("native_crash_events") or 0
                                            for item in target_supported),
                 "native_sequence_saved": sum(item.get("native_sequence_saved") or 0

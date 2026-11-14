@@ -54,6 +54,8 @@ def _semantist_trial(root: Path, job: Job, run_dir: Path,
     flags = dict(CONFIGURATIONS[job.configuration])
     # An LLM ablation still uses the same STG tasks and native execution path.
     prepared = None
+    plan = {}
+    target_binary = build / "build" / "fuzz_target"
     if flags["llm"]:
         frozen_plan = plan_path(root, job.target["id"])
         plan_file = frozen_plan / "plan.json"
@@ -72,6 +74,10 @@ def _semantist_trial(root: Path, job: Job, run_dir: Path,
                     "symbolic_suggestions": plan["symbolic_suggestions"],
                     "solver_hints": plan.get("solver_hints") or {}}
         flags["symbolic_start"] = "replay"
+        if plan.get("checked_binary"):
+            target_binary = frozen_plan / plan["checked_binary"]
+            if not target_binary.is_file():
+                return {"status": "prerequisite_missing", "reason": f"missing checked binary: {target_binary}"}
     config: dict[str, Any] = {
         "mode": "hybrid", "engine": "rust", "function": job.target["function"],
         "contract_id": _contract_id(run_dir), "ablations": flags,
@@ -88,8 +94,18 @@ def _semantist_trial(root: Path, job: Job, run_dir: Path,
         "mutation_mode": mutation_mode or "combined",
         "semantic_ratio": semantic_ratio,
     }
+    if job.target.get("property_file"):
+        frozen_property = build / "source" / "output-properties.json"
+        if not frozen_property.is_file():
+            raise FileNotFoundError(f"frozen output property missing: {frozen_property}")
+        config["property_file"] = str(frozen_property)
+    if prepared:
+        generated_oracle = plan_path(root, job.target["id"]) / "generated-oracle.json"
+        if not generated_oracle.is_file():
+            return {"status": "prerequisite_missing", "reason": f"missing generated oracle: {generated_oracle}"}
+        config["generated_oracle_file"] = str(generated_oracle)
     write_json(run_dir / "campaign.json", config)
-    campaign = Campaign(run_dir, run_dir / "bundle", build / "build" / "fuzz_target",
+    campaign = Campaign(run_dir, run_dir / "bundle", target_binary,
                         function=job.target["function"],
                         st_file=build / "source" / "target.st",
                         config=config, time_budget_s=float(job.online_seconds),
@@ -121,12 +137,15 @@ def _semantist_trial(root: Path, job: Job, run_dir: Path,
         "common_build_s": build_metadata.get("build_seconds"),
         "adapter_build_s": None,
         "llm_planning_s": plan.get("planning_seconds") if prepared else 0,
+        "oracle_generation_s": plan.get("oracle_generation_seconds") if prepared else 0,
+        "checker_build_s": plan.get("checker_build_seconds") if prepared else 0,
         "offline_klee_s": plan.get("offline_solver_seconds") if prepared else 0,
         "planning_review_s": plan.get("planning_review_seconds") if prepared else 0,
     }
     shared = preparation_costs["common_build_s"]
     own = [preparation_costs[key] for key in
-           ("llm_planning_s", "offline_klee_s", "planning_review_s")]
+           ("oracle_generation_s", "checker_build_s", "llm_planning_s",
+            "offline_klee_s", "planning_review_s")]
     amortized = (shared / 15 + sum(own) / 5
                  if isinstance(shared, (int, float))
                  and all(isinstance(value, (int, float)) for value in own) else None)
@@ -135,7 +154,10 @@ def _semantist_trial(root: Path, job: Job, run_dir: Path,
     for item in findings:
         candidate_online_s = max(0.0, round(item.get("first_candidate_s", 0) - online_start, 3))
         confirmed_findings.append({
-            "oracle": item.get("oracle"), "source": item.get("goal", {}).get("source"),
+            "oracle": item.get("oracle"), "property_id": item.get("property_id"),
+            "property_precision": (item.get("property_spec") or {}).get("precision"),
+            "evidence_refs": (item.get("property_spec") or {}).get("evidence_refs", []),
+            "source": item.get("goal", {}).get("source"),
             "first_candidate_online_s": candidate_online_s,
             "first_candidate_end_to_end_s": (round(amortized + candidate_online_s, 3)
                                                 if amortized is not None else None),
@@ -143,14 +165,28 @@ def _semantist_trial(root: Path, job: Job, run_dir: Path,
                                                if unamortized is not None else None),
             "repro_dir": f"findings/confirmed/{item.get('finding_id', '')}",
         })
+    property_findings = [item for item in confirmed_findings
+                         if item["oracle"] in {"output_invariant", "generated_property"}]
+    common_findings = [item for item in confirmed_findings
+                       if item["oracle"] not in {"output_invariant", "generated_property"}]
     return {
         "status": "completed" if engine.get("executions", 0) else "failed",
         "reason": None if engine.get("executions", 0) else "native engine completed without executing an input",
         "supported": True,
         "symbolic_support": (report.get("execution_status") or {}).get("symbolic"),
-        "confirmed": len(findings),
+        "confirmed": len(common_findings),
+        "declared_property_confirmed": len(property_findings),
+        "generated_property_confirmed": sum(
+            item["oracle"] == "generated_property" for item in property_findings),
+        "generated_property_exact_confirmed": sum(
+            item["oracle"] == "generated_property" and item["property_precision"] == "exact"
+            for item in property_findings),
+        "generated_property_estimated_confirmed": sum(
+            item["oracle"] == "generated_property" and item["property_precision"] == "estimated"
+            for item in property_findings),
         "excluded_outside_online_findings": len(all_findings) - len(findings),
-        "findings": confirmed_findings,
+        "findings": common_findings,
+        "declared_property_findings": property_findings,
         "executions": engine.get("executions", 0), "scans": engine.get("scans", 0),
         "timeouts": engine.get("timeouts", 0),
         "run_failures": int(not engine.get("executions", 0)),
@@ -159,7 +195,9 @@ def _semantist_trial(root: Path, job: Job, run_dir: Path,
         "llm_plan_id": prepared["plan_id"] if prepared else None,
         "llm_planning_cost": (plan.get("planning_seconds") if prepared else None),
         "llm_planning_review_cost": (plan.get("planning_review_seconds") if prepared else None),
-        "llm_tokens": (plan.get("tokens") if prepared else 0),
+        "llm_tokens": ((plan.get("tokens", 0) or 0) +
+                       ((plan.get("oracle_generation") or {}).get("tokens", 0) or 0)
+                       if prepared else 0),
         "planning_stage_confirmed": len(plan.get("planning_confirmed", [])) if prepared else 0,
         "feedback": {
             "native_edges": engine.get("native_edge_novelty", 0),

@@ -33,6 +33,9 @@ state_frontier or task_stagnation when the supplied task supports them.
 Read previous_feedback before revising: correct rejected values and actions,
 preserve the original plan's task and evidence, and do not repeat rejected or
 non-novel actions. The native executor, KLEE and finding verifier decide outcomes.
+For typed scalar arrays, use a JSON list of ABI element values; the validator
+packs it into native bytes. For output properties, initialize persistent state
+in one frame and test a changed input in a later frame.
 If probe_status is incomplete, do not claim that executing the plan verifies the
 source risk. Return only JSON, without Markdown or explanations outside the JSON."""
 
@@ -100,6 +103,21 @@ def _fallback_coverage_seeds(campaign: Any, abi: dict[str, Any], effect: dict[st
     return written
 
 
+def _native_plan_observation(campaign: Any, testcase: bytes, deadline: float):
+    plain = campaign._probe_with_deadline(
+        testcase, timeout_s=5.0, deadline=deadline, trace=False)
+    if plain.timed_out or plain.returncode != 0:
+        return plain
+    traced = campaign._probe_with_deadline(
+        testcase, timeout_s=5.0, deadline=deadline, trace=True)
+    if traced.timed_out or traced.scan_budget:
+        return plain
+    if traced.returncode == 0 or is_finding_candidate(
+            classify(traced, campaign.model.runtime_index)):
+        return traced
+    return plain
+
+
 def run_plan_batches(campaign: Any) -> None:
     campaign.llm_symbolic_suggestions = {}
     campaign.llm_solver_hints = {}
@@ -120,10 +138,13 @@ def run_plan_batches(campaign: Any) -> None:
     goals = json.loads((campaign.bundle / "goal-tasks.json").read_text(encoding="utf-8"))
     probe_audit = audit_probe_completeness(campaign.run_dir)
     probe_status_by_runtime: dict[int, set[str]] = {}
+    probe_source_by_runtime: dict[int, dict[str, Any]] = {}
     for risk in probe_audit.get("risks", []):
         for runtime_id in risk.get("runtime_ids", []):
             if runtime_id is not None:
                 probe_status_by_runtime.setdefault(int(runtime_id), set()).add(risk["status"])
+                if isinstance(risk.get("source"), dict):
+                    probe_source_by_runtime.setdefault(int(runtime_id), risk["source"])
     effect = goals.get("cycle_effects") or {}
     contract_id = campaign.config.get("contract_id")
     task_context: dict[str, dict[str, Any]] = {}
@@ -133,10 +154,29 @@ def run_plan_batches(campaign: Any) -> None:
     if not planning_tasks:
         planning_tasks = tasks[:task_limit] or [{"task_id": "coverage:abi", "goal": {},
                                                  "goal_class": "coverage"}]
+    for spec in reversed(getattr(campaign, "properties", [])):
+        planning_tasks.insert(0, {
+            "task_id": f"property:{spec['id']}", "goal_class": "defect",
+            "goal": {"hazard": "user_property", "source": spec.get("source"),
+                     "property": spec},
+            "controllable_fields": [field["name"] for field in abi.get("frame_fields", [])],
+            "state_slice": [{"name": spec["output"], "block_kind": "VAR_OUTPUT"}],
+            "candidate_paths": [], "abstraction": [], "symbolic_suitable": False,
+        })
+    for spec in reversed(list(getattr(campaign, "generated_properties", {}).values())):
+        planning_tasks.insert(0, {
+            "task_id": f"property:{spec['id']}", "goal_class": "defect",
+            "goal": {"hazard": "generated_property", "property": spec,
+                     "source": {"file": spec["evidence_refs"][0]}},
+            "controllable_fields": [field["name"] for field in abi.get("frame_fields", [])],
+            "state_slice": [], "candidate_paths": [], "abstraction": [],
+            "symbolic_suitable": False,
+        })
     for task in planning_tasks:
-        if len(task_context) >= task_limit:
-            break
-        goal = task.get("goal") or {}
+        goal = dict(task.get("goal") or {})
+        runtime_id = goal.get("runtime_id")
+        if not goal.get("source") and runtime_id in probe_source_by_runtime:
+            goal["source"] = probe_source_by_runtime[runtime_id]
         source = goal.get("source") or {}
         refs = []
         if isinstance(source, dict) and source.get("file"):
@@ -145,14 +185,17 @@ def run_plan_batches(campaign: Any) -> None:
             refs.append(f"stg:{goal['stable_id']}")
         if not refs:
             refs.append(f"abi:{abi.get('target', {}).get('name', 'target')}")
+        if goal.get("hazard") == "generated_property":
+            refs = list(goal["property"]["evidence_refs"])
         task_id = str(task["task_id"])
         task_context[task_id] = {
             "task_id": task_id, "goal": goal, "evidence_refs": refs,
             "probe_status": sorted(probe_status_by_runtime.get(goal.get("runtime_id"), []))
             or [probe_audit["status"]],
-            "source_excerpt": campaign._source_excerpt(task),
+            "source_excerpt": campaign._source_excerpt({**task, "goal": goal}),
             "candidate_paths": (task.get("candidate_paths") or [])[:8],
             "state_slice": task.get("state_slice") or [],
+            "array_boundary": task.get("array_boundary"),
             "abstraction": task.get("abstraction") or [],
             "abstraction_fields": [item.get("field") for item in task.get("abstraction") or []],
             "controllable_fields": campaign._llm_controllable_fields(
@@ -175,26 +218,24 @@ def run_plan_batches(campaign: Any) -> None:
         if campaign.config.get("llm_strict_planning"):
             raise RuntimeError("LLM planning required but no call budget")
         return
-    examples = [_example(abi, contract_id, task_id, task["evidence_refs"])
-                for task_id, task in list(task_context.items())[:1]]
     seen_actions: set[str] = set()
     native_hits: set[int] = set()
     native_states: set[str] = set()
     best_distance: dict[str, float] = {}
     feedback: list[dict[str, Any]] = []
+    feedback_by_task: dict[str, list[dict[str, Any]]] = {}
     valid_count = 0
     native_valid_count = 0
     useful_count = 0
     seed_count = 0
     used_tokens = 0
     planning_deadline = min(campaign.deadline, getattr(campaign, "startup_deadline", campaign.deadline))
-    coverage_only = not any(task.get("goal_class") == "defect" for task in tasks)
+    coverage_only = not any(task.get("goal_class") == "defect" for task in planning_tasks)
     max_frames = 1 if effect.get("mode") == "single_cycle" else 4 if effect.get("mode") == "unknown" else 128
     baseline_summary: dict[str, Any] = {"status": "not_observed"}
     try:
         baseline = campaign.model.build([campaign._default_action_frame(abi)])
-        baseline_observation = campaign._probe_with_deadline(
-            baseline, timeout_s=5.0, deadline=planning_deadline, trace=False)
+        baseline_observation = _native_plan_observation(campaign, baseline, planning_deadline)
         if baseline_observation.returncode == 0 and not baseline_observation.timed_out:
             native_hits.update(baseline_observation.hits)
             baseline_case = parse_testcase(baseline, campaign._abi_like())
@@ -226,6 +267,12 @@ def run_plan_batches(campaign: Any) -> None:
                 or (coverage_only and native_valid_count > 0)):
             break
         completed_rounds += 1
+        task_items = list(task_context.items())
+        first = ((round_index - 1) * task_limit) % len(task_items)
+        round_context = dict((task_items[(first + offset) % len(task_items)])
+                             for offset in range(min(task_limit, len(task_items))))
+        examples = [_example(abi, contract_id, task_id, task["evidence_refs"])
+                    for task_id, task in list(round_context.items())[:1]]
         request = {
             "schema": {"contract_id": "same contract_id", "plans": [
                 {"plan_id": "unique string", "task_id": "listed task_id",
@@ -250,14 +297,16 @@ def run_plan_batches(campaign: Any) -> None:
                     "frame_fields": abi.get("frame_fields"),
                     "shared_fields": [field for field in abi.get("shared_fields", [])
                                       if field.get("block_kind") == "VAR_IN_OUT"]},
-            "cycle_effects": effect, "tasks": list(task_context.values()),
+            "cycle_effects": effect, "tasks": list(round_context.values()),
             "probe_audit": {"status": probe_audit["status"],
                             "risk_count": probe_audit.get("risk_count"),
                             "incomplete_count": probe_audit.get("incomplete_count"),
                             "platform_assumptions": probe_audit.get("platform_assumptions", [])},
             "valid_example": {"contract_id": contract_id, "plans": examples},
             "native_baseline": baseline_summary,
-            "previous_feedback": feedback[-batch_size * 2:],
+            "previous_feedback": [item for task_id in round_context
+                                  for item in feedback_by_task.get(task_id, [])[-2:]][-batch_size * 2:]
+                                 or [item for item in feedback if item.get("plan") is None][-batch_size * 2:],
         }
         messages = [
             {"role": "system", "content": PLANNER_SYSTEM_MESSAGE},
@@ -275,7 +324,7 @@ def run_plan_batches(campaign: Any) -> None:
             used_tokens += tokens
             raw_batch = json.loads(response.content.strip())
             accepted, rejected = validate_plan_batch(
-                raw_batch, abi=abi, contract_id=contract_id, tasks=task_context,
+                raw_batch, abi=abi, contract_id=contract_id, tasks=round_context,
                 seen_actions=seen_actions, max_plans=batch_size, max_frames=max_frames)
         except (LlmError, PlanRejected, ValueError, TypeError, OSError) as error:
             rejected = [{"index": None, "plan": None, "reason": str(error)[:400]}]
@@ -299,15 +348,55 @@ def run_plan_batches(campaign: Any) -> None:
                 frames = expand_plan(plan, campaign._default_action_frame(abi), abi,
                                      max_frames=max_frames)
                 testcase = campaign.model.build(frames)
-                observation = campaign._probe_with_deadline(
-                    testcase, timeout_s=5.0, deadline=planning_deadline, trace=False)
+                observation = _native_plan_observation(campaign, testcase, planning_deadline)
+                extended_frontier_frame = False
+                boundary = (round_context[task_id].get("array_boundary") or {})
+                if (boundary and observation.returncode == 0 and observation.states
+                        and (round_context[task_id].get("goal") or {}).get("runtime_id")
+                        not in observation.hits and len(frames) < max_frames):
+                    latest = {str(key).upper(): value for key, value in observation.states[-1].items()}
+                    try:
+                        at_upper_frontier = int(latest[str(boundary["field"]).upper()]) >= int(boundary["upper"]) + 1
+                    except (KeyError, ValueError, TypeError):
+                        at_upper_frontier = False
+                    if at_upper_frontier:
+                        extended = [*frames, dict(frames[-1])]
+                        extended_case = campaign.model.build(extended)
+                        extended_observation = _native_plan_observation(
+                            campaign, extended_case, planning_deadline)
+                        if (round_context[task_id].get("goal") or {}).get("runtime_id") in extended_observation.hits:
+                            frames, testcase, observation = extended, extended_case, extended_observation
+                            extended_frontier_frame = True
                 native_summary = {"returncode": observation.returncode,
                                   "timed_out": observation.timed_out,
                                   "scan_budget": observation.scan_budget,
                                   "runtime_hits": sorted(observation.hits),
-                                  "frames": len(frames)}
-                candidate_info = classify(observation, campaign.model.runtime_index)
-                native_summary["goal_hit"] = is_finding_candidate(candidate_info)
+                                  "frames": len(frames),
+                                  "extended_frontier_frame": extended_frontier_frame}
+                native_summary["last_state"] = {
+                    str(key): value for key, value in (observation.states[-1] if observation.states else {}).items()
+                    if str(key).upper() in {str(item.get("name")).upper()
+                                            for item in round_context[task_id].get("state_slice") or []}}
+                classify_case = getattr(campaign, "_classify_testcase", None)
+                goal_id = (round_context[task_id].get("goal") or {}).get("runtime_id")
+                property_id = ((round_context[task_id].get("goal") or {}).get("property") or {}).get("id")
+                if classify_case:
+                    candidate_info = classify_case(
+                        observation, testcase,
+                        expected_runtime_id=goal_id if type(goal_id) is int else None,
+                        expected_property_id=property_id)
+                    if not is_finding_candidate(candidate_info):
+                        candidate_info = classify_case(observation, testcase)
+                else:
+                    candidate_info = (classify(observation, campaign.model.runtime_index,
+                                               expected_runtime_id=goal_id)
+                                      if type(goal_id) is int else None)
+                    if not is_finding_candidate(candidate_info):
+                        candidate_info = classify(observation, campaign.model.runtime_index)
+                native_summary["goal_hit"] = bool(
+                    is_finding_candidate(candidate_info)
+                    and ((goal_id is not None and candidate_info.get("runtime_id") == goal_id)
+                         or (property_id and candidate_info.get("property_id") == property_id)))
                 if is_finding_candidate(candidate_info):
                     # A native replay that already reaches a finding is a
                     # valid plan outcome.  Requiring a separate non-finding
@@ -321,7 +410,8 @@ def run_plan_batches(campaign: Any) -> None:
                     (seed_dir / f"llm-plan-{seed_count:04}.seed").write_bytes(
                         canonicalize_raw(testcase, campaign._abi_like()))
                     campaign._register_candidate(testcase, observation, candidate_info,
-                                                 provenance_source="llm", depth=len(frames))
+                                                 provenance_source="llm", depth=len(frames),
+                                                 task_id=task_id)
                     useful_count += 1
                     reason = "planning_finding_candidate"
                 elif observation.scan_budget:
@@ -381,6 +471,10 @@ def run_plan_batches(campaign: Any) -> None:
                                               "valid" if reason == "native_valid_seed" else "rejected"),
                                    "reason": reason, "native_replay": native_summary})
         feedback = round_feedback
+        for item in round_feedback:
+            item_task = item.get("task_id") or (item.get("plan") or {}).get("task_id")
+            if item_task:
+                feedback_by_task.setdefault(str(item_task), []).append(item)
         campaign.metrics.event("llm_plan_round", round=round_index,
                                accepted=len(accepted), rejected=len(rejected),
                                useful=sum(item.get("status") == "useful" for item in feedback),

@@ -19,6 +19,7 @@ from fuzzer.experiments.matrix import CONFIGURATIONS, Job, ROOT, make_matrix
 from fuzzer.experiments.summary import summarize
 from fuzzer.experiments.worker import result_path, run_job
 from fuzzer.llm.config import load_config
+from fuzzer.llm.retrieval import prepare_knowledge
 
 
 def _physical_cpus(count: int) -> list[list[int]]:
@@ -360,6 +361,9 @@ def _run_target_waves(args: argparse.Namespace, jobs: list[Job],
 
 
 def _prepare(args: argparse.Namespace, jobs: list[Job], adapters: dict) -> None:
+    if any(job.tool == "semantist" and CONFIGURATIONS[job.configuration]["llm"]
+           for job in jobs):
+        prepare_knowledge(args.root)
     semantist_targets = {job.target["id"]: job.target for job in jobs
                          if job.tool == "semantist" or
                          (adapters.get(job.tool) or {}).get("run_command")}
@@ -450,6 +454,9 @@ def _plan_ready(root: Path, target_id: str) -> bool:
     return (plan.get("calls", 0) >= 1
             and (plan.get("summary") or {}).get("native_valid_plans", 0) >= 1
             and bool(plan.get("seed_files"))
+            and (package / "generated-oracle.json").is_file()
+            and (not plan.get("checked_binary")
+                 or (package / plan["checked_binary"]).is_file())
             and all((seeds / name).is_file() for name in plan["seed_files"]))
 
 
@@ -535,8 +542,11 @@ def main() -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
     for name in ("matrix", "prepare", "run", "summary"):
         sub = subparsers.add_parser(name)
+        if name == "run":
+            sub.add_argument("--defer-summary", action="store_true",
+                             help="leave summary generation to a separate command after concurrent runs")
         sub.add_argument("--root", type=Path, default=ROOT / "artifacts/experiments")
-        sub.add_argument("--experiment", choices=("overall", "core_ablation", "multicycle", "budget"))
+        sub.add_argument("--experiment", choices=("overall", "core_ablation", "multicycle", "budget", "improvement"))
         sub.add_argument("--target")
         sub.add_argument("--targets", help="comma-separated target ids for an explicit bounded smoke set")
         sub.add_argument("--tool", choices=("semantist", "icsquartz", "aflpp"))
@@ -648,7 +658,8 @@ def main() -> int:
     else:
         _require_prepared(args.root, [job for job in _select_all_overall(args.root)]
                           if formal_tool_run else jobs)
-    all_scheduled = jobs if formal_tool_run else _remember_jobs(args.root, jobs)
+    defer_summary = formal_tool_run or args.defer_summary
+    all_scheduled = jobs if defer_summary else _remember_jobs(args.root, jobs)
     items = []
     for job in jobs:
         prior = result_path(args.root, job)
@@ -686,13 +697,13 @@ def main() -> int:
         _run_target_waves(args, jobs, items)
     else:
         _run_parallel(args, items, workers=min(args.jobs, len(items) or 1))
-    if not formal_tool_run:
+    if not defer_summary:
         summarize(args.root, all_scheduled)
     incomplete = [job.job_id for job in jobs if not result_path(args.root, job).is_file()
                   or json.loads(result_path(args.root, job).read_text(encoding="utf-8")).get("status")
                   != "completed"]
     if incomplete:
-        location = "logs/runs and result.json" if formal_tool_run else "summary.json"
+        location = "logs/runs and result.json" if defer_summary else "summary.json"
         print(f"{len(incomplete)} trials are incomplete or unsupported; see {location}")
     return 1 if incomplete else 0
 

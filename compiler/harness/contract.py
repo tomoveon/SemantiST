@@ -190,7 +190,11 @@ def harness_fields(abi: TargetAbi) -> list[FieldLayout]:
         FieldLayout("loop_ticks", 8, 8),
         FieldLayout("initialized", 1, 1),
         FieldLayout("budget_exceeded", 1, 1),
+        FieldLayout("oracle_previous_valid", 1, 1),
     ]
+    from compiler.harness.oracle import history_fields
+
+    fields.extend(FieldLayout(field.state_name, 16, 16) for field in history_fields(abi))
     return fields
 
 
